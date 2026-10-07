@@ -237,4 +237,4 @@ RLS on all three: service role only.
 
 ## Storage
 Bucket `videos`, private. Path `{creator_id}/{submission_id}.{ext}`.
-Max upload 150 MB, max duration 180 s. Signed URLs for admin playback.
+Max upload 50 MB (Supabase free-tier per-object limit; bucket limit in 0001 is higher but the global cap wins), max duration 180 s. Signed URLs for admin playback.

@@ -7,7 +7,7 @@ export const MODELS = {
 } as const;
 
 export const LIMITS = {
-  maxUploadBytes: 150 * 1024 * 1024,
+  maxUploadBytes: 50 * 1024 * 1024, // Supabase free tier per-object limit
   maxDurationSeconds: 180,
   maxFrames: 60,
   frameWidth: 512,

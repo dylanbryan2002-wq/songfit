@@ -74,7 +74,7 @@ export function UploadForm({ creator }: { creator: Creator }) {
       return;
     }
     if (file.size > LIMITS.maxUploadBytes) {
-      setError("That video is over 150 MB. Try a shorter export.");
+      setError("That video is over 50 MB. Keep it under a minute, or export a smaller file.");
       return;
     }
 
@@ -140,7 +140,7 @@ export function UploadForm({ creator }: { creator: Creator }) {
         ) : (
           <span className="flex flex-col items-center gap-1 px-6 text-center">
             <span className="text-base font-semibold text-ink">Tap to choose a video</span>
-            <span>MP4 or MOV, up to 3 minutes</span>
+            <span>MP4 or MOV, up to 50 MB (about a minute)</span>
           </span>
         )}
         <input id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
