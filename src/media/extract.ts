@@ -35,7 +35,7 @@ function run(file: string, args: string[], step: string, timeoutMs: number): Pro
         if (e.killed || e.signal === "SIGKILL") {
           return reject(new PipelineError("analyze", `ffmpeg timeout: ${step} (${timeoutMs} ms)`));
         }
-        reject(new PipelineError("analyze", `${step} failed: ${e.message}`, String(stderr).slice(0, 2000)));
+        reject(new PipelineError("analyze", `${step} failed: ${e.message.slice(0, 2000)}`, String(stderr).slice(0, 2000)));
       },
     );
   });
@@ -78,47 +78,52 @@ export async function extractMedia(
   const { deadlineAt } = opts;
   const dir = opts.workDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "songfit-")));
   await fs.mkdir(dir, { recursive: true });
+  try {
+    const durationSeconds = await probeDuration(ffprobe, videoPath, deadlineAt);
+    if (durationSeconds > LIMITS.maxDurationSeconds) {
+      throw new PipelineError("analyze", `video too long: ${Math.round(durationSeconds)}s > ${LIMITS.maxDurationSeconds}s`);
+    }
 
-  const durationSeconds = await probeDuration(ffprobe, videoPath, deadlineAt);
-  if (durationSeconds > LIMITS.maxDurationSeconds) {
-    throw new PipelineError("analyze", `video too long: ${Math.round(durationSeconds)}s > ${LIMITS.maxDurationSeconds}s`);
-  }
-
-  const fps = pickFps(durationSeconds, LIMITS.maxFrames);
-  const framePattern = path.join(dir, "frame_%03d.jpg");
-  await run(
-    ffmpeg,
-    [
-      "-hide_banner", "-loglevel", "error",
-      "-i", videoPath,
-      "-vf", `fps=${fps},scale=${LIMITS.frameWidth}:-2`,
-      "-q:v", "4",
-      framePattern,
-    ],
-    "ffmpeg frames",
-    timeoutFor(TIMEOUTS.frames, deadlineAt),
-  );
-  const names = (await fs.readdir(dir)).filter((n) => /^frame_\d{3}\.jpg$/.test(n)).sort();
-  const times = frameTimestamps(names.length, fps);
-  const frames = names.map((n, i) => ({ time: times[i] ?? 0, path: path.join(dir, n) }));
-  if (frames.length === 0) throw new PipelineError("analyze", "no frames extracted");
-
-  let audioPath: string | null = null;
-  if (await hasAudioStream(ffprobe, videoPath, deadlineAt)) {
-    audioPath = path.join(dir, "audio.wav");
+    const fps = pickFps(durationSeconds, LIMITS.maxFrames);
+    const framePattern = path.join(dir, "frame_%03d.jpg");
     await run(
       ffmpeg,
       [
         "-hide_banner", "-loglevel", "error",
         "-i", videoPath,
-        "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
-        audioPath,
+        "-frames:v", String(LIMITS.maxFrames),
+        "-vf", `fps=${fps},scale=${LIMITS.frameWidth}:-2`,
+        "-q:v", "4",
+        framePattern,
       ],
-      "ffmpeg audio",
-      timeoutFor(TIMEOUTS.audio, deadlineAt),
+      "ffmpeg frames",
+      timeoutFor(TIMEOUTS.frames, deadlineAt),
     );
-  }
+    const names = (await fs.readdir(dir)).filter((n) => /^frame_\d{3}\.jpg$/.test(n)).sort().slice(0, LIMITS.maxFrames);
+    const times = frameTimestamps(names.length, fps);
+    const frames = names.map((n, i) => ({ time: times[i] ?? 0, path: path.join(dir, n) }));
+    if (frames.length === 0) throw new PipelineError("analyze", "no frames extracted");
 
-  logger.info("media.extracted", { durationSeconds, frames: frames.length, fps, audio: audioPath !== null });
-  return { durationSeconds, frames, audioPath, workDir: dir };
+    let audioPath: string | null = null;
+    if (await hasAudioStream(ffprobe, videoPath, deadlineAt)) {
+      audioPath = path.join(dir, "audio.wav");
+      await run(
+        ffmpeg,
+        [
+          "-hide_banner", "-loglevel", "error",
+          "-i", videoPath,
+          "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
+          audioPath,
+        ],
+        "ffmpeg audio",
+        timeoutFor(TIMEOUTS.audio, deadlineAt),
+      );
+    }
+
+    logger.info("media.extracted", { durationSeconds, frames: frames.length, fps, audio: audioPath !== null });
+    return { durationSeconds, frames, audioPath, workDir: dir };
+  } catch (err) {
+    if (!opts.workDir) await fs.rm(dir, { recursive: true, force: true });
+    throw err;
+  }
 }
