@@ -94,11 +94,16 @@ auth, subscription logic beyond a Stripe link + webhook, queues, cron,
 microservices, design systems, analytics beyond the events table, carousels.
 
 ## Hard guardrail (enforced by .claude/hooks/guard-secrets.py, not just prose)
-No agent may read, write, cat, grep, copy or even mention `.env.local` / `.env.*.local`
-in a command, or run `vercel link`, `vercel env pull`, or `vercel pull`. The PreToolUse
-hook in .claude/settings.json blocks the call. Secrets are entered by Dylan only: locally
-in `.env.local`, and in the Vercel dashboard for production. If a task needs a secret
-value, stop and ask Dylan to enter it.
+No agent may read, write, cat, grep, glob, copy or even mention any env file (`.env`,
+`.env.local`, `.env.*.local`, `.env.production`; only `.env.example` is allowed) in a
+command, or run any spelling of `vercel link`, `vercel pull`, or `vercel env pull`
+(including `vc`, `vercel@latest`, flags before the subcommand). The PreToolUse hook in
+.claude/settings.json blocks the call for Bash, Edit, Write, Read, Grep and Glob, resolves
+symlinks, and is case-insensitive. It is a pattern guard, not a sandbox: working around it
+(variable expansion, quote splitting, recursive grep) is a rules violation, not a loophole.
+Secrets are entered by Dylan only: locally in the env file, and in the Vercel dashboard for
+production. If a task needs a secret value, stop and ask Dylan to enter it.
+Test the guard with `python3 -I .claude/hooks/guard-secrets.test.py` (25 cases).
 
 ## Workflow
 - Run pnpm typecheck && pnpm test before claiming anything works.

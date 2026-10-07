@@ -91,7 +91,7 @@ designed in but not yet populated.
 Production: https://songfit.vercel.app (Vercel project `songfit`, GitHub `dylanbryan2002-wq/songfit`, branch `mvp`).
 
 1. Plans: Vercel Pro and Supabase Pro; Supabase Storage global file size limit 150 MB.
-2. Link once: `npx vercel link --yes --project songfit`. WARNING: `vercel link` (and `vercel env pull`) overwrites your local env file with only a `VERCEL_OIDC_TOKEN`. Back it up first.
+2. The project is ALREADY linked (`.vercel/`, gitignored). Do not run `vercel link` or `vercel env pull` again: both overwrite your local env file with only a `VERCEL_OIDC_TOKEN`. Agents are blocked from these by `.claude/hooks/guard-secrets.py`. A human re-linking on a new machine must back the env file up first.
 3. Set production env vars with `vercel env add <KEY> production` for every key in `.env.example` except `SUPABASE_DB_PASSWORD` and `STRIPE_*` (not needed at runtime yet). `NEXT_PUBLIC_SITE_URL` is the production URL.
 4. Fluid Compute ON: Project > Settings > Functions.
 5. Deploy: `npx vercel --prod --yes`.
