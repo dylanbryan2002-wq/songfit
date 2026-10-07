@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:push": "supabase db push",
-    "db:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_REF --schema public > src/db/types.ts",
+    "db:push": "node --env-file=.env.local scripts/db.mjs push",
+    "db:types": "node --env-file=.env.local scripts/db.mjs types",
     "smoke": "node --env-file=.env.local --import tsx scripts/smoke.ts",
     "local": "node --conditions=react-server --env-file=.env.local --import tsx",
     "pipeline:local": "pnpm local scripts/run-local.ts"
