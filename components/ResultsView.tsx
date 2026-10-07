@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { RecommendationCard, type Rank } from "@/components/RecommendationCard";
 import type { RecommendationView } from "@/src/shared/types";
@@ -10,9 +12,10 @@ export type ResultsViewProps = {
   children?: ReactNode;
 };
 
-// Presentational and server-renderable. Phase 4 WRAPS this component in a client component that
-// supplies real handlers and server-seeded state; it must not replace the heading or footer.
-// Handlers are no-ops until then.
+// Presentational. A client component because it hands function props (the handlers) to
+// RecommendationCard; a Server Component cannot pass functions to a Client Component, which crashed
+// the live results page on 2026-10-07. Phase 4 WRAPS this component with real handlers and
+// server-seeded state; it must not replace the heading or footer. Handlers are no-ops until then.
 export function ResultsView({ submission, recommendations, onSelect, onReject, children }: ResultsViewProps) {
   const noop = () => {};
   return (
