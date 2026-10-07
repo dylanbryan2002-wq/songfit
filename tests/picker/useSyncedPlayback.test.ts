@@ -6,6 +6,14 @@ describe("loopLength", () => {
     expect(loopLength(4.5, 30)).toBe(4.5);
     expect(loopLength(60, 29.8)).toBe(29.8);
   });
+  it("subtracts the sample start from the preview", () => {
+    expect(loopLength(20, 30, 15)).toBe(15);
+    expect(loopLength(5, 30, 10)).toBe(5);
+  });
+  it("is null when under 0.5 s remain", () => {
+    expect(loopLength(5, 30, 29.9)).toBeNull();
+    expect(loopLength(5, 30, 31)).toBeNull();
+  });
   it("is null when either is unknown or not positive", () => {
     expect(loopLength(null, 30)).toBeNull();
     expect(loopLength(10, null)).toBeNull();

@@ -18,6 +18,11 @@ export function PlaybackSpike({
 }) {
   const pb = useSyncedPlayback({ videoDurationSeconds });
   const [start, setStart] = useState(0);
+  const maxStart =
+    pb.previewDuration !== null && videoDurationSeconds !== null
+      ? Math.max(0, Math.min(15, pb.previewDuration - Math.min(videoDurationSeconds, pb.previewDuration)))
+      : 15;
+  const shownStart = Math.min(start, maxStart);
   const f = (n: number) => n.toFixed(1);
 
   return (
@@ -49,13 +54,13 @@ export function PlaybackSpike({
         <p className="text-xs">Only the first {formatTime(pb.loopLength)} of your video plays with this sample.</p>
       )}
       <label className="flex flex-col gap-1 text-sm">
-        Sample start {start}s
+        Sample start {shownStart}s
         <input
           type="range"
           min={0}
-          max={15}
+          max={maxStart}
           step={1}
-          value={start}
+          value={shownStart}
           onChange={(e) => {
             const v = Number(e.target.value);
             setStart(v);

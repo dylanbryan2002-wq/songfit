@@ -9,7 +9,9 @@ export type SyncedPlayback = {
   currentRank: 1 | 2 | 3 | null;
   /** audio.currentTime − sampleStart, clamped to [0, loopLength] — for a progress ruler */
   position: number;
-  loopLength: number | null; // min(videoDuration, loadedPreviewDuration)
+  loopLength: number | null; // min(videoDuration, loadedPreviewDuration − sampleStart)
+  /** Loaded preview duration (audio.duration), null until loadedmetadata. */
+  previewDuration: number | null;
   /** Video time minus expected video time, seconds. For the spike status line. */
   drift: number;
   /** MUST be called synchronously inside a user-gesture handler (tap). */
@@ -19,10 +21,15 @@ export type SyncedPlayback = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
 };
 
-export function loopLength(videoDuration: number | null, previewDuration: number | null): number | null {
+export function loopLength(
+  videoDuration: number | null,
+  previewDuration: number | null,
+  sampleStart = 0,
+): number | null {
   if (videoDuration === null || previewDuration === null) return null;
   if (!(videoDuration > 0) || !(previewDuration > 0)) return null;
-  return Math.min(videoDuration, previewDuration);
+  const L = Math.min(videoDuration, previewDuration - sampleStart);
+  return L >= 0.5 ? L : null;
 }
 
 export function videoTimeFor(audioTime: number, sampleStart: number, loop: number): number {
@@ -49,6 +56,8 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   const [currentRank, setCurrentRank] = useState<1 | 2 | 3 | null>(null);
   const [position, setPosition] = useState(0);
   const [loop, setLoop] = useState<number | null>(null);
+  const [previewDuration, setPreviewDuration] = useState<number | null>(null);
+  const audioDurRef = useRef<number | null>(null);
   const [drift, setDrift] = useState(0);
 
   const setState = useCallback((s: PlaybackState) => {
@@ -66,12 +75,23 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     return audioRef.current;
   }, []);
 
+  const recomputeLoop = useCallback(() => {
+    const L = loopLength(
+      videoDurationRef.current ?? videoRef.current?.duration ?? null,
+      audioDurRef.current,
+      sampleStartRef.current,
+    );
+    loopRef.current = L;
+    setLoop(L);
+  }, []);
+
   const tick = useCallback(() => {
     const audio = audioRef.current;
     const video = videoRef.current;
     const L = loopRef.current;
     if (!audio || !video || L === null || pendingStart.current !== null) return;
     const start = sampleStartRef.current;
+    if (stateRef.current === "playing" && video.paused) void video.play().catch(() => undefined);
     if (audio.currentTime - start >= L) {
       audio.currentTime = start;
       video.currentTime = 0;
@@ -90,11 +110,12 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     if (video) {
       video.defaultMuted = true;
       video.muted = true;
+      video.loop = true;
     }
     const onMeta = () => {
-      const L = loopLength(videoDurationRef.current ?? videoRef.current?.duration ?? null, audio.duration);
-      loopRef.current = L;
-      setLoop(L);
+      audioDurRef.current = Number.isFinite(audio.duration) ? audio.duration : null;
+      setPreviewDuration(audioDurRef.current);
+      recomputeLoop();
       if (pendingStart.current !== null) {
         const start = pendingStart.current;
         pendingStart.current = null;
@@ -103,6 +124,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       }
     };
     const onEnded = () => {
+      if (stateRef.current !== "playing") return;
       audio.currentTime = sampleStartRef.current;
       if (videoRef.current) videoRef.current.currentTime = 0;
       void audio.play().catch(() => setState("unavailable"));
@@ -115,6 +137,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     const onStalled = () => logger.warn("picker.audio_stalled", {});
     const onHidden = () => {
       if (document.visibilityState !== "hidden") return;
+      token.current++;
       audio.pause();
       videoRef.current?.pause();
       if (stateRef.current === "playing" || stateRef.current === "loading") setState("paused");
@@ -137,7 +160,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       audio.src = "";
       tokenRef.current++;
     };
-  }, [getAudio, setState, tick]);
+  }, [getAudio, setState, tick, recomputeLoop]);
 
   // rAF nudge while playing and visible.
   useEffect(() => {
@@ -165,14 +188,20 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       const changed = audio.getAttribute("src") !== src;
       if (changed) {
         loopRef.current = null;
+        audioDurRef.current = null;
         setLoop(null);
+        setPreviewDuration(null);
         audio.src = src;
         pendingStart.current = sampleStart;
       } else {
-        // Already loaded: seek now (metadata is available).
-        pendingStart.current = null;
-        audio.currentTime = sampleStart;
-        video.currentTime = 0;
+        if (audio.readyState >= 1) {
+          pendingStart.current = null;
+          audio.currentTime = sampleStart;
+          video.currentTime = 0;
+          recomputeLoop();
+        } else {
+          pendingStart.current = sampleStart;
+        }
       }
 
       // Both play() calls back to back inside the gesture: no await between them.
@@ -181,7 +210,11 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       const videoP = video.play();
       const fail = (which: string, e: unknown) => {
         if (mine !== token.current) return;
-        logger.warn("picker.play_failed", { rank, which, reason: e instanceof Error ? e.name : "unknown" });
+        const name = e instanceof Error ? e.name : "unknown";
+        if (name === "AbortError") return;
+        logger.warn("picker.play_failed", { rank, which, reason: name });
+        audio.pause();
+        video.pause();
         setState("unavailable");
       };
       void audioP.then(
@@ -199,10 +232,15 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
         (e: unknown) => fail("video", e),
       );
       void Promise.allSettled([audioP, videoP]).then(() => {
-        if (mine === token.current) logger.info("picker.play", { rank, audio: results[0], video: results[1] });
+        logger.info("picker.play", {
+          rank,
+          audio: results[0],
+          video: results[1],
+          ...(mine !== token.current ? { superseded: true } : {}),
+        });
       });
     },
-    [getAudio, setState],
+    [getAudio, setState, recomputeLoop],
   );
 
   const pause = useCallback(() => {
@@ -220,10 +258,12 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       pendingStart.current = seconds;
       return;
     }
+    // (loop is recomputed below once metadata is known)
     if (!audio || !video || audio.readyState < 1) return;
+    recomputeLoop();
     audio.currentTime = seconds;
     video.currentTime = 0;
-  }, []);
+  }, [recomputeLoop]);
 
-  return { state, currentRank, position, loopLength: loop, drift, play, pause, setSampleStart, videoRef };
+  return { state, currentRank, position, loopLength: loop, previewDuration, drift, play, pause, setSampleStart, videoRef };
 }
