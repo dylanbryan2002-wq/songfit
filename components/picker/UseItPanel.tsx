@@ -65,7 +65,7 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
         <span className="text-sm font-medium text-muted">of the full track</span>
       </p>
       {showTrimNote && <p className="mt-0.5 text-xs text-muted">(Trimming the sample does not change this.)</p>}
-      <p className="mt-3 text-sm text-ink/80">Search for it in TikTok or Instagram, then trim to that part.</p>
+      <p className="mt-3 text-sm text-ink/80">Search for it in TikTok or Instagram, then use that part.</p>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={copy} className={`${action} flex-col bg-ink text-white`}>

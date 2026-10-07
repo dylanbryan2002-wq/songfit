@@ -26,6 +26,7 @@ describe("initialPickerState", () => {
     expect(base()).toEqual({
       mode: "list",
       auditioningRank: null,
+      lastAuditionedRank: null,
       sampleStart: 0,
       chosenRank: null,
       rejected: new Set(),
@@ -46,6 +47,21 @@ describe("pickerReducer", () => {
     s = pickerReducer(s, { type: "sampleStart", seconds: 6 });
     expect(pickerReducer(s, { type: "audition", rank: 1 })).toMatchObject({ auditioningRank: 1, sampleStart: 6 });
     expect(pickerReducer(s, { type: "audition", rank: 2 })).toMatchObject({ auditioningRank: 2, sampleStart: 0 });
+  });
+
+  it("pause then play of the same song keeps its sample start", () => {
+    let s = pickerReducer(base(), { type: "audition", rank: 2 });
+    s = pickerReducer(s, { type: "sampleStart", seconds: 4.5 });
+    s = pickerReducer(s, { type: "stop" });
+    expect(s).toMatchObject({ auditioningRank: null, lastAuditionedRank: 2, sampleStart: 4.5 });
+    expect(pickerReducer(s, { type: "audition", rank: 2 }).sampleStart).toBe(4.5);
+    expect(pickerReducer(s, { type: "audition", rank: 1 }).sampleStart).toBe(0);
+  });
+
+  it("choosing a song stops a different one that is playing, and keeps the chosen one playing", () => {
+    const playing2 = pickerReducer(base(), { type: "audition", rank: 2 });
+    expect(pickerReducer(playing2, { type: "choose", rank: 1 })).toMatchObject({ chosenRank: 1, auditioningRank: null });
+    expect(pickerReducer(playing2, { type: "choose", rank: 2 })).toMatchObject({ chosenRank: 2, auditioningRank: 2 });
   });
 
   it("stop clears the playing rank", () => {

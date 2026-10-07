@@ -100,7 +100,7 @@ export function SongPicker({
   const play = (rank: Rank) => {
     const url = urls[rank];
     if (!url) return;
-    pb.play(rank, url, rank === state.auditioningRank ? state.sampleStart : 0);
+    pb.play(rank, url, rank === state.lastAuditionedRank ? state.sampleStart : 0);
     dispatch({ type: "audition", rank });
   };
   const pause = () => {
@@ -112,6 +112,10 @@ export function SongPicker({
 
   const choose = (rank: Rank) => {
     const revert = snapshot();
+    if (state.auditioningRank !== null && state.auditioningRank !== rank) {
+      pb.pause();
+      dispatch({ type: "stop" });
+    }
     dispatch({ type: "choose", rank });
     setMessage(null);
     save({ action: "select", rank }).catch(() => {
@@ -154,7 +158,6 @@ export function SongPicker({
       ? Math.floor(Math.max(0, Math.min(15, pb.previewDuration - Math.min(videoDuration, pb.previewDuration))) * 2) / 2
       : 0;
   const sampleStart = Math.min(state.sampleStart, maxStart);
-  const anySample = rows.some((r) => r.preview_url);
 
   const playingRow = rows.find((r) => r.rank === state.auditioningRank && isPlaying(r.rank)) ?? null;
   const chosenRow = rows.find((r) => r.rank === state.chosenRank) ?? null;
@@ -239,7 +242,7 @@ export function SongPicker({
             <UseItPanel
               key={chosenRow.rank}
               row={chosenRow}
-              showTrimNote={anySample}
+              showTrimNote={maxStart >= 0.5}
               onCopied={() => postEvent("title_copied", chosenRow.rank)}
               onOpen={(destination) => postEvent("open_app", chosenRow.rank, destination)}
               onNotFound={() => postEvent("song_not_found", chosenRow.rank)}

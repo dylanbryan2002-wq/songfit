@@ -31,11 +31,10 @@ export function SongRow(p: Props) {
   return (
     <li className={`rounded-xl px-2 py-2 ${p.active ? "bg-steel/10" : ""}`}>
       <div className={`flex items-center gap-3 ${p.rejected ? "opacity-50" : ""}`}>
-        {/* Tapping the song itself plays it too, like TikTok. Hidden from assistive tech: the Play button is the control. */}
+        {/* Tapping the song itself plays it too, like TikTok. Out of the tab order: the Play button is the control. */}
         <button
           type="button"
           tabIndex={-1}
-          aria-hidden
           disabled={!p.hasSample}
           onClick={toggle}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -57,7 +56,7 @@ export function SongRow(p: Props) {
             <button
               type="button"
               onClick={toggle}
-              aria-label={p.playing ? "Pause" : "Play"}
+              aria-label={`${p.playing ? "Pause" : "Play"} ${row.title}`}
               className={`${iconButton} ${p.playing ? "bg-steel-dark text-white" : "bg-steel/15 text-steel-dark"}`}
             >
               {p.playing ? <PauseIcon /> : <PlayIcon />}
@@ -71,7 +70,7 @@ export function SongRow(p: Props) {
                 type="button"
                 onClick={p.onReject}
                 disabled={p.rejected}
-                aria-label="Not for me"
+                aria-label={`Not for me: ${row.title}`}
                 aria-pressed={p.rejected}
                 className={`${iconButton} border border-ink/10 text-ink/60`}
               >
@@ -80,7 +79,7 @@ export function SongRow(p: Props) {
               <button
                 type="button"
                 onClick={p.onChoose}
-                aria-label="Use this"
+                aria-label={`Use this: ${row.title}`}
                 aria-pressed={p.chosen}
                 className={`${iconButton} ${p.chosen ? "bg-steel text-white" : "bg-ink text-white"}`}
               >
@@ -98,7 +97,7 @@ export function SongRow(p: Props) {
         type="button"
         onClick={p.onToggleExplanation}
         aria-expanded={p.explanationOpen}
-        className="ml-[60px] mt-1 flex min-h-9 items-center gap-1 px-2 text-[13px] font-medium text-steel-dark"
+        className="ml-[60px] mt-1 flex min-h-11 items-center gap-1 px-2 text-[13px] font-medium text-steel-dark"
       >
         Why this song
         <svg viewBox="0 0 20 20" className={`h-4 w-4 transition-transform ${p.explanationOpen ? "rotate-180" : ""}`} aria-hidden>

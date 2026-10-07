@@ -12,6 +12,8 @@ export type PickerMode = "list" | "chosen";
 export type PickerState = {
   mode: PickerMode;
   auditioningRank: Rank | null;
+  /** The last song auditioned, so Pause then Play keeps its adjusted sample start. */
+  lastAuditionedRank: Rank | null;
   sampleStart: number;
   chosenRank: Rank | null;
   rejected: Set<Rank>;
@@ -33,6 +35,7 @@ export function initialPickerState(rows: PickerRow[]): PickerState {
   return {
     mode: chosen ? "chosen" : "list",
     auditioningRank: null,
+    lastAuditionedRank: null,
     sampleStart: 0,
     chosenRank: chosen,
     rejected: new Set(rows.filter((r) => r.rejected).map((r) => r.rank)),
@@ -43,7 +46,12 @@ export function initialPickerState(rows: PickerRow[]): PickerState {
 export function pickerReducer(s: PickerState, a: PickerAction): PickerState {
   switch (a.type) {
     case "audition":
-      return { ...s, auditioningRank: a.rank, sampleStart: a.rank === s.auditioningRank ? s.sampleStart : 0 };
+      return {
+        ...s,
+        auditioningRank: a.rank,
+        lastAuditionedRank: a.rank,
+        sampleStart: a.rank === s.lastAuditionedRank ? s.sampleStart : 0,
+      };
     case "stop":
       return { ...s, auditioningRank: null };
     case "sampleStart":
@@ -51,7 +59,9 @@ export function pickerReducer(s: PickerState, a: PickerAction): PickerState {
     case "choose": {
       const rejected = new Set(s.rejected);
       rejected.delete(a.rank);
-      return { ...s, mode: "chosen", chosenRank: a.rank, rejected };
+      // A different song playing would be hidden under the chosen view, so it stops.
+      const stop = s.auditioningRank !== null && s.auditioningRank !== a.rank;
+      return { ...s, mode: "chosen", chosenRank: a.rank, rejected, auditioningRank: stop ? null : s.auditioningRank };
     }
     case "unchoose":
       return { ...s, mode: "list" };

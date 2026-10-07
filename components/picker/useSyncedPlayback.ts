@@ -152,7 +152,6 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     document.addEventListener("visibilitychange", onHidden);
     // Leaving the page: silence at once rather than after the unload finishes.
     window.addEventListener("pagehide", stopNow);
-    window.addEventListener("beforeunload", stopNow);
     return () => {
       audio.pause();
       video?.pause();
@@ -163,7 +162,6 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       audio.removeEventListener("stalled", onStalled);
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", stopNow);
-      window.removeEventListener("beforeunload", stopNow);
       audio.src = "";
       tokenRef.current++;
     };
