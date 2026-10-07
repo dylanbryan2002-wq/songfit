@@ -144,3 +144,26 @@ export async function countSubmissionsForCreator(creatorId: string): Promise<num
   if (error) throw error;
   return count ?? 0;
 }
+
+/** In-flight = uploaded/analyzing/recommending and touched within the stale window. Mirrors create_submission(). */
+export async function countInFlightSubmissions(creatorId: string, staleMinutes: number): Promise<number> {
+  const since = new Date(Date.now() - staleMinutes * 60_000).toISOString();
+  const { count, error } = await createServiceClient()
+    .from("submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .in("status", ["uploaded", "analyzing", "recommending"])
+    .gte("updated_at", since);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+export async function countSubmissionsSince(creatorId: string, sinceIso: string): Promise<number> {
+  const { count, error } = await createServiceClient()
+    .from("submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .gte("created_at", sinceIso);
+  if (error) throw error;
+  return count ?? 0;
+}
