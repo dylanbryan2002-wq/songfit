@@ -1,3 +1,32 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --ink: #0f1419;
+  --steel-light: #8fa8c8;
+  --steel: #5b7190;
+  --steel-dark: #2e3a4a;
+  --canvas: #f7f8fa;
+  --card: #ffffff;
+  --muted: #6b7280;
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.steel-gradient {
+  background-image: linear-gradient(135deg, var(--steel-light) 0%, var(--steel-dark) 100%);
+}
+
+.steel-text {
+  background-image: linear-gradient(135deg, var(--steel-light) 0%, var(--steel-dark) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
