@@ -18,8 +18,10 @@ export default async function HomePage() {
       </p>
       {creator ? <UploadForm creator={creator} /> : <SignIn />}
       <p className="mt-6 text-center text-xs text-neutral-500">
-        Your video is stored by Songfit and analyzed with third-party AI services to find your songs. Email
-        hello@thissongfits.com to have it deleted.
+        Your video is stored by Songfit and analyzed with third-party AI services to find your songs.{" "}
+        <a href="/privacy" className="underline underline-offset-2">
+          How we handle it, and how to delete it.
+        </a>
       </p>
     </main>
   );
