@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/check-binaries.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -49,6 +50,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "ffmpeg-static",
+      "ffprobe-static",
       "supabase",
       "esbuild",
       "unrs-resolver"
