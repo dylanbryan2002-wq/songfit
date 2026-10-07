@@ -1,10 +1,14 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreator, isAdmin } from "@/src/auth/session";
-import { getSubmission } from "@/src/db/queries/submissions";
+import { listRecommendations } from "@/src/db/queries/recommendations";
+import { getSubmission, markSubmissionViewed } from "@/src/db/queries/submissions";
+import { logEvent } from "@/src/feedback/events";
+import { toRecommendationView } from "@/src/feedback/recommendationView";
 import { SubmissionStatus } from "@/src/shared/types";
 import { isUuid } from "@/src/shared/ids";
 import { Logo } from "@/components/Logo";
 import { WaitingState } from "@/components/WaitingState";
+import { ResultsView } from "@/components/ResultsView";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +21,18 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   if (!submission) notFound();
   if (submission.creator_id !== creator.id && !isAdmin(creator)) notFound();
 
+  const ready = submission.status === "ready";
+  const recommendations = ready ? (await listRecommendations(id)).map(toRecommendationView) : [];
+  if (ready && !submission.viewed_at) {
+    await markSubmissionViewed(id);
+    await logEvent({ name: "recommendations_viewed", creatorId: submission.creator_id, submissionId: id });
+  }
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-10 px-4 pb-10 pt-10">
       <Logo />
-      {submission.status === "ready" ? (
-        // Phase 3 replaces this block with the recommendation cards.
-        <h1 className="text-2xl font-semibold text-neutral-900">Ready</h1>
+      {ready ? (
+        <ResultsView submission={{ id: submission.id }} recommendations={recommendations} />
       ) : (
         <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} />
       )}
