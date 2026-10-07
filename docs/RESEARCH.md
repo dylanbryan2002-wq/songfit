@@ -94,3 +94,8 @@ each entry, link sources. Used to make engine and data decisions.
    the final 3 only.
 4. Trend signals: manual list this week; Instagram Audio API is the first
    automated feed to add after launch.
+
+## 2026-10-07 — First real analysis run (Phase 2)
+- Fable 5.1 on 1 fps frames + Whisper transcript, 4.5 s iPhone comedy clip: correct category, story, punchline moment (2.0 s), and a usable music brief with inferred ironic-contrast direction. Prompt version analyze-v3.
+- Whisper (whisper-1, verbose_json) hallucinates stock phrases on near-silent audio (returned Korean "thanks for watching"). Mitigation to add: drop transcript when all segments have `no_speech_prob` > 0.8 or avg_logprob < -1, and strip a short list of known hallucination strings.
+- Deployment gotcha: Vercel does not trace `ffmpeg-static`/`ffprobe-static` binaries by default → `outputFileTracingIncludes` per route group; `/api/health?binaries=1` verifies.
