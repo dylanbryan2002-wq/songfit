@@ -86,6 +86,18 @@ Pre-launch build for an Entrepreneur First challenge. The engine is model-backed
 with Deezer verification; catalog, vector retrieval and trend signals are
 designed in but not yet populated.
 
+## Deploy
+
+Production: https://songfit.vercel.app (Vercel project `songfit`, GitHub `dylanbryan2002-wq/songfit`, branch `mvp`).
+
+1. Plans: Vercel Pro and Supabase Pro; Supabase Storage global file size limit 150 MB.
+2. Link once: `npx vercel link --yes --project songfit`. WARNING: `vercel link` (and `vercel env pull`) overwrites your local env file with only a `VERCEL_OIDC_TOKEN`. Back it up first.
+3. Set production env vars with `vercel env add <KEY> production` for every key in `.env.example` except `SUPABASE_DB_PASSWORD` and `STRIPE_*` (not needed at runtime yet). `NEXT_PUBLIC_SITE_URL` is the production URL.
+4. Fluid Compute ON: Project > Settings > Functions.
+5. Deploy: `npx vercel --prod --yes`.
+6. Prove the budget: `curl "https://<url>/api/health?sleep=65"` returns `{"ok":true,"slept":65}`; once, `?sleep=290` with `--max-time 320`.
+7. Supabase Auth: add the site URL and `https://<url>/**` to Redirect URLs. Google OAuth: add `https://<url>` to Authorized JavaScript origins.
+
 ## Known limitations
 
 - `waitUntil` is not durable. The submission pipeline runs inside the `POST /api/submissions` request; if the instance dies mid-run the status stays in-flight. After `LIMITS.inFlightStaleMinutes` the claim becomes available again and the admin Retry re-runs it.
