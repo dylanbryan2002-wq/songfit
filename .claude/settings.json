@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|Read|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-secrets.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking secrets guard"
+          }
+        ]
+      }
+    ]
+  }
+}

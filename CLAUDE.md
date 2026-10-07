@@ -93,6 +93,13 @@ Custom ML, scraping of any platform, song catalogs over 500 rows, password
 auth, subscription logic beyond a Stripe link + webhook, queues, cron,
 microservices, design systems, analytics beyond the events table, carousels.
 
+## Hard guardrail (enforced by .claude/hooks/guard-secrets.py, not just prose)
+No agent may read, write, cat, grep, copy or even mention `.env.local` / `.env.*.local`
+in a command, or run `vercel link`, `vercel env pull`, or `vercel pull`. The PreToolUse
+hook in .claude/settings.json blocks the call. Secrets are entered by Dylan only: locally
+in `.env.local`, and in the Vercel dashboard for production. If a task needs a secret
+value, stop and ask Dylan to enter it.
+
 ## Workflow
 - Run pnpm typecheck && pnpm test before claiming anything works.
 - Commit in small steps with imperative messages.
