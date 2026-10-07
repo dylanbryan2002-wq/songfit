@@ -9,3 +9,4 @@ out/
 *.log
 supabase/.temp/
 /tmp/
+.superpowers/
