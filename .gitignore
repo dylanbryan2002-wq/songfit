@@ -17,3 +17,4 @@ supabase/.branches
 # media scratch
 tmp/
 *.tsbuildinfo
+next-env.d.ts
