@@ -85,3 +85,7 @@ docs/       architecture and data model
 Pre-launch build for an Entrepreneur First challenge. The engine is model-backed
 with Deezer verification; catalog, vector retrieval and trend signals are
 designed in but not yet populated.
+
+## Known limitations
+
+- `waitUntil` is not durable. The submission pipeline runs inside the `POST /api/submissions` request; if the instance dies mid-run the status stays in-flight. After `LIMITS.inFlightStaleMinutes` the claim becomes available again and the admin Retry re-runs it.
