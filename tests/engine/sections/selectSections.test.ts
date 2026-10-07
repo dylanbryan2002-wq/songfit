@@ -41,6 +41,10 @@ describe("alignToMoment", () => {
     const other = { ...analysis, important_moments: [{ time: 3, type: "beat_drop" }] } as unknown as VideoAnalysis;
     expect(alignToMoment({ start: 45, end: 60 }, 50, 200, other)).toBeNull();
   });
+  it("aligns to the earliest qualifying moment regardless of array order", () => {
+    const m: VideoAnalysis = { ...analysis, important_moments: [{ time: 30, type: "transition" }, { time: 2, type: "climax" }] };
+    expect(alignToMoment({ start: 45, end: 60 }, 50, 200, m)!.aligned_to_moment).toBe(2);
+  });
   it("returns null when the aligned window would run past the track end", () => {
     expect(alignToMoment({ start: 185, end: 200 }, 199.5, 200, { ...analysis, important_moments: [{ time: 2, type: "climax" }] })).toBeNull();
   });
@@ -80,6 +84,11 @@ describe("selectSections", () => {
   it("leaves picks untouched (aside from fitting) when no key moment exists", () => {
     const [o] = selectSections([pick({ anchor_seconds: 50, duration_seconds: 200, start_seconds: 45, end_seconds: 60 })], quiet);
     expect(o).toMatchObject({ start_seconds: 45, end_seconds: 60, aligned_to_moment: null });
+  });
+  it("does not align when the anchor would fall outside the aligned window", () => {
+    const m: VideoAnalysis = { ...analysis, important_moments: [{ time: 20, type: "transition" }] };
+    const [o] = selectSections([pick({ anchor_seconds: 190, duration_seconds: 200, start_seconds: 185, end_seconds: 197 })], m);
+    expect(o).toMatchObject({ start_seconds: 185, end_seconds: 197, aligned_to_moment: null });
   });
   it("fits then aligns each pick independently", () => {
     const out = selectSections([

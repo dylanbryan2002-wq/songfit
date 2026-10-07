@@ -26,7 +26,9 @@ export function fitWindow(start: number, end: number, anchor: number, duration: 
 export function alignToMoment(
   window: { start: number; end: number }, anchor: number, duration: number, analysis: VideoAnalysis,
 ): { start: number; end: number; aligned_to_moment: number } | null {
-  const moment = analysis.important_moments.find((m) => KEY_MOMENT_TYPES.has(m.type));
+  const moment = analysis.important_moments
+    .filter((m) => KEY_MOMENT_TYPES.has(m.type))
+    .reduce<{ time: number } | undefined>((best, m) => (!best || m.time < best.time ? m : best), undefined);
   if (!moment) return null;
   const len = window.end - window.start;
   const start = anchor - moment.time;
