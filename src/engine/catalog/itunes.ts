@@ -2,6 +2,7 @@
 // and only when PREVIEWS_ENABLED (ruling C8). Failure never blocks a result.
 import { z } from "zod";
 import { LIMITS, PREVIEWS_ENABLED } from "@/src/shared/config";
+import { logger } from "@/src/shared/logger";
 import { titlesMatch, artistsMatch } from "@/src/engine/catalog/normalize";
 
 const ItunesResult = z.object({
@@ -23,18 +24,22 @@ export async function findItunesPreview(
       { signal: AbortSignal.timeout(LIMITS.deezerTimeoutMs) },
     );
     if (!res.ok) {
-      console.warn(`itunes preview lookup failed: ${res.status}`);
+      logger.warn("itunes.lookup_failed", { reason: "http_status", status: res.status, title, artist });
       return null;
     }
     const parsed = ItunesSearch.safeParse(await res.json());
     if (!parsed.success) {
-      console.warn("itunes preview lookup: malformed response");
+      logger.warn("itunes.lookup_failed", { reason: "malformed_response", title, artist });
       return null;
     }
     const hit = parsed.data.results.find((r) => titlesMatch(title, r.trackName) && artistsMatch(artist, r.artistName));
-    return hit ? { itunesId: String(hit.trackId), previewUrl: hit.previewUrl ?? null } : null;
+    if (!hit) {
+      logger.info("itunes.no_match", { title, artist });
+      return null;
+    }
+    return { itunesId: String(hit.trackId), previewUrl: hit.previewUrl ?? null };
   } catch (e) {
-    console.warn("itunes preview lookup failed:", e instanceof Error ? e.message : String(e));
+    logger.warn("itunes.lookup_failed", { reason: e instanceof Error ? e.message : String(e), title, artist });
     return null;
   }
 }

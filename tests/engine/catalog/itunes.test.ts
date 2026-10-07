@@ -32,6 +32,18 @@ describe("findItunesPreview", () => {
     vi.doUnmock("@/src/shared/config");
     vi.resetModules();
   });
+  it("logs a structured warning when fetch throws", async () => {
+    vi.doMock("@/src/shared/config", async (orig) => ({ ...(await orig<object>()), PREVIEWS_ENABLED: true }));
+    const { logger } = await import("@/src/shared/logger");
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const { findItunesPreview } = await import("@/src/engine/catalog/itunes");
+    const boom = vi.fn(async (_url: string) => { throw new TypeError("fetch failed"); });
+    expect(await findItunesPreview("X", "Y", boom as unknown as typeof fetch)).toBeNull();
+    expect(warn).toHaveBeenCalledWith("itunes.lookup_failed", expect.objectContaining({ title: "X", artist: "Y" }));
+    warn.mockRestore();
+    vi.doUnmock("@/src/shared/config");
+    vi.resetModules();
+  });
   it("does not call the network when previews are disabled", async () => {
     vi.doMock("@/src/shared/config", async (orig) => ({ ...(await orig<object>()), PREVIEWS_ENABLED: false }));
     const { findItunesPreview } = await import("@/src/engine/catalog/itunes");
