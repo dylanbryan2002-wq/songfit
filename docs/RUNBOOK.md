@@ -11,7 +11,7 @@
 
 - A run stuck in `analyzing` or `recommending` for >6 minutes: open `/admin`, find the row, Retry. The claim expires after `LIMITS.inFlightStaleMinutes` so stale takeover works. If it happens >once, check Vercel logs for early function termination.
 
-- `/admin/metrics` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless runs fail. Ignore "Couldn't find it" reports for now (manual candidates coming).
+- `/admin/metrics` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless runs fail. "Couldn't find it" is the count of creators who tapped Tell us because a song was not in TikTok or Instagram; it is the miss rate for the deck, so watch it.
 
 - **Vercel Logs** — filter `error`. 504 on `/api/submissions` = function duration limit; check Project > Settings > Functions that Fluid Compute is ON.
 
@@ -37,7 +37,7 @@ Note every manual change in "Manual fixes" below with the submission id.
 
 ## Disable previews / toggle launch flags
 
-`src/shared/config.ts`: `PREVIEWS_ENABLED` (defaults to false at launch). Change, commit, push; Vercel redeploys in ~2 minutes.
+`src/shared/config.ts`: `PREVIEWS_ENABLED` is `true` (30-second Deezer samples on the results screen). Set it to `false` to hide every play button if Deezer says no or samples misbehave. Change, commit, push; Vercel redeploys in ~2 minutes.
 
 ## Overused songs
 
