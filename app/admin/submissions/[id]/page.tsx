@@ -3,6 +3,7 @@ import { requireAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { getAnalysisRow } from "@/src/db/queries/analyses";
 import { getSignedPlaybackUrl } from "@/src/media/storage";
+import { isUuid } from "@/src/shared/ids";
 import { retrySubmission } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,16 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 export default async function SubmissionInspectorPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin(); // ruling M3
   const { id } = await params;
+  if (!isUuid(id)) notFound();
   const sub = await getSubmission(id);
   if (!sub) notFound();
   const analysis = await getAnalysisRow(id);
-  const videoUrl = await getSignedPlaybackUrl(sub.video_path);
+  let videoUrl: string | null = null;
+  try {
+    videoUrl = await getSignedPlaybackUrl(sub.video_path);
+  } catch {
+    videoUrl = null;
+  }
 
   return (
     <div className="space-y-8">
@@ -39,7 +46,11 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
       {sub.error && <p className="rounded bg-red-50 p-3 text-sm text-red-800">Error: {sub.error}</p>}
 
       <section className="grid gap-6 md:grid-cols-[320px_1fr]">
-        <video controls playsInline className="w-full rounded bg-black" src={videoUrl} />
+        {videoUrl ? (
+          <video controls playsInline className="w-full rounded bg-black" src={videoUrl} />
+        ) : (
+          <p className="text-sm text-neutral-500">Video unavailable</p>
+        )}
         <dl className="text-sm">
           <Row label="Creator intent" value={sub.creator_intent ?? "—"} />
           <Row label="Duration" value={sub.duration_seconds ? `${sub.duration_seconds.toFixed(1)}s` : "—"} />
@@ -63,8 +74,8 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
               <Row label="Category" value={analysis.content_category} />
               <Row label="Setting" value={analysis.setting ?? "—"} />
               <Row label="Story" value={analysis.story ?? "—"} />
-              <Row label="Aesthetic" value={analysis.aesthetic.join(", ")} />
-              <Row label="Mood" value={analysis.mood.join(", ")} />
+              <Row label="Aesthetic" value={(analysis.aesthetic ?? []).join(", ")} />
+              <Row label="Mood" value={(analysis.mood ?? []).join(", ")} />
               <Row label="Energy / pacing" value={`${analysis.energy} / ${analysis.pacing}`} />
               <Row label="Spoken dialogue" value={analysis.dialogue_present ? "yes" : "no"} />
               <Row label="Prompt version" value={analysis.prompt_version} />

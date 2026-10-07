@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCreator, isAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { SubmissionStatus } from "@/src/shared/types";
+import { isUuid } from "@/src/shared/ids";
 import { Logo } from "@/components/Logo";
 import { WaitingState } from "@/components/WaitingState";
 
@@ -11,6 +12,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   const [{ id }, creator] = await Promise.all([params, getCreator()]);
   if (!creator) redirect("/");
 
+  if (!isUuid(id)) notFound();
   const submission = await getSubmission(id);
   if (!submission) notFound();
   if (submission.creator_id !== creator.id && !isAdmin(creator)) notFound();
