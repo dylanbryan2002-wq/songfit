@@ -66,9 +66,9 @@ describe("generateCandidates", () => {
     expect((safeCalls[1]![0] as { user: string }).user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
   });
   it("derives timeoutMs from ctx", async () => {
-    const call = vi.fn(async () => JSON.stringify(many("z")));
+    const call = vi.fn(async (_a: { timeoutMs?: number }) => JSON.stringify(many("z")));
     await generateCandidates(brief, analysis, { call, ctx: { deadlineAt: Date.now() + 60_000 } });
-    const t = (call.mock.calls[0]![0] as { timeoutMs: number }).timeoutMs;
+    const t = call.mock.calls[0]![0].timeoutMs!;
     expect(t).toBeLessThanOrEqual(55_000);
     expect(t).toBeGreaterThan(5_000);
   });
