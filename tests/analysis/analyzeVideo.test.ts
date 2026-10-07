@@ -35,7 +35,7 @@ const validPayload = {
 function fakeClient(responses: string[]): { client: Anthropic; create: ReturnType<typeof vi.fn> } {
   const create = vi.fn();
   for (const r of responses) {
-    create.mockResolvedValueOnce({ content: [{ type: "text", text: r }], stop_reason: "end_turn" });
+    create.mockResolvedValueOnce({ content: [{ type: "text", text: r }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 20 } });
   }
   return { client: { messages: { create } } as unknown as Anthropic, create };
 }
@@ -94,7 +94,9 @@ describe("analyzeVideo", () => {
     expect(out.analysis.content_category).toBe("fashion");
     expect(create).toHaveBeenCalledTimes(2);
     const retryMessages = create.mock.calls[1]![0].messages;
-    expect(JSON.stringify(retryMessages)).toContain("did not match the schema");
+    expect(retryMessages).toHaveLength(3);
+    expect(retryMessages[1]).toEqual({ role: "assistant", content: bad });
+    expect(JSON.stringify(retryMessages[2])).toContain("did not match the schema");
   });
 
   it("rejects an important_moments type outside MOMENT_TYPES (then retries)", async () => {
@@ -140,7 +142,7 @@ describe("analyzeVideo", () => {
   });
 
   it("throws PipelineError when the model refuses", async () => {
-    const create = vi.fn().mockResolvedValueOnce({ content: [], stop_reason: "refusal" });
+    const create = vi.fn().mockResolvedValueOnce({ content: [], stop_reason: "refusal", usage: { input_tokens: 10, output_tokens: 0 } });
     const client = { messages: { create } } as unknown as Anthropic;
     await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
       name: "PipelineError",
@@ -148,5 +150,43 @@ describe("analyzeVideo", () => {
       message: "model refused",
     });
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a content_category outside CONTENT_CATEGORIES (then retries with the allowed list)", async () => {
+    const bad = JSON.parse(JSON.stringify(validPayload));
+    bad.analysis.content_category = "vibes";
+    const { client, create } = fakeClient([JSON.stringify(bad), JSON.stringify(validPayload)]);
+    const out = await analyzeVideo(input, { client });
+    expect(out.analysis.content_category).toBe("fashion");
+    expect(JSON.stringify(create.mock.calls[1]![0].messages[2])).toContain("must be one of");
+  });
+
+  it("skips the retry when the budget is exhausted", async () => {
+    const bad = "{\"nope\": true}";
+    const { client, create } = fakeClient([bad, JSON.stringify(validPayload)]);
+    await expect(analyzeVideo(input, { client, deadlineAt: Date.now() + 1000 })).rejects.toMatchObject({
+      stage: "analyze",
+      raw: bad,
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("precedes every image with a t=...s label, sorted by time", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo(
+      { ...input, frames: [{ time: 2, base64: "CC" }, { time: 0.5, base64: "AA" }] },
+      { client },
+    );
+    const content = create.mock.calls[0]![0].messages[0].content as { type: string; text?: string }[];
+    const labels: string[] = [];
+    content.forEach((b, i) => {
+      if (b.type === "image") {
+        const prev = content[i - 1]!;
+        expect(prev.type).toBe("text");
+        expect(prev.text).toMatch(/^t=\d+\.\ds$/);
+        labels.push(prev.text!);
+      }
+    });
+    expect(labels).toEqual(["t=0.5s", "t=2.0s"]);
   });
 });

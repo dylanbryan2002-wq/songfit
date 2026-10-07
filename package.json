@@ -15,7 +15,7 @@
     "smoke": "node --env-file=.env.local --import tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "~0.52.0",
+    "@anthropic-ai/sdk": "~0.131.0",
     "@supabase/ssr": "~0.5.2",
     "@supabase/supabase-js": "^2.117.2",
     "@vercel/functions": "^1.6.0",

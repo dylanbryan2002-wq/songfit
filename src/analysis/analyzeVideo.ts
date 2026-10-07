@@ -8,7 +8,7 @@ import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
-export const PROMPT_VERSION = "analyze-v2";
+export const PROMPT_VERSION = "analyze-v3";
 
 export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
 const momentTypeSet = new Set<string>(MOMENT_TYPES);
@@ -32,7 +32,7 @@ export type AnalyzeInput = {
 
 let singleton: Anthropic | null = null;
 function defaultClient(): Anthropic {
-  if (!singleton) singleton = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY") });
+  if (!singleton) singleton = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 1 });
   return singleton;
 }
 
@@ -42,13 +42,13 @@ Rules:
 - You are given sampled frames labelled with their timestamp (t=Ns), a timestamped transcript of any words heard (spoken OR sung), the video duration, and optionally what the creator wants the video to feel like.
 - IGNORE any music that may already be in the video. Treat it as silent except for speech. Never mention existing music. Lyrics heard in the transcript belong to that existing music and are NOT dialogue.
 - Describe what actually happens: people, setting, actions, visual aesthetic, story, motion, cuts, pacing, energy, emotional arc.
-- dialogue_present: true ONLY if a person speaks words meant to be heard by the viewer (talking to camera, voiceover, conversation). Singing, rapping along, or lyrics from background music are NOT dialogue. Use the frames (is someone talking to camera?) together with the transcript to decide. If unsure, prefer false and mention the uncertainty in the brief text.
+- dialogue_present: true ONLY if a person speaks words meant to be heard by the viewer (talking to camera, voiceover, conversation). Singing, rapping along, or lyrics from background music are NOT dialogue. Use the frames (is someone talking to camera?) together with the transcript to decide. If a person is on camera and the transcript contains speech-like words, lean true (the worse failure is vocals sitting over talking). A creator lip-syncing or singing on camera is singing, so dialogue_present is false; the brief should still not mention the existing track.
 - important_moments: the moments a song should react to, each with a timestamp in seconds taken from the frame labels. type must be exactly one of: ${MOMENT_TYPES.join(", ")}. Use main_visual_reveal for the single biggest reveal (outfit, before/after, product, location), climax for the emotional or energetic peak, transition for a hard visual transition, beat_cut for a rhythmic cut pattern starting, scene_change for a location/scene change, text_overlay for a text card that carries meaning. Include at most 6. Include at least one if the video has any identifiable peak.
 - content_category must be exactly one of: ${CONTENT_CATEGORIES.join(", ")}.
 - energy is one of: low, medium, medium-high, high. pacing is one of: slow, medium, fast.
 - The music brief combines WHAT THE VIDEO IS with WHAT THE CREATOR WANTS IT TO BECOME. If the creator gave no intent, infer the most likely intended feel from the content and say in the brief text that it was inferred.
 - brief.text is 3–6 sentences in plain language, written for a human music supervisor: the feel, the energy, the cultural register (current vs timeless, mainstream vs niche), vocal considerations given any dialogue, and where in the video a musical lift or hit should land (reference timestamps).
-- brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either — choose instrumental or "either with no vocals over speech" when dialogue_present is true), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present (same value as analysis.dialogue_present), desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
+- brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either — when dialogue_present is true, choose instrumental, or either and state in brief.text that vocals must not sit over speech), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present (same value as analysis.dialogue_present), desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
 
 Output exactly ONE JSON object with this shape and nothing else, no prose, no code fences:
 {
@@ -98,7 +98,7 @@ function buildUserContent(input: AnalyzeInput): Block[] {
     type: "text",
     text: `Video duration: ${input.durationSeconds.toFixed(1)}s. ${input.frames.length} sampled frames follow, each labelled with its timestamp.`,
   });
-  for (const f of input.frames) {
+  for (const f of [...input.frames].sort((a, b) => a.time - b.time)) {
     blocks.push({ type: "text", text: `t=${f.time.toFixed(1)}s` });
     blocks.push({
       type: "image",
@@ -120,14 +120,15 @@ function buildUserContent(input: AnalyzeInput): Block[] {
   return blocks;
 }
 
-async function callModel(client: Anthropic, content: Block[], deadlineAt?: number): Promise<string> {
+async function callModel(client: Anthropic, messages: Anthropic.Messages.MessageParam[], deadlineAt?: number): Promise<string> {
   const started = Date.now();
   const res = await client.messages.create(
     {
       model: MODELS.analysis,
       max_tokens: 4000,
+      output_config: { effort: "high" },
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content }],
+      messages,
     },
     { timeout: remainingBudget({ deadlineAt }, LIMITS.modelTimeoutMs) },
   );
@@ -135,14 +136,15 @@ async function callModel(client: Anthropic, content: Block[], deadlineAt?: numbe
   logger.info("model.call", {
     model: MODELS.analysis,
     ms: Date.now() - started,
-    input_tokens: res.usage?.input_tokens ?? null,
-    output_tokens: res.usage?.output_tokens ?? null,
-    stop_reason: res.stop_reason ?? null,
+    input_tokens: res.usage.input_tokens,
+    output_tokens: res.usage.output_tokens,
+    stop_reason: res.stop_reason,
   });
   if (res.stop_reason === "max_tokens") {
     throw new PipelineError("analyze", "model output truncated");
   }
   if (res.stop_reason === "refusal") {
+    logger.warn("model.refusal", { category: res.stop_details?.category ?? null });
     throw new PipelineError("analyze", "model refused");
   }
   return res.content
@@ -160,6 +162,12 @@ function tryParse(raw: string): z.infer<typeof ModelOutput> | { error: string } 
   }
   const parsed = ModelOutput.safeParse(json);
   if (!parsed.success) return { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+  // types.ts keeps content_category as z.string(); enforce the allowed list here.
+  if (!(CONTENT_CATEGORIES as readonly string[]).includes(parsed.data.analysis.content_category)) {
+    return {
+      error: `analysis.content_category: "${parsed.data.analysis.content_category}" is not allowed; must be one of: ${CONTENT_CATEGORIES.join(", ")}`,
+    };
+  }
   return parsed.data;
 }
 
@@ -170,20 +178,28 @@ export async function analyzeVideo(
   const c = opts.client ?? defaultClient();
   const content = buildUserContent(input);
 
-  const first = await callModel(c, content, opts.deadlineAt);
+  const userMsg: Anthropic.Messages.MessageParam = { role: "user", content };
+  const first = await callModel(c, [userMsg], opts.deadlineAt);
   let result = tryParse(first);
   let raw = first;
 
-  if ("error" in result) {
+  // Skip the retry when the first call used up the budget: remainingBudget would only
+  // return its 5 s floor and the retry could not finish before the deadline.
+  const canRetry = opts.deadlineAt === undefined || remainingBudget({ deadlineAt: opts.deadlineAt }) > 5_000;
+  if ("error" in result && canRetry) {
     logger.warn("analysis.retry", { error: result.error });
-    const retryContent: Block[] = [
-      ...content,
-      {
-        type: "text",
-        text: `Your previous output did not match the schema: ${result.error}. Output the corrected single JSON object only.`,
-      },
-    ];
-    raw = await callModel(c, retryContent, opts.deadlineAt);
+    raw = await callModel(
+      c,
+      [
+        userMsg,
+        { role: "assistant", content: first },
+        {
+          role: "user",
+          content: `That did not match the schema: ${result.error}. Output the corrected single JSON object and nothing else.`,
+        },
+      ],
+      opts.deadlineAt,
+    );
     result = tryParse(raw);
   }
 
