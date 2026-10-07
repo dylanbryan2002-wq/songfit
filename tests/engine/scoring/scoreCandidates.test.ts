@@ -48,10 +48,10 @@ describe("parseScores", () => {
 
 describe("modelScores", () => {
   it("retries once with the error, then throws", async () => {
-    const call = vi.fn(async () => JSON.stringify([{ index: 0, ...six(0.5) }])); // always one short
+    const call = vi.fn(async (_a: { user: string }) => JSON.stringify([{ index: 0, ...six(0.5) }])); // always one short
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
-    expect((call.mock.calls[1]![0] as { user: string }).user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
+    expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
     expect(PROMPT_VERSION).toBe("scoring-v1");
   });
 });
