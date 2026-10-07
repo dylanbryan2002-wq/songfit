@@ -13,6 +13,7 @@ export const LIMITS = {
   frameWidth: 512,
   candidatesPerDirection: 25,
   deezerConcurrency: 6,
+  deezerMinIntervalMs: 120, // ≈8 req/s, under Deezer's ~50 req / 5 s per IP
   deezerTimeoutMs: 8_000,
   sectionMin: 12,
   sectionMax: 20,

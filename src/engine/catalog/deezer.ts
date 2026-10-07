@@ -27,10 +27,26 @@ export class ProviderError extends Error {
   }
 }
 
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export const deezerLimit = pLimit(LIMITS.deezerConcurrency);
 
+// Concurrency alone blew Deezer's quota on the first real run (68 lookups in 4.6 s → "error 4:
+// Quota limit exceeded" on 29 of them). Space request starts by LIMITS.deezerMinIntervalMs as well.
+let nextSlot = 0;
+export async function paced<T>(fn: () => Promise<T>, sleep: (ms: number) => Promise<void> = defaultSleep): Promise<T> {
+  return deezerLimit(async () => {
+    const now = Date.now();
+    const wait = Math.max(0, nextSlot - now);
+    nextSlot = Math.max(now, nextSlot) + LIMITS.deezerMinIntervalMs;
+    if (wait > 0) await sleep(wait);
+    return fn();
+  });
+}
+
+const DeezerErrorSchema = z.object({ error: z.object({ message: z.string().optional(), code: z.number().optional() }) });
+const DEEZER_QUOTA_CODE = 4;
 const BACKOFF_MS = [500, 1500, 4000];
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** GET with timeout and retry on 429/5xx/network. Resolves the parsed JSON or throws ProviderError. */
 export async function deezerGet(
@@ -40,8 +56,15 @@ export async function deezerGet(
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const res = await fetchImpl(url, { signal: AbortSignal.timeout(LIMITS.deezerTimeoutMs) });
-      if (res.ok) return await res.json();
-      if (res.status === 429 || res.status >= 500) {
+      if (res.ok) {
+        const body: unknown = await res.json();
+        const err = DeezerErrorSchema.safeParse(body);
+        if (err.success && err.data.error.code === DEEZER_QUOTA_CODE) {
+          last = new ProviderError("deezer error 4: Quota limit exceeded", undefined, DEEZER_QUOTA_CODE);
+        } else {
+          return body;
+        }
+      } else if (res.status === 429 || res.status >= 500) {
         last = new ProviderError(`deezer ${res.status}`, res.status);
       } else {
         throw new ProviderError(`deezer ${res.status}`, res.status); // 4xx other than 429: do not retry
@@ -55,11 +78,10 @@ export async function deezerGet(
   throw last ?? new ProviderError("deezer: unknown failure");
 }
 
-const DeezerErrorSchema = z.object({ error: z.object({ message: z.string().optional(), code: z.number().optional() }) });
 
 async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]> {
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
-  const body = await deezerLimit(() => deezerGet(url, fetchImpl));
+  const body = await paced(() => deezerGet(url, fetchImpl));
   // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
   // not "no such song": check it FIRST so it can never be reported as an empty result.
   const err = DeezerErrorSchema.safeParse(body);

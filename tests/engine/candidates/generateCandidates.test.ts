@@ -31,10 +31,16 @@ describe("parseCandidateList", () => {
     expect(r.ok && r.items[0]!.directions).toEqual(["unexpected"]);
     expect(r.ok && r.items).toHaveLength(20);
   });
-  it("rejects the whole list when any item is malformed", () => {
+  it("rejects the list when dropping malformed items leaves too few", () => {
     const r = parseCandidateList(JSON.stringify([...many("A", 19), { title: "Bad", artist: "C" }]), "safe");
     expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/at least 20/);
     expect(!r.ok && r.error).toMatch(/proposed_start|anchor_seconds|section_is_vocal/);
+  });
+  it("drops a malformed item when enough valid items remain", () => {
+    const r = parseCandidateList(JSON.stringify([...many("A", 20), { title: "Bad", artist: "C" }]), "safe");
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.items).toHaveLength(20);
   });
   it("rejects a list that is too short", () => {
     const r = parseCandidateList(JSON.stringify(many("A", 5)), "safe");

@@ -7,15 +7,18 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dimensions";
 
-export const PROMPT_VERSION = "scoring-v1";
-const TOKENS_PER_ITEM = 90; // 6 dims × (score + ≤12-word reason) ≈ 90 output tokens
+export const PROMPT_VERSION = "scoring-v2";
+// Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
+// ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
+const TOKENS_PER_ITEM = 220;
 const MIN_TOKENS = 2000;
-const MAX_TOKENS = 8000;
+const MAX_TOKENS = 16_000;
+const CHUNK_SIZE = 20;
 
 const SYSTEM = `You are Songfit's music supervisor. You score candidate song sections against a specific
 short-form video. Be decisive and discriminating: use the full 0–1 range, do not give everything 0.7.
 A 1.0 means "this is exactly the song a great editor would pick"; a 0.2 means "clearly wrong".
-Reasons are at most 12 words. You must return one object for EVERY candidate index.`;
+Reasons are at most 10 words. You must return one object for EVERY candidate index.`;
 
 const DIMENSION_DEFINITIONS: Record<ModelDimension, string> = {
   semantic: "Does the song make sense for what is literally happening in the video (subject, setting, story)?",
@@ -44,13 +47,13 @@ Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialo
 MUSIC BRIEF
 ${brief.text}
 
-DIMENSIONS (score each 0–1, reason ≤ 12 words)
+DIMENSIONS (score each 0–1, reason ≤ 10 words)
 ${defs}
 
 CANDIDATES (${cands.length}; return exactly ${cands.length} objects, indexes 0–${cands.length - 1})
 ${list}
 
-Return ONLY a JSON array with one object per candidate:
+Return ONLY a compact JSON array on one line (no indentation), one object per candidate:
 { "index": number, "semantic": {"score": number, "reason": string}, "emotional": {...}, "aesthetic": {...}, "pacing": {...}, "cultural": {...}, "originality": {...} }`;
 }
 
@@ -82,18 +85,25 @@ export async function modelScores(
 ): Promise<Record<ModelDimension, ComponentScore>[]> {
   const call = deps.call ?? callClaude;
   const timeoutMs = deps.timeoutMs ?? LIMITS.modelTimeoutMs;
+  const chunks: VerifiedCandidate[][] = [];
+  for (let i = 0; i < cands.length; i += CHUNK_SIZE) chunks.push(cands.slice(i, i + CHUNK_SIZE));
+  const started = Date.now();
+  const results = await Promise.all(chunks.map((chunk) => scoreChunk(analysis, brief, chunk, call, timeoutMs)));
+  logger.info("scoring", { ms: Date.now() - started, candidates: cands.length, chunks: chunks.length });
+  return results.flat();
+}
+
+async function scoreChunk(
+  analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[], call: ClaudeCall, timeoutMs: number,
+): Promise<Record<ModelDimension, ComponentScore>[]> {
   const user = buildScoringPrompt(analysis, brief, cands);
   const maxTokens = Math.min(MAX_TOKENS, Math.max(MIN_TOKENS, cands.length * TOKENS_PER_ITEM));
-  const started = Date.now();
-  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, timeoutMs });
+  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, effort: "medium", timeoutMs });
   const r1 = parseScores(first, cands.length);
-  if (r1.ok) {
-    logger.info("scoring", { ms: Date.now() - started, candidates: cands.length, chars: first.length });
-    return r1.scores;
-  }
+  if (r1.ok) return r1.scores;
   logger.warn("scoring.retry", { error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array with every index.`;
-  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, timeoutMs });
+  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, effort: "medium", timeoutMs });
   const r2 = parseScores(second, cands.length);
   if (r2.ok) return r2.scores;
   throw new PipelineError("recommend", `scoring output invalid: ${r2.error.slice(0, 200)}`, second);

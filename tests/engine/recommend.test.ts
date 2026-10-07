@@ -46,7 +46,7 @@ describe("recommendSubmission", () => {
     expect(deps.calls).toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
     expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v2", total_score: 0.7 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v3", total_score: 0.7 });
     expect(rows[3]).toMatchObject({ verified: false, deezer_id: null, canonical_title: null, total_score: null, component_scores: null });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
@@ -74,8 +74,8 @@ describe("recommendSubmission", () => {
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; verified: boolean; prompt_version: string }[];
     expect(rows).toHaveLength(5);
-    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v2");
-    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v2#2");
+    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v3");
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v3#2");
     expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
     expect(rows.find((r) => r.title === "Flaky")).toMatchObject({ verified: false });
   });

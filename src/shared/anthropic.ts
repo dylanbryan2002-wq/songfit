@@ -7,6 +7,8 @@ export type ClaudeCall = (args: {
   system: string;
   user: string;
   maxTokens?: number;
+  /** Claude 5 reasoning effort. Unset = the model's default (high), which on Sonnet 5.5 spends ~8k hidden tokens on a 25-song list. */
+  effort?: "low" | "medium" | "high";
   timeoutMs?: number; // per-call override; defaults to LIMITS.modelTimeoutMs (or the makeClaudeCall default)
 }) => Promise<string>;
 
@@ -21,7 +23,7 @@ export function makeClaudeCall(
   opts: { timeoutMs?: number } = {},
 ): ClaudeCall {
   const defaultTimeout = opts.timeoutMs ?? LIMITS.modelTimeoutMs;
-  return async ({ model, system, user, maxTokens = 4000, timeoutMs }) => {
+  return async ({ model, system, user, maxTokens = 4000, timeoutMs, effort }) => {
     const started = Date.now();
     const res = await client.messages.create(
       {
@@ -29,6 +31,7 @@ export function makeClaudeCall(
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: user }],
+        ...(effort ? { output_config: { effort } } : {}),
       },
       { timeout: timeoutMs ?? defaultTimeout },
     );
@@ -39,6 +42,7 @@ export function makeClaudeCall(
     // One structured line per model call so cost and truncation are visible in logs (ruling I1).
     logger.info("model.call", {
       model,
+      effort: effort ?? "default",
       ms: Date.now() - started,
       input_tokens: res.usage?.input_tokens ?? null,
       output_tokens: res.usage?.output_tokens ?? null,

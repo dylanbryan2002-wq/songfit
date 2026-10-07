@@ -11,11 +11,11 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 
-export const PROMPT_VERSION = "candidates-v2";
+export const PROMPT_VERSION = "candidates-v3";
 
 export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
 
-const SYSTEM = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
+export const SYSTEM_PROMPT = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
 You know mainstream, independent and viral music across decades, and you know which songs
 creators actually use on these platforms. You only ever name REAL, officially released songs by
 the original artist that are very likely available in the Instagram and TikTok music libraries
@@ -73,8 +73,9 @@ best ${LIMITS.sectionMin}–${LIMITS.sectionMax} second window of the ORIGINAL s
   (proposed_end − proposed_start between ${LIMITS.sectionMin} and ${LIMITS.sectionMax}); anchor_seconds must lie inside the window.
 - Do not list the same song twice.
 - section_is_vocal: true if lead vocals are singing during most of the window.
+- section_reason and fit_reason: at most 18 words each. Be specific, not flowery.
 
-Return ONLY a JSON array, no prose, each item exactly:
+Return ONLY a compact JSON array on one line (no indentation, no line breaks), no prose, each item exactly:
 {
   "title": string,
   "artist": string,
@@ -87,11 +88,18 @@ Return ONLY a JSON array, no prose, each item exactly:
 }`;
 }
 
+// 25 items × ~120 compact tokens ≈ 3000; the cap leaves 4× headroom. The first real run (2026-10-07)
+// hit 6000 at ~240 tokens/item with pretty-printed JSON and long reasons, which is why the prompt now
+// demands compact output and short reasons.
+const CANDIDATE_MAX_TOKENS = 12_000;
+// Measured 2026-10-07 on the same brief: default effort 76 s / 10.3k output tokens, medium 21 s / 3.2k,
+// low 21 s / 3.2k but with lazy 0–14 s windows. Medium keeps the song and timing quality.
+const CANDIDATE_EFFORT = "medium" as const;
+
 const Item = GeneratedCandidate.omit({ directions: true });
 // C1: a direction that comes back with far fewer songs than asked is treated as invalid output
 // (the model truncated or refused), retried once, then fails the stage. Never silently accept a short list.
 const MIN_PER_DIRECTION = LIMITS.candidatesPerDirection - 5;
-const ItemList = z.array(Item).min(MIN_PER_DIRECTION, { message: `Array must contain at least ${MIN_PER_DIRECTION} element(s)` });
 
 export function parseCandidateList(
   text: string, direction: DirectionTag,
@@ -102,9 +110,23 @@ export function parseCandidateList(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "no JSON found" };
   }
-  const parsed = ItemList.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: parsed.error.message };
-  return { ok: true, items: parsed.data.map((i) => ({ ...i, directions: [direction] })) };
+  const arr = z.array(z.unknown()).safeParse(raw);
+  if (!arr.success) return { ok: false, error: arr.error.message };
+  // One malformed row out of 25 cost a full 21 s retry on the first real run. Keep the valid rows and
+  // only reject when too few remain (C1 still holds: a short or truncated list is invalid output).
+  const items: GeneratedCandidate[] = [];
+  const errors: string[] = [];
+  arr.data.forEach((row, i) => {
+    const p = Item.safeParse(row);
+    if (p.success) items.push({ ...p.data, directions: [direction] });
+    else errors.push(`item ${i}: ${p.error.issues.map((x) => `${x.path.join(".")} ${x.message}`).join("; ")}`);
+  });
+  if (items.length < MIN_PER_DIRECTION) {
+    const detail = errors.length ? `\n${errors.slice(0, 5).join("\n")}` : "";
+    return { ok: false, error: `Array must contain at least ${MIN_PER_DIRECTION} element(s); got ${items.length} valid${detail}` };
+  }
+  if (errors.length) logger.warn("candidates.dropped", { direction, dropped: errors.length, first: errors[0] });
+  return { ok: true, items };
 }
 
 export function mergeCandidates(lists: GeneratedCandidate[][]): GeneratedCandidate[] {
@@ -128,7 +150,7 @@ async function generateDirection(
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
   const started = Date.now();
-  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs: remainingBudget(opts.ctx) });
+  const first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
     logger.info("candidates.generated", { direction, count: r1.items.length, ms: Date.now() - started });
@@ -136,7 +158,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs: remainingBudget(opts.ctx) });
+  const second = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user: retryUser, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) {
     logger.info("candidates.generated", { direction, count: r2.items.length, ms: Date.now() - started });

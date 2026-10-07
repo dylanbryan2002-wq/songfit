@@ -99,3 +99,37 @@ each entry, link sources. Used to make engine and data decisions.
 - Fable 5.1 on 1 fps frames + Whisper transcript, 4.5 s iPhone comedy clip: correct category, story, punchline moment (2.0 s), and a usable music brief with inferred ironic-contrast direction. Prompt version analyze-v3.
 - Whisper (whisper-1, verbose_json) hallucinates stock phrases on near-silent audio (returned Korean "thanks for watching"). Mitigation to add: drop transcript when all segments have `no_speech_prob` > 0.8 or avg_logprob < -1, and strip a short list of known hallucination strings.
 - Deployment gotcha: Vercel does not trace `ffmpeg-static`/`ffprobe-static` binaries by default → `outputFileTracingIncludes` per route group; `/api/health?binaries=1` verifies.
+
+## 2026-10-07 — First end-to-end run (Phase 3 demo check)
+
+Submission 09e00825 (4.5 s comedy clip, analysis already stored from Phase 2). Recommend stage run locally
+with `pnpm pipeline:local <id>` against the hosted Supabase project.
+
+What broke before it worked, in order:
+1. Candidate generation truncated at 6000 output tokens. Sonnet 5.5 at default effort spent ~8k hidden
+   reasoning tokens per 25-song list (text was only ~2k tokens). Fix: `effort: "medium"` on candidates and
+   scoring (76 s → 21 s per call, same song/timing quality; `low` gave lazy 0–14 s windows), compact JSON,
+   ≤18-word reasons, cap 12k. Prompt `candidates-v3`.
+2. Deezer "error 4: Quota limit exceeded" on 29/68 lookups: 6-way concurrency alone blew ~50 req / 5 s.
+   Fix: 120 ms spacing between request starts plus retry-with-backoff on the quota body.
+3. Scoring truncated: 60 candidates × 6 dims needs ~170 output tokens per item, not 90. Fix: score in
+   parallel chunks of 20, 220 tokens/item budget, ≤10-word reasons. Prompt `scoring-v2`.
+4. One malformed candidate row forced a 21 s full retry. Fix: drop bad rows, retry only if < 20 remain.
+
+Final run (recommend stage only; analysis stage timings are in the Phase 2 entry):
+
+| step | calls | input tok | output tok | wall |
+|---|---|---|---|---|
+| candidates (3 directions, parallel) | 3 | 5.4k | 9.8k | 23 s |
+| Deezer verify (69 → 47 verified, 22 not found, 0 failed) | ~90 req | — | — | 11 s |
+| scoring (47 candidates, 3 chunks parallel) | 3 | 7.9k | 9.5k | 24 s |
+| explain | 1 | 1.3k | 0.3k | 3 s |
+| **recommend total** | 7 | 14.6k | 19.6k | **67 s** |
+
+Cost estimate at Sonnet-class list prices ($3 / M input, $15 / M output): ≈ $0.34 per recommend run.
+Confirm against the Anthropic console; add the analysis stage (Fable 5.1 + Whisper) for the per-upload total.
+
+Output quality: 3 real songs (Darude, Sabrina Carpenter, Neil Diamond), all three directions represented,
+every pick aligned to the key moment at 0:02, explanations specific to the clip. Component scores were not
+clustered. 22 of 69 candidates were not found on Deezer (mostly multi-artist credits and exact-title
+mismatches); worth a look at the normaliser later, not blocking.

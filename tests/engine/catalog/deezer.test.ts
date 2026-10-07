@@ -24,6 +24,23 @@ describe("deezerGet", () => {
     expect(out).toEqual({ data: [] });
     expect(sleeps).toEqual([500, 1500]);
   });
+  it("retries a quota error delivered as HTTP 200 { error: { code: 4 } }", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json({ error: { code: 4, message: "Quota limit exceeded" } }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    const sleeps: number[] = [];
+    const sleep = async (ms: number) => { sleeps.push(ms); };
+    const out = await deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch, sleep);
+    expect(out).toEqual({ ok: true });
+    expect(sleeps).toEqual([500]);
+  });
+  it("gives up on a quota error after 4 attempts with the quota code attached", async () => {
+    const fetchImpl = vi.fn(async () => json({ error: { code: 4, message: "Quota limit exceeded" } }));
+    const sleep = async () => {};
+    await expect(deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch, sleep))
+      .rejects.toMatchObject({ name: "ProviderError", code: 4 });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
   it("waits 500, 1500 then 4000 ms of real (fake) time between attempts", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn()
@@ -61,12 +78,15 @@ describe("deezerGet", () => {
 
 describe("searchDeezer", () => {
   it("treats an error-shaped 200 body (Deezer quota) as a ProviderError, never as no results", async () => {
+    vi.useFakeTimers();
     const fetchImpl = vi.fn().mockImplementation(() => json({ error: { type: "Exception", message: "Quota limit exceeded", code: 4 } }));
-    const err = await searchDeezer("A", "B", fetchImpl as unknown as typeof fetch).catch((e) => e);
+    const p = searchDeezer("A", "B", fetchImpl as unknown as typeof fetch).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(10_000); // quota is retried with backoff (500 + 1500 + 4000 ms)
+    const err = await p;
     expect(err).toBeInstanceOf(ProviderError);
     expect(err.status).toBeUndefined();
     expect(err.code).toBe(4);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
   it("tries the plain query first and stops when it yields an acceptable match", async () => {
     const urls: string[] = [];
