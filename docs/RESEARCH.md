@@ -133,3 +133,35 @@ Output quality: 3 real songs (Darude, Sabrina Carpenter, Neil Diamond), all thre
 every pick aligned to the key moment at 0:02, explanations specific to the clip. Component scores were not
 clustered. 22 of 69 candidates were not found on Deezer (mostly multi-artist credits and exact-title
 mismatches); worth a look at the normaliser later, not blocking.
+
+## 2026-10-07 — In-browser song previews for a TikTok-style picker
+
+Verified by hand today (curl + Whisper on real clips), the rest from web research (agents' reports
+summarised in docs/superpowers/specs/2026-10-07-song-picker-design.md):
+
+- Deezer `preview`: 30.0 s MP3 (~480 KB, 128 kbps). CDN `cdnt-preview.dzcdn.net` sends
+  `access-control-allow-origin: *` and `accept-ranges: bytes`, so the browser can both play it and
+  decode it with Web Audio for a waveform. URLs are signed (`hdnea=exp=…`) and expire in about an
+  hour: fetch a fresh one by track id at page load. Terms (developers.deezer.com/guidelines): no
+  local/offline storage of audio, not downloadable by the end user, attribution/logo page applies.
+- Which part of the song the clip is: NOT documented, so I transcribed two. Sweet Caroline's clip
+  runs "Hands, touching hands…" into "Sweet Caroline" at 14 s; Manchild's runs the pre-chorus into
+  "Manchild" at 17 s. Deezer cuts around the hook. Our engine's section for Sweet Caroline
+  (0:44–1:00) sits just before the real chorus (~1:09), so the clip may be a better guide than the
+  model's timestamp. Future idea: Whisper-timestamp the clip to anchor the section more precisely.
+- iTunes `previewUrl`: 30 s M4A, CORS unconfirmed for the audio host, terms say previews are
+  promotional only and must not be "synchronized with other media". Fallback only, with the
+  "provided courtesy of iTunes" line and a store link.
+- Spotify Embed iFrame API: `loadEntity`/`play`/`seek` exist, but mobile browsers get the preview
+  length only, and track ids need a Web API app. Not used.
+- Apple MusicKit JS: full songs for subscribers; needs the $99 Developer Program, a MusicKit key and a
+  signed developer token. Realistic later route to "hear the exact section". Not this week.
+- YouTube IFrame API: `start`/`seekTo` work, player must stay visible (≥ 200×200), Data API search
+  quota ≈ 100 searches/day. Possible later for the top pick only.
+- "Use this sound" deep links into TikTok/Instagram: no official way to get sound ids for arbitrary
+  commercial songs (TikTok Commercial Music Library and Instagram Audio API cover cleared/partner
+  catalogues and publish flows only). Fallback: copy "title · artist" + open the app.
+- Mobile playback: Supabase signed video URL answers Range (206, verified). iOS needs `muted` +
+  `playsInline` on the video and both `play()` calls inside the same tap. Dylan's `.mov` is
+  `video/quicktime`; Android Chrome may need H.264 mp4 (transcode later).
+- No competitor found that returns real commercial songs with an exact section for the user's video.
