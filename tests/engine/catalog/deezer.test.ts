@@ -24,11 +24,12 @@ describe("deezerGet", () => {
     expect(out).toEqual({ data: [] });
     expect(sleeps).toEqual([500, 1500]);
   });
-  it("waits 500 then 1500 ms of real (fake) time between attempts", async () => {
+  it("waits 500, 1500 then 4000 ms of real (fake) time between attempts", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(json({}, 429))
       .mockResolvedValueOnce(json({}, 503))
+      .mockResolvedValueOnce(json({}, 500))
       .mockResolvedValueOnce(json({ ok: true }));
     const p = deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch);
     await vi.advanceTimersByTimeAsync(0);
@@ -39,13 +40,17 @@ describe("deezerGet", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1500);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     await expect(p).resolves.toEqual({ ok: true });
   });
-  it("throws ProviderError after 3 failed attempts", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(json({}, 500));
+  it("throws ProviderError after 4 failed attempts (3 retries)", async () => {
+    const fetchImpl = vi.fn().mockImplementation(() => json({}, 500));
     await expect(deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch, async () => {}))
       .rejects.toBeInstanceOf(ProviderError);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
   it("wraps network errors as ProviderError", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
@@ -56,8 +61,12 @@ describe("deezerGet", () => {
 
 describe("searchDeezer", () => {
   it("treats an error-shaped 200 body (Deezer quota) as a ProviderError, never as no results", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(json({ error: { type: "Exception", message: "Quota limit exceeded", code: 4 } }));
-    await expect(searchDeezer("A", "B", fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
+    const fetchImpl = vi.fn().mockImplementation(() => json({ error: { type: "Exception", message: "Quota limit exceeded", code: 4 } }));
+    const err = await searchDeezer("A", "B", fetchImpl as unknown as typeof fetch).catch((e) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.status).toBeUndefined();
+    expect(err.code).toBe(4);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("tries the plain query first and stops when it yields an acceptable match", async () => {
     const urls: string[] = [];
@@ -79,6 +88,12 @@ describe("searchDeezer", () => {
     expect(urls[0]).not.toContain("artist%3A");
     expect(urls[1]).toContain("artist%3A");
     expect(out.map((t) => t.id)).toContain(7);
+  });
+  it("dedupes plain and structured results by id", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      json({ data: String(url).includes("artist%3A") ? [track({ id: 3, title: "Blinding Lights (Live)" }), track({ id: 7 })] : [track({ id: 3, title: "Blinding Lights (Live)" })] }));
+    const out = await searchDeezer("Blinding Lights", "The Weeknd", fetchImpl as unknown as typeof fetch);
+    expect(out.map((t) => t.id)).toEqual([3, 7]);
   });
 });
 
@@ -114,7 +129,7 @@ describe("findDeezerMatch", () => {
   });
   it("propagates ProviderError", async () => {
     vi.useFakeTimers();
-    const fetchImpl = vi.fn().mockResolvedValue(json({}, 503));
+    const fetchImpl = vi.fn().mockImplementation(() => json({}, 503));
     const p = expect(findDeezerMatch({ title: "A", artist: "B" }, fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
     await vi.advanceTimersByTimeAsync(10_000);
     await p;

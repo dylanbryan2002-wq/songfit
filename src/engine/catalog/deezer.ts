@@ -16,11 +16,12 @@ const DeezerTrackSchema = z.object({
     .object({ cover_medium: z.string().nullable().optional(), cover_big: z.string().nullable().optional() })
     .optional(),
 });
-const DeezerSearchSchema = z.object({ data: z.array(DeezerTrackSchema).default([]) });
+const DeezerSearchSchema = z.object({ data: z.array(DeezerTrackSchema) });
 export type DeezerTrack = z.infer<typeof DeezerTrackSchema>;
 
 export class ProviderError extends Error {
-  constructor(message: string, readonly status?: number) {
+  /** `status` is an HTTP status only; Deezer's in-body error code goes in `code`. */
+  constructor(message: string, readonly status?: number, readonly code?: number) {
     super(message);
     this.name = "ProviderError";
   }
@@ -36,7 +37,7 @@ export async function deezerGet(
   url: string, fetchImpl: typeof fetch = fetch, sleep: (ms: number) => Promise<void> = defaultSleep,
 ): Promise<unknown> {
   let last: ProviderError | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const res = await fetchImpl(url, { signal: AbortSignal.timeout(LIMITS.deezerTimeoutMs) });
       if (res.ok) return await res.json();
@@ -49,7 +50,7 @@ export async function deezerGet(
       if (e instanceof ProviderError && e.status && e.status < 500 && e.status !== 429) throw e;
       last = e instanceof ProviderError ? e : new ProviderError(e instanceof Error ? e.message : String(e));
     }
-    if (attempt < 2) await sleep(BACKOFF_MS[attempt]!);
+    if (attempt < 3) await sleep(BACKOFF_MS[attempt]!);
   }
   throw last ?? new ProviderError("deezer: unknown failure");
 }
@@ -59,12 +60,12 @@ const DeezerErrorSchema = z.object({ error: z.object({ message: z.string().optio
 async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]> {
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
   const body = await deezerLimit(() => deezerGet(url, fetchImpl));
+  // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
+  // not "no such song": check it FIRST so it can never be reported as an empty result.
+  const err = DeezerErrorSchema.safeParse(body);
+  if (err.success) throw new ProviderError(`deezer error ${err.data.error.code ?? ""}: ${err.data.error.message ?? "unknown"}`.trim(), undefined, err.data.error.code);
   const parsed = DeezerSearchSchema.safeParse(body);
   if (parsed.success) return parsed.data.data;
-  // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
-  // not "no such song": it must never be reported as an empty result.
-  const err = DeezerErrorSchema.safeParse(body);
-  if (err.success) throw new ProviderError(`deezer error ${err.data.error.code ?? ""}: ${err.data.error.message ?? "unknown"}`.trim(), err.data.error.code);
   throw new ProviderError("deezer: unexpected response shape");
 }
 
@@ -86,7 +87,8 @@ export async function searchDeezer(title: string, artist: string, fetchImpl: typ
   const plain = await query(`${title} ${artist}`, fetchImpl);
   if (pickDeezerMatch({ title, artist }, plain)) return plain;
   const structured = await query(`artist:"${artist}" track:"${title}"`, fetchImpl);
-  return [...plain, ...structured];
+  const seen = new Set<number>();
+  return [...plain, ...structured].filter((t) => !seen.has(t.id) && !!seen.add(t.id));
 }
 
 /** First acceptable Deezer result, or null. Throws ProviderError on outage (distinct from no match). */
