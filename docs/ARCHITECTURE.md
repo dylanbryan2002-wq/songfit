@@ -14,7 +14,7 @@ src/
   analysis/     frames + transcript (+ creator intent) → VideoAnalysis + MusicBrief
   engine/
     candidates/ MusicBrief → Candidate[]           (model-backed today; catalog retrieval later)
-    catalog/    Candidate → verified Candidate      (Deezer search; song identity, duration, artwork, preview; iTunes fallback)
+    catalog/    Candidate → verified Candidate      (Deezer search; song identity, canonical names, duration; previews only when PREVIEWS_ENABLED)
     scoring/    one file per dimension → { score, reason }; weights.ts combines
     diversify/  scored Candidate[] → 3 picks across distinct directions
     sections/   pick start/end for each pick       (model-proposed today; temporal model later)
@@ -60,7 +60,10 @@ feedback → events; paid offer → Stripe link → webhook → subscriptions
   (vector retrieval over song_segments) merged with the model-generated list.
 
 ## What is deliberately simple for launch
-- Pipeline runs inside a single API request (Vercel function, 300 s limit) with status polling.
-  No queue. If this times out in practice, move to a background function.
+- Pipeline runs inside the submit request via `waitUntil` (Vercel function, maxDuration 300) with status polling.
+  Entry is always `runSubmission(id)`, which first takes an atomic claim (`claim_submission_run`), so a
+  double trigger or an admin retry can never run the same submission twice. No queue.
+- Paywall is enforced in the `create_submission` SQL function (atomic), not in route code.
+- Stripe webhook: process, then record the event id. A failure before recording stays retryable.
 - Admin and metrics pages are server-rendered tables.
 - Payment is a Stripe Payment Link; the webhook only flips subscriptions.status.

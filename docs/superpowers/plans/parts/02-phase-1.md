@@ -1,24 +1,34 @@
 ## Phase 1 — Upload → stored submission
 
-**Demo when done:** From a phone on the LAN, sign in with Google, pick a Reel, watch it upload with a progress bar, land on a waiting page that polls a real `submissions` row.
+**Demo when done:** From an iPhone on cellular, against the deployed Vercel app: sign in with Google, pick a Reel, watch it upload with a progress bar (resumable for big files), land on a waiting page that polls a real `submissions` row.
 
-Assumes Phase 0 is complete: scaffold, `src/shared/{types,config,logger,errors}.ts`, `src/db/client.ts` (`createBrowserClient`, `createServerClient`, `createServiceClient`), `src/db/queries/*`, `src/feedback/events.ts` (`EVENT_NAMES`, `logEvent`), `components/Logo.tsx`, `app/page.tsx` rendering a placeholder `<UploadForm />`.
+Codex-review rulings applied in this phase (`docs/review/03-claude-rulings.md`): C2 (atomic paywall at creation, exact path binding, rate limits), C3/I2 (one runner entered via an atomic claim, run inside the submit route with `waitUntil`), C5 (`submissionId` prop, named `Logo` export, no raw errors to creators), C7 (deploy + phone test moved into this phase), I6 (sign in first, resumable uploads), I10 (honest failed state), M3 (admin gate per page/action, tight redirect allowlist, retention disclosure).
 
-Query functions from Phase 0 used here (signatures):
+Assumes Phase 0 is complete: scaffold, `src/shared/{types,config,logger,errors,json,anthropic}.ts`, `src/db/client.ts` (`createServerClient`, `createServiceClient`), `src/db/browser.ts` (`createBrowserClient`), `src/db/queries/*`, `src/feedback/events.ts` (`EVENT_NAMES`, `logEvent`), `components/Logo.tsx` (named export `Logo`), `app/page.tsx` rendering a placeholder, `@vercel/functions` installed.
+
+Phase 0 functions used here (signatures):
 
 ```ts
+// src/shared/errors.ts
+export class PaywallError extends Error { reason: "needs_subscription" }
 // src/db/queries/creators.ts
 export async function ensureCreator(id: string, email: string, displayName?: string | null): Promise<CreatorRow>; // CreatorRow has created_at
 // src/db/queries/submissions.ts
 export async function getSubmission(id: string): Promise<SubmissionRow | null>;
+/** Calls the create_submission() SQL function: inserts the row AND enforces the paywall atomically. Throws PaywallError. Idempotent on id (returns the existing row for the same creator). */
 export async function createSubmission(s: { id: string; creatorId: string; videoPath: string; creatorIntent: string | null }): Promise<SubmissionRow>;
+/** Atomic conditional update: status → 'analyzing', updated_at = now() when status in ('uploaded','failed') OR updated_at older than LIMITS.inFlightStaleMinutes. Returns the row, or null when another run holds it. */
+export async function claimSubmissionRun(id: string): Promise<SubmissionRow | null>;
 export async function setSubmissionStatus(id: string, status: SubmissionStatus, error?: string | null): Promise<void>;
 export async function countReadySubmissions(creatorId: string): Promise<number>;
+export async function countSubmissionsForCreator(creatorId: string): Promise<number>;
 // src/db/queries/subscriptions.ts
 export async function getActiveSubscription(creatorId: string): Promise<{ id: string; status: string } | null>;
+// src/db/queries/recommendations.ts
+export async function listRecommendations(submissionId: string): Promise<RecommendationRow[]>;
 ```
 
-`SubmissionRow` is `Database["public"]["Tables"]["submissions"]["Row"]` from `src/db/types.ts`.
+`SubmissionRow` is `Database["public"]["Tables"]["submissions"]["Row"]` from `src/db/types.ts`. `RecommendationView` is the only recommendation shape that reaches the browser (`src/shared/types.ts`).
 
 ---
 
@@ -33,13 +43,15 @@ export async function getActiveSubscription(creatorId: string): Promise<{ id: st
 - Test: `tests/auth/admin.test.ts`
 
 **Interfaces:**
-- Consumes: `createServerClient()` from `src/db/client.ts` (returns a Supabase client bound to Next cookies), `env()` from `src/shared/config.ts`, `ensureCreator()` from `src/db/queries/creators.ts`.
+- Consumes: `createServerClient()` from `src/db/client.ts` (returns a Supabase client bound to Next cookies), `createBrowserClient()` from `src/db/browser.ts`, `ensureCreator()` from `src/db/queries/creators.ts`, `logEvent()`.
 - Produces:
   - `isAdminEmail(email: string | null | undefined, list: string): boolean` (pure)
   - `getCreator(): Promise<{ id: string; email: string } | null>`
   - `requireCreator(): Promise<{ id: string; email: string }>` — redirects to `/` when signed out
-  - `requireAdmin(): Promise<{ id: string; email: string }>` — redirects to `/` unless admin
+  - `requireAdmin(): Promise<{ id: string; email: string }>` — redirects to `/` unless admin. **Rule for Phases 2–4:** every `app/admin/**` page, route handler and server action calls `requireAdmin()` itself. The admin layout calling it is not enough (layouts don't re-run on client navigation and do not protect server actions).
+  - `isAdmin(creator): boolean`
   - `signInWithGoogle(next: string): Promise<void>` (client)
+- Redirect allowlist (Supabase → Authentication → URL Configuration) is exactly: `http://localhost:3000/**`, `http://<LAN-IP>:3000/**` while phone-testing locally, the exact production Vercel URL `https://<project>.vercel.app/**` once Task 1.7 creates it, and `https://thissongfits.com/**`. No `*.vercel.app` wildcard.
 
 - [ ] **Step 1: Write the failing test for the admin email check**
 
@@ -124,12 +136,17 @@ export async function requireCreator(): Promise<Creator> {
   return creator;
 }
 
+/** Call this in EVERY admin page, route handler and server action, not only in the admin layout. */
 export async function requireAdmin(): Promise<Creator> {
   const creator = await getCreator();
   if (!creator || !isAdminEmail(creator.email, process.env.ADMIN_EMAILS ?? "")) {
     redirect("/");
   }
   return creator;
+}
+
+export function isAdmin(creator: Creator | null): boolean {
+  return !!creator && isAdminEmail(creator.email, process.env.ADMIN_EMAILS ?? "");
 }
 ```
 
@@ -207,7 +224,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
 ```
 
@@ -216,7 +233,7 @@ export const config = {
 ```ts
 // components/auth.ts
 "use client";
-import { createBrowserClient } from "@/src/db/client";
+import { createBrowserClient } from "@/src/db/browser";
 
 export async function signInWithGoogle(next: string): Promise<void> {
   const supabase = createBrowserClient();
@@ -250,24 +267,28 @@ git commit -m "Add Google auth session helpers, callback route and admin gate"
 
 ---
 
-### Task 1.2: Signed upload URL, storage helpers, paywall decision
+### Task 1.2: Signed upload URL, storage helpers, paywall pre-check, rate limit
 
 **Files:**
 - Create: `src/media/storage.ts`
 - Create: `src/billing/paywall.ts`
+- Create: `src/billing/rateLimit.ts`
+- Modify: `src/db/queries/submissions.ts` (add `countInFlightSubmissions`, `countSubmissionsSince`)
 - Create: `app/api/upload-url/route.ts`
-- Test: `tests/billing/paywall.test.ts`
+- Test: `tests/billing/paywall.test.ts`, `tests/billing/rateLimit.test.ts`, `tests/media/storagePath.test.ts`
 
 **Interfaces:**
-- Consumes: `createServiceClient()` from `src/db/client.ts`, `LIMITS` and `env()` from `src/shared/config.ts`, `getCreator()` from `src/auth/session.ts`, `countReadySubmissions()` from `src/db/queries/submissions.ts` and `getActiveSubscription()` from `src/db/queries/subscriptions.ts` (both defined in Phase 0, Task 0.4).
-- Note for `storage.ts`: import `{ mkdtemp, writeFile }` from `node:fs/promises`, `os` from `node:os`, `path` from `node:path`. No shared `TMP_DIR` constant is needed.
+- Consumes: `createServiceClient()` from `src/db/client.ts`, `LIMITS`, `FREE_RESULTS_PER_CREATOR` from `src/shared/config.ts`, `getCreator()` from `src/auth/session.ts`, `countReadySubmissions()` and `getActiveSubscription()` (Phase 0).
 - Produces:
+  - `storagePathFor(creatorId, submissionId, ext): string` and `isExactStoragePath(path, creatorId, submissionId, ext): boolean` (pure)
   - `getSignedUploadUrl(creatorId, submissionId, ext): Promise<{ path; token; signedUrl }>`
-  - `downloadToTmp(storagePath): Promise<string>` (local file path)
+  - `objectInfo(storagePath): Promise<{ sizeBytes: number; mimeType: string | null } | null>`
+  - `downloadToTmp(storagePath): Promise<string>` (local file path in a fresh temp dir)
   - `getSignedPlaybackUrl(storagePath, seconds = 3600): Promise<string>`
-  - `decideCanSubmit(readyCount: number, hasActiveSub: boolean): { ok: true } | { ok: false; reason: "needs_subscription" }` (pure)
+  - `decideCanSubmit(readyCount, inFlightCount, hasActiveSub): { ok: true } | { ok: false; reason: "needs_subscription" }` (pure). **This is a UX pre-check only.** The binding gate is the `create_submission()` SQL function Phase 0 created, which runs the same rule inside the database when the row is inserted (ruling C2).
   - `canSubmit(creatorId): Promise<ReturnType<typeof decideCanSubmit>>`
-  - `POST /api/upload-url` → `200 { submissionId, path, token, signedUrl }` | `401` | `402 { reason: "needs_subscription" }` | `400`
+  - `takeToken(store, key, limit, windowMs, now?)` (pure over its store) and `checkUploadRate(creatorId): Promise<boolean>`
+  - `POST /api/upload-url` → `200 { submissionId, path, token, signedUrl }` | `401` | `402 { reason: "needs_subscription" }` | `429` | `400`. The server chooses `path`; the client must upload to exactly that path and send it back unchanged.
 
 - [ ] **Step 1: Write the failing paywall test**
 
@@ -276,17 +297,20 @@ git commit -m "Add Google auth session helpers, callback route and admin gate"
 import { describe, expect, it } from "vitest";
 import { decideCanSubmit } from "../../src/billing/paywall";
 
-describe("decideCanSubmit", () => {
+describe("decideCanSubmit (UX pre-check mirroring create_submission())", () => {
   it("allows the first submission with no subscription", () => {
-    expect(decideCanSubmit(0, false)).toEqual({ ok: true });
+    expect(decideCanSubmit(0, 0, false)).toEqual({ ok: true });
   });
   it("blocks a second submission without an active subscription", () => {
-    expect(decideCanSubmit(1, false)).toEqual({ ok: false, reason: "needs_subscription" });
-    expect(decideCanSubmit(5, false)).toEqual({ ok: false, reason: "needs_subscription" });
+    expect(decideCanSubmit(1, 0, false)).toEqual({ ok: false, reason: "needs_subscription" });
+    expect(decideCanSubmit(5, 0, false)).toEqual({ ok: false, reason: "needs_subscription" });
+  });
+  it("counts an in-flight submission against the free allowance", () => {
+    expect(decideCanSubmit(0, 1, false)).toEqual({ ok: false, reason: "needs_subscription" });
   });
   it("allows any submission with an active subscription", () => {
-    expect(decideCanSubmit(0, true)).toEqual({ ok: true });
-    expect(decideCanSubmit(9, true)).toEqual({ ok: true });
+    expect(decideCanSubmit(0, 0, true)).toEqual({ ok: true });
+    expect(decideCanSubmit(9, 2, true)).toEqual({ ok: true });
   });
 });
 ```
@@ -296,37 +320,121 @@ describe("decideCanSubmit", () => {
 Run: `pnpm vitest run tests/billing/paywall.test.ts`
 Expected: FAIL — `Cannot find module '../../src/billing/paywall'`
 
-- [ ] **Step 3: Write the paywall module**
+- [ ] **Step 3: Add the two count queries, then write the paywall module**
+
+Append to `src/db/queries/submissions.ts`:
+
+```ts
+/** In-flight = uploaded/analyzing/recommending and touched within the stale window. Mirrors create_submission(). */
+export async function countInFlightSubmissions(creatorId: string, staleMinutes: number): Promise<number> {
+  const since = new Date(Date.now() - staleMinutes * 60_000).toISOString();
+  const { count, error } = await createServiceClient()
+    .from("submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .in("status", ["uploaded", "analyzing", "recommending"])
+    .gte("updated_at", since);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+export async function countSubmissionsSince(creatorId: string, sinceIso: string): Promise<number> {
+  const { count, error } = await createServiceClient()
+    .from("submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .gte("created_at", sinceIso);
+  if (error) throw error;
+  return count ?? 0;
+}
+```
 
 ```ts
 // src/billing/paywall.ts
-import { countReadySubmissions } from "@/src/db/queries/submissions";
+import { countInFlightSubmissions, countReadySubmissions } from "@/src/db/queries/submissions";
 import { getActiveSubscription } from "@/src/db/queries/subscriptions";
+import { FREE_RESULTS_PER_CREATOR, LIMITS } from "@/src/shared/config";
 
 export type CanSubmit = { ok: true } | { ok: false; reason: "needs_subscription" };
 
-/** Pure rule: one free result per creator; after that an active subscription is required. */
-export function decideCanSubmit(readyCount: number, hasActiveSub: boolean): CanSubmit {
+/**
+ * UX pre-check. The database function create_submission() applies the same
+ * rule atomically at insert time; this only exists so the client can show the
+ * paywall before uploading 100 MB.
+ */
+export function decideCanSubmit(readyCount: number, inFlightCount: number, hasActiveSub: boolean): CanSubmit {
   if (hasActiveSub) return { ok: true };
-  if (readyCount >= 1) return { ok: false, reason: "needs_subscription" };
+  if (readyCount + inFlightCount >= FREE_RESULTS_PER_CREATOR) return { ok: false, reason: "needs_subscription" };
   return { ok: true };
 }
 
 export async function canSubmit(creatorId: string): Promise<CanSubmit> {
-  const [readyCount, sub] = await Promise.all([
+  const [readyCount, inFlight, sub] = await Promise.all([
     countReadySubmissions(creatorId),
+    countInFlightSubmissions(creatorId, LIMITS.inFlightStaleMinutes),
     getActiveSubscription(creatorId),
   ]);
-  return decideCanSubmit(readyCount, sub !== null);
+  return decideCanSubmit(readyCount, inFlight, sub !== null);
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/billing/paywall.test.ts`
-Expected: PASS (3 tests)
+Expected: PASS (4 tests)
 
-- [ ] **Step 5: Write the storage helpers**
+- [ ] **Step 5: Write the failing tests for the storage path check and the rate limiter**
+
+```ts
+// tests/media/storagePath.test.ts
+import { describe, expect, it } from "vitest";
+import { isExactStoragePath, storagePathFor } from "../../src/media/storage";
+
+const c = "11111111-1111-1111-1111-111111111111";
+const s = "22222222-2222-2222-2222-222222222222";
+
+describe("storagePathFor / isExactStoragePath", () => {
+  it("builds creator/submission.ext", () => {
+    expect(storagePathFor(c, s, "mov")).toBe(`${c}/${s}.mov`);
+  });
+  it("accepts only the exact path", () => {
+    expect(isExactStoragePath(`${c}/${s}.mov`, c, s, "mov")).toBe(true);
+    expect(isExactStoragePath(`${c}/${s}.mp4`, c, s, "mov")).toBe(false);
+    expect(isExactStoragePath(`${c}/other.mov`, c, s, "mov")).toBe(false);
+    expect(isExactStoragePath(`${c}/../${c}/${s}.mov`, c, s, "mov")).toBe(false);
+    expect(isExactStoragePath(`${c}/${s}.mov/`, c, s, "mov")).toBe(false);
+  });
+});
+```
+
+```ts
+// tests/billing/rateLimit.test.ts
+import { describe, expect, it } from "vitest";
+import { takeToken } from "../../src/billing/rateLimit";
+
+describe("takeToken", () => {
+  it("allows up to the limit inside the window, then refuses", () => {
+    const store = new Map<string, number[]>();
+    let now = 1_000_000;
+    for (let i = 0; i < 5; i++) expect(takeToken(store, "c1", 5, 60_000, now)).toBe(true);
+    expect(takeToken(store, "c1", 5, 60_000, now)).toBe(false);
+    now += 60_001;
+    expect(takeToken(store, "c1", 5, 60_000, now)).toBe(true);
+  });
+  it("keys are independent", () => {
+    const store = new Map<string, number[]>();
+    for (let i = 0; i < 5; i++) takeToken(store, "a", 5, 60_000, 0);
+    expect(takeToken(store, "b", 5, 60_000, 0)).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 6: Run tests to verify they fail**
+
+Run: `pnpm vitest run tests/media/storagePath.test.ts tests/billing/rateLimit.test.ts`
+Expected: FAIL — cannot find modules
+
+- [ ] **Step 7: Write the storage helpers**
 
 ```ts
 // src/media/storage.ts
@@ -339,6 +447,11 @@ export const VIDEO_BUCKET = "videos";
 
 export function storagePathFor(creatorId: string, submissionId: string, ext: string): string {
   return `${creatorId}/${submissionId}.${ext}`;
+}
+
+/** Exact string equality against the server-built path. No prefix logic, no normalisation. */
+export function isExactStoragePath(candidate: string, creatorId: string, submissionId: string, ext: string): boolean {
+  return candidate === storagePathFor(creatorId, submissionId, ext);
 }
 
 export async function getSignedUploadUrl(
@@ -355,13 +468,19 @@ export async function getSignedUploadUrl(
   return { path: data.path, token: data.token, signedUrl: data.signedUrl };
 }
 
-export async function objectExists(storagePath: string): Promise<boolean> {
+/** Size and type of a stored object, or null when it doesn't exist. */
+export async function objectInfo(
+  storagePath: string,
+): Promise<{ sizeBytes: number; mimeType: string | null } | null> {
   const supabase = createServiceClient();
   const dir = path.posix.dirname(storagePath);
   const name = path.posix.basename(storagePath);
   const { data, error } = await supabase.storage.from(VIDEO_BUCKET).list(dir, { search: name });
   if (error) throw new Error(`storage list failed: ${error.message}`);
-  return (data ?? []).some((o) => o.name === name);
+  const obj = (data ?? []).find((o) => o.name === name);
+  if (!obj) return null;
+  const meta = (obj.metadata ?? {}) as { size?: number; mimetype?: string };
+  return { sizeBytes: Number(meta.size ?? 0), mimeType: meta.mimetype ?? null };
 }
 
 /**
@@ -389,7 +508,55 @@ export async function getSignedPlaybackUrl(storagePath: string, seconds = 3600):
 }
 ```
 
-- [ ] **Step 6: Write the upload-url route**
+- [ ] **Step 8: Write the rate limiter**
+
+```ts
+// src/billing/rateLimit.ts
+import { countSubmissionsSince } from "@/src/db/queries/submissions";
+
+export const UPLOAD_URL_LIMIT = 5;
+export const UPLOAD_URL_WINDOW_MS = 60_000;
+
+/**
+ * Sliding-window token take. Pure over the store it is given so it is testable.
+ * The module-level store is PER SERVER INSTANCE: on Vercel each function
+ * instance has its own map, so this is a best-effort second guard. The
+ * database count in checkUploadRate() is the one that holds across instances.
+ */
+export function takeToken(
+  store: Map<string, number[]>,
+  key: string,
+  limit: number,
+  windowMs: number,
+  now = Date.now(),
+): boolean {
+  const recent = (store.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= limit) {
+    store.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  store.set(key, recent);
+  return true;
+}
+
+const issuances = new Map<string, number[]>();
+
+/** True when this creator may be issued another upload URL right now. */
+export async function checkUploadRate(creatorId: string): Promise<boolean> {
+  const since = new Date(Date.now() - UPLOAD_URL_WINDOW_MS).toISOString();
+  const created = await countSubmissionsSince(creatorId, since);
+  if (created >= UPLOAD_URL_LIMIT) return false;
+  return takeToken(issuances, creatorId, UPLOAD_URL_LIMIT, UPLOAD_URL_WINDOW_MS);
+}
+```
+
+- [ ] **Step 9: Run tests to verify they pass**
+
+Run: `pnpm vitest run tests/media/storagePath.test.ts tests/billing/rateLimit.test.ts`
+Expected: PASS (4 tests)
+
+- [ ] **Step 10: Write the upload-url route**
 
 ```ts
 // app/api/upload-url/route.ts
@@ -398,8 +565,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCreator } from "@/src/auth/session";
 import { canSubmit } from "@/src/billing/paywall";
+import { checkUploadRate } from "@/src/billing/rateLimit";
 import { getSignedUploadUrl } from "@/src/media/storage";
 import { LIMITS } from "@/src/shared/config";
+
+export const dynamic = "force-dynamic";
 
 const Body = z.object({
   ext: z.enum(["mp4", "mov", "webm", "m4v"]),
@@ -412,7 +582,11 @@ export async function POST(request: Request) {
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid_body", issues: parsed.error.issues }, { status: 400 });
+    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  }
+
+  if (!(await checkUploadRate(creator.id))) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
   const gate = await canSubmit(creator.id);
@@ -424,92 +598,158 @@ export async function POST(request: Request) {
 }
 ```
 
-- [ ] **Step 7: Typecheck and run all tests**
+- [ ] **Step 11: Typecheck and run all tests**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: typecheck exits 0; vitest PASS including `tests/billing/paywall.test.ts`
+Expected: typecheck exits 0; vitest PASS
 
-- [ ] **Step 8: Manual check with curl (signed-in cookie required, so use the browser instead)**
-
-In a browser signed in on `http://localhost:3000`, open devtools console and run:
+- [ ] **Step 12: Manual check (browser console while signed in on `http://localhost:3000`)**
 
 ```js
 await fetch("/api/upload-url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ext: "mp4", sizeBytes: 1000 }) }).then(r => r.json())
 ```
 
-Expected: `{ submissionId: "<uuid>", path: "<creatorId>/<uuid>.mp4", token: "...", signedUrl: "https://..." }`. Signed out, expected `401`.
+Expected: `{ submissionId: "<uuid>", path: "<creatorId>/<uuid>.mp4", token: "...", signedUrl: "https://..." }`. Signed out: `401`. Run it 6 times in a row: the 6th returns `429`.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add src/media/storage.ts src/billing/paywall.ts app/api/upload-url tests/billing
-git commit -m "Add signed upload URL route, storage helpers and paywall rule"
+git add src/media/storage.ts src/billing src/db/queries/submissions.ts app/api/upload-url tests/billing tests/media
+git commit -m "Add signed upload URL route, storage helpers, paywall pre-check and rate limit"
 ```
 
 ---
 
-### Task 1.3: Submission creation, pipeline trigger, status endpoint
+### Task 1.3: Submission creation (atomic paywall), in-route pipeline run, admin run route, status endpoint
 
 **Files:**
-- Create: `src/pipeline/run.ts` (stub for this phase)
+- Create: `src/pipeline/run.ts` (stub for this phase; Phase 2 fills the body, signature is final)
 - Create: `app/api/submissions/route.ts`
 - Create: `app/api/submissions/[id]/run/route.ts`
 - Create: `app/api/submissions/[id]/route.ts`
-- Modify: `.env.example` (add `INTERNAL_TOKEN`)
+- Create: `src/feedback/recommendationView.ts`
+- Test: `tests/feedback/recommendationView.test.ts`
 
 **Interfaces:**
-- Consumes: `getCreator()`, `isAdminEmail()`, `objectExists()`, `createSubmission()`, `getSubmission()`, `setSubmissionStatus()`, `logEvent()`, `env()`.
+- Consumes: `getCreator()`, `isAdmin()`, `isExactStoragePath()`, `objectInfo()`, `createSubmission()` (throws `PaywallError`), `claimSubmissionRun()`, `getSubmission()`, `listRecommendations()`, `countSubmissionsForCreator()`, `logEvent()`, `env()`, `waitUntil` from `@vercel/functions`.
 - Produces:
-  - `runSubmission(submissionId: string): Promise<void>` — Phase 2 replaces the body; signature is final.
-  - `POST /api/submissions` body `{ submissionId, path, creatorIntent }` → `201 { id }`
-  - `POST /api/submissions/[id]/run` header `x-internal-token` → `200 { ok: true }`
-  - `GET /api/submissions/[id]` → `200 { status, error, recommendations: [] }` | `404`
+  - `runSubmission(submissionId: string): Promise<void>` — never throws; claims the run via `claimSubmissionRun` first.
+  - `toRecommendationView(row: RecommendationRow): RecommendationView` (pure)
+  - `POST /api/submissions` body `{ submissionId, path, ext, creatorIntent }` → `201 { id }` | `200 { id }` (already existed) | `402 { reason }` | `400` | `401`. Runs the pipeline in-process via `waitUntil`; `maxDuration = 300`.
+  - `POST /api/submissions/[id]/run` header `x-internal-token` → `200 { ok: true }` | `409` (claim refused) — **admin retry only**.
+  - `GET /api/submissions/[id]` → `200 { status, error: "failed" | null, recommendations: RecommendationView[] }` | `404`. Raw error text never leaves the server.
 
-- [ ] **Step 1: Add `INTERNAL_TOKEN` to `.env.example`**
-
-Append:
-
-```
-# Shared secret so only this app can trigger pipeline runs. Generate: openssl rand -hex 32
-INTERNAL_TOKEN=
-```
-
-Also add a real random value to your local `.env.local`.
-
-- [ ] **Step 2: Write the pipeline stub**
+- [ ] **Step 1: Write the failing test for the view mapper**
 
 ```ts
-// src/pipeline/run.ts
-import { setSubmissionStatus } from "@/src/db/queries/submissions";
-import { logger } from "@/src/shared/logger";
+// tests/feedback/recommendationView.test.ts
+import { describe, expect, it } from "vitest";
+import { toRecommendationView } from "../../src/feedback/recommendationView";
 
-/**
- * Runs the full pipeline for a submission. Phase 1 stub: only advances the
- * status so the waiting page has something to poll. Phase 2 adds analysis,
- * Phase 3 adds recommendation.
- */
-export async function runSubmission(submissionId: string): Promise<void> {
-  logger.info("pipeline.start", { submissionId });
-  await setSubmissionStatus(submissionId, "analyzing");
+describe("toRecommendationView", () => {
+  it("exposes only creator-facing fields", () => {
+    const row = {
+      id: "r1", submission_id: "s1", candidate_id: "c1", rank: 1, direction_label: "Best fit",
+      title: "Song", artist: "Artist", start_seconds: 43, end_seconds: 58, explanation: "Why.",
+      spotify_url: "https://open.spotify.com/search/Song%20Artist", deezer_url: "https://deezer.com/track/1",
+      artwork_url: null, preview_url: null, selected: false, rejected: false, created_at: "2026-10-06T00:00:00Z",
+      explain_prompt_version: "explain-v1",
+    };
+    expect(toRecommendationView(row as never)).toEqual({
+      rank: 1, direction_label: "Best fit", title: "Song", artist: "Artist",
+      start_seconds: 43, end_seconds: 58, explanation: "Why.", artwork_url: null, preview_url: null,
+      spotify_url: "https://open.spotify.com/search/Song%20Artist", selected: false, rejected: false,
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm vitest run tests/feedback/recommendationView.test.ts`
+Expected: FAIL — cannot find module
+
+- [ ] **Step 3: Write the view mapper**
+
+```ts
+// src/feedback/recommendationView.ts
+import type { RecommendationRow } from "@/src/db/queries/recommendations";
+import { RecommendationView } from "@/src/shared/types";
+
+/** The ONLY shape that reaches the browser. Validated with Zod so a schema drift fails loudly. */
+export function toRecommendationView(row: RecommendationRow): RecommendationView {
+  // `selected` / `rejected` columns arrive with Phase 4's migration; until then the generated
+  // Row type lacks them. Remove this cast in Task 4.1.
+  const flags = row as { selected?: boolean | null; rejected?: boolean | null };
+  return RecommendationView.parse({
+    rank: row.rank,
+    direction_label: row.direction_label,
+    title: row.title,
+    artist: row.artist,
+    start_seconds: Number(row.start_seconds),
+    end_seconds: Number(row.end_seconds),
+    explanation: row.explanation,
+    artwork_url: row.artwork_url,
+    preview_url: row.preview_url,
+    spotify_url: row.spotify_url,
+    selected: flags.selected ?? false,
+    rejected: flags.rejected ?? false,
+  });
 }
 ```
 
-- [ ] **Step 3: Write the submission creation route**
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pnpm vitest run tests/feedback/recommendationView.test.ts`
+Expected: PASS (1 test)
+
+- [ ] **Step 5: Write the pipeline stub with the atomic claim**
+
+```ts
+// src/pipeline/run.ts
+import { claimSubmissionRun } from "@/src/db/queries/submissions";
+import { logger } from "@/src/shared/logger";
+
+/**
+ * Runs the full pipeline for a submission. Entered only through claimSubmissionRun(),
+ * an atomic conditional update, so two concurrent callers cannot both run it.
+ * Phase 1 stub: claim, log, return (status is now 'analyzing'). Phase 2 adds the
+ * analyze stage, Phase 3 adds recommend. Never throws.
+ */
+export async function runSubmission(submissionId: string): Promise<void> {
+  const claimed = await claimSubmissionRun(submissionId);
+  if (!claimed) {
+    logger.info("pipeline.claim_refused", { submissionId });
+    return;
+  }
+  logger.info("pipeline.start", { submissionId });
+}
+```
+
+- [ ] **Step 6: Write the submission creation route (runs the pipeline in-process)**
 
 ```ts
 // app/api/submissions/route.ts
+import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCreator } from "@/src/auth/session";
-import { createSubmission, countSubmissionsForCreator } from "@/src/db/queries/submissions";
+import { createSubmission, countSubmissionsForCreator, getSubmission } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
-import { objectExists } from "@/src/media/storage";
-import { env } from "@/src/shared/config";
+import { isExactStoragePath, objectInfo } from "@/src/media/storage";
+import { runSubmission } from "@/src/pipeline/run";
+import { LIMITS } from "@/src/shared/config";
+import { PaywallError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
+
+// The pipeline runs inside this request via waitUntil, so this route needs the full budget.
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 const Body = z.object({
   submissionId: z.string().uuid(),
-  path: z.string().min(1),
+  path: z.string().min(1).max(200),
+  ext: z.enum(["mp4", "mov", "webm", "m4v"]),
   creatorIntent: z.string().trim().max(300).nullable().optional(),
 });
 
@@ -518,25 +758,37 @@ export async function POST(request: Request) {
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) {
-    return NextResponse.json({ error: "invalid_body", issues: parsed.error.issues }, { status: 400 });
-  }
-  const { submissionId, path, creatorIntent } = parsed.data;
+  if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  const { submissionId, path, ext, creatorIntent } = parsed.data;
 
-  // The path must belong to this creator and the object must really exist.
-  if (!path.startsWith(`${creator.id}/`)) {
+  // Idempotent: a retried POST for an id this creator already owns returns it unchanged.
+  const existing = await getSubmission(submissionId);
+  if (existing) {
+    if (existing.creator_id !== creator.id) return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json({ id: existing.id }, { status: 200 });
+  }
+
+  // The path must be exactly the one the server issued for this creator + id + ext.
+  if (!isExactStoragePath(path, creator.id, submissionId, ext)) {
     return NextResponse.json({ error: "forbidden_path" }, { status: 403 });
   }
-  if (!(await objectExists(path))) {
-    return NextResponse.json({ error: "upload_not_found" }, { status: 400 });
-  }
+  const info = await objectInfo(path);
+  if (!info) return NextResponse.json({ error: "upload_not_found" }, { status: 400 });
+  if (info.sizeBytes > LIMITS.maxUploadBytes) return NextResponse.json({ error: "too_large" }, { status: 400 });
 
-  const submission = await createSubmission({
-    id: submissionId,
-    creatorId: creator.id,
-    videoPath: path,
-    creatorIntent: creatorIntent?.length ? creatorIntent : null,
-  });
+  let submission;
+  try {
+    submission = await createSubmission({
+      id: submissionId,
+      creatorId: creator.id,
+      videoPath: path,
+      creatorIntent: creatorIntent?.length ? creatorIntent : null,
+    });
+  } catch (err) {
+    if (err instanceof PaywallError) return NextResponse.json({ reason: err.reason }, { status: 402 });
+    logger.error("submission.create_failed", { submissionId, err: String(err) });
+    return NextResponse.json({ error: "create_failed" }, { status: 500 });
+  }
 
   await logEvent({ name: "submission_created", creatorId: creator.id, submissionId: submission.id });
   await logEvent({ name: "upload_completed", creatorId: creator.id, submissionId: submission.id });
@@ -544,67 +796,60 @@ export async function POST(request: Request) {
     await logEvent({ name: "returned_with_second_submission", creatorId: creator.id, submissionId: submission.id });
   }
 
-  // Fire the pipeline without awaiting it. On Vercel the function may be
-  // frozen once we return; `waitUntil` keeps the fetch alive. Locally it
-  // simply runs in the background.
-  const origin = new URL(request.url).origin;
-  const trigger = fetch(`${origin}/api/submissions/${submission.id}/run`, {
-    method: "POST",
-    headers: { "x-internal-token": env("INTERNAL_TOKEN") },
-  }).catch((err) => logger.error("pipeline.trigger_failed", { submissionId, err: String(err) }));
-
-  try {
-    const { waitUntil } = await import("@vercel/functions");
-    waitUntil(trigger);
-  } catch {
-    // @vercel/functions not available (local dev without the package): fire and forget.
-    void trigger;
-  }
+  // Run the pipeline in this function. waitUntil keeps the instance alive after the
+  // response is sent (Vercel); locally it resolves like a normal background promise.
+  waitUntil(
+    runSubmission(submission.id).catch((err) =>
+      logger.error("pipeline.unhandled", { submissionId: submission.id, err: String(err) }),
+    ),
+  );
 
   return NextResponse.json({ id: submission.id }, { status: 201 });
 }
 ```
 
-Install the helper so the import resolves on Vercel: `pnpm add @vercel/functions`.
+Known limitation (write it in README under "Known limitations"): `waitUntil` is not durable. If the instance dies mid-run the status stays in-flight; after `LIMITS.inFlightStaleMinutes` the claim becomes available again and the admin Retry (Phase 2) re-runs it.
 
-Risk note (document in README under "Known limitations"): if `@vercel/functions` is unavailable and the serverless function is frozen before the trigger request leaves, the pipeline never starts. The admin queue (Phase 4) has a Retry button that calls the run route directly, which covers this case.
-
-- [ ] **Step 4: Write the run route**
+- [ ] **Step 7: Write the admin-retry run route**
 
 ```ts
 // app/api/submissions/[id]/run/route.ts
 import { NextResponse } from "next/server";
+import { getSubmission } from "@/src/db/queries/submissions";
 import { runSubmission } from "@/src/pipeline/run";
 import { env } from "@/src/shared/config";
-import { logger } from "@/src/shared/logger";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
+/** Admin retry entry point. Protected by the shared INTERNAL_TOKEN; goes through the same atomic claim. */
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const token = request.headers.get("x-internal-token");
   if (!token || token !== env("INTERNAL_TOKEN")) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const { id } = await ctx.params;
-  try {
-    await runSubmission(id);
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    logger.error("pipeline.unhandled", { submissionId: id, err: String(err) });
-    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  const before = await getSubmission(id);
+  if (!before) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  await runSubmission(id); // never throws; refuses internally when the claim fails
+  const after = await getSubmission(id);
+  if (after && before.status === after.status && before.updated_at === after.updated_at) {
+    return NextResponse.json({ ok: false, error: "claim_refused" }, { status: 409 });
   }
+  return NextResponse.json({ ok: true });
 }
 ```
 
-- [ ] **Step 5: Write the status route**
+- [ ] **Step 8: Write the status route**
 
 ```ts
 // app/api/submissions/[id]/route.ts
 import { NextResponse } from "next/server";
-import { isAdminEmail } from "@/src/auth/admin";
-import { getCreator } from "@/src/auth/session";
+import { getCreator, isAdmin } from "@/src/auth/session";
+import { listRecommendations } from "@/src/db/queries/recommendations";
 import { getSubmission } from "@/src/db/queries/submissions";
+import { toRecommendationView } from "@/src/feedback/recommendationView";
 
 export const dynamic = "force-dynamic";
 
@@ -615,57 +860,64 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const submission = await getSubmission(id);
   if (!submission) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (submission.creator_id !== creator.id && !isAdmin(creator)) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
-  const isOwner = submission.creator_id === creator.id;
-  const isAdmin = isAdminEmail(creator.email, process.env.ADMIN_EMAILS ?? "");
-  if (!isOwner && !isAdmin) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const recommendations =
+    submission.status === "ready" ? (await listRecommendations(id)).map(toRecommendationView) : [];
 
   return NextResponse.json({
     status: submission.status,
-    error: submission.error,
-    recommendations: [], // Phase 3 fills this from the recommendations table
+    error: submission.status === "failed" ? "failed" : null, // never the raw message
+    recommendations,
   });
 }
 ```
 
-- [ ] **Step 6: Typecheck**
+- [ ] **Step 9: Typecheck and run tests**
 
-Run: `pnpm typecheck`
-Expected: exits 0
+Run: `pnpm typecheck && pnpm test`
+Expected: exits 0; PASS
 
-- [ ] **Step 7: Manual check of the run route token guard**
+- [ ] **Step 10: Manual check of the run route token guard**
 
 Run: `curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/api/submissions/00000000-0000-0000-0000-000000000000/run`
 Expected: `403`
 
 Run: `curl -s -X POST -H "x-internal-token: $(grep INTERNAL_TOKEN .env.local | cut -d= -f2)" http://localhost:3000/api/submissions/00000000-0000-0000-0000-000000000000/run`
-Expected: `{"ok":false,"error":"..."}` with a 500 (no such row) — proves the guard passed and `runSubmission` was called.
+Expected: `{"error":"not_found"}` with 404 — proves the guard passed.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add src/pipeline/run.ts app/api/submissions .env.example package.json pnpm-lock.yaml
-git commit -m "Add submission creation, pipeline trigger and status routes"
+git add src/pipeline/run.ts src/feedback/recommendationView.ts app/api/submissions tests/feedback
+git commit -m "Add atomic submission creation, in-route pipeline run, admin run route and status endpoint"
 ```
 
 ---
 
-### Task 1.4: UploadForm — pick video, sign in, upload with progress, create submission
+### Task 1.4: Sign in first, then UploadForm with resumable upload
 
 **Files:**
-- Create: `components/UploadForm.tsx`
+- Create: `components/fileExt.ts`
 - Create: `components/videoDuration.ts`
-- Create: `components/uploadWithProgress.ts`
+- Create: `components/upload.ts`
+- Create: `components/SignIn.tsx`
+- Create: `components/UploadForm.tsx`
 - Modify: `app/page.tsx`
+- Modify: `package.json` (add `tus-js-client`)
 - Test: `tests/components/fileExt.test.ts`
 
 **Interfaces:**
-- Consumes: `signInWithGoogle()` from `components/auth.ts`, `createBrowserClient()` from `src/db/client.ts`, `LIMITS` from `src/shared/config.ts`, `POST /api/upload-url`, `POST /api/submissions`.
+- Consumes: `signInWithGoogle()` from `components/auth.ts`, `createBrowserClient()` from `src/db/browser.ts`, `LIMITS` from `src/shared/config.ts`, `POST /api/upload-url`, `POST /api/submissions`.
 - Produces:
   - `fileExt(file: { name: string; type: string }): "mp4" | "mov" | "webm" | "m4v" | null` (pure)
   - `readVideoDuration(file: File): Promise<number>` (client)
-  - `uploadWithProgress(signedUrl: string, file: File, onProgress: (pct: number) => void): Promise<void>` (client, XHR PUT)
-  - `<UploadForm creator={Creator | null} resume={boolean} />`
+  - `uploadVideo(args: { file, path, token, signedUrl, onProgress }): Promise<void>` (client; TUS resumable above 6 MB, signed PUT at or below)
+  - `<SignIn />` — the signed-out landing: one "Continue with Google" button plus the retention line
+  - `<UploadForm creator={Creator} />` — only rendered when signed in
+- Product decision (ruling I6 default): sign-in happens BEFORE picking a file. Nothing is stashed across the OAuth redirect.
 
 - [ ] **Step 1: Write the failing test for extension detection**
 
@@ -754,19 +1006,33 @@ export function readVideoDuration(file: File): Promise<number> {
 }
 ```
 
-- [ ] **Step 6: Write the XHR uploader with progress**
+- [ ] **Step 6: Install tus and write the uploader**
 
-Supabase's `uploadToSignedUrl` does not expose progress in the browser, so PUT directly to the signed URL. The signed upload URL from `createSignedUploadUrl` accepts a PUT with the file body and the token in the `Authorization` header is not required because the token is embedded in the URL query (`?token=...`).
+Run: `pnpm add tus-js-client`
+
+Supabase Storage exposes a TUS endpoint at `/storage/v1/upload/resumable`. Chunks are exactly 6 MB; the user's access token authorises the write and the Storage INSERT policy (Phase 0, `0003_rls.sql`) restricts it to `{auth.uid()}/…` paths, which is why the client must use the server-issued `path` verbatim.
 
 ```ts
-// components/uploadWithProgress.ts
+// components/upload.ts
 "use client";
+import * as tus from "tus-js-client";
+import { createBrowserClient } from "@/src/db/browser";
 
-export function uploadWithProgress(
-  signedUrl: string,
-  file: File,
-  onProgress: (pct: number) => void,
-): Promise<void> {
+const SIX_MB = 6 * 1024 * 1024;
+
+export async function uploadVideo(args: {
+  file: File;
+  path: string;
+  token: string;
+  signedUrl: string;
+  onProgress: (pct: number) => void;
+}): Promise<void> {
+  if (args.file.size <= SIX_MB) return putToSignedUrl(args.signedUrl, args.file, args.onProgress);
+  return resumableUpload(args.file, args.path, args.onProgress);
+}
+
+/** Small files: one PUT to the signed upload URL (token is in the URL). */
+function putToSignedUrl(signedUrl: string, file: File, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", signedUrl, true);
@@ -775,67 +1041,110 @@ export function uploadWithProgress(
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText.slice(0, 200)}`));
-    };
-    xhr.onerror = () => reject(new Error("Upload failed: network error"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`upload_${xhr.status}`)));
+    xhr.onerror = () => reject(new Error("upload_network"));
+    xhr.onabort = () => reject(new Error("upload_aborted"));
     xhr.send(file);
+  });
+}
+
+/** Big files: TUS resumable upload with automatic retry, survives flaky cellular. */
+async function resumableUpload(file: File, objectName: string, onProgress: (pct: number) => void): Promise<void> {
+  const supabase = createBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) throw new Error("not_signed_in");
+
+  const endpoint = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/upload/resumable`;
+
+  await new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint,
+      retryDelays: [0, 1000, 3000, 5000],
+      chunkSize: SIX_MB, // Supabase requires exactly 6 MB chunks
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "x-upsert": "false",
+      },
+      metadata: {
+        bucketName: "videos",
+        objectName,
+        contentType: file.type || "video/mp4",
+        cacheControl: "3600",
+      },
+      onError: (err) => reject(err),
+      onProgress: (sent, total) => onProgress(Math.round((sent / total) * 100)),
+      onSuccess: () => resolve(),
+    });
+    // Resume a previous attempt of the same file if the browser kept its fingerprint.
+    upload.findPreviousUploads().then((prev) => {
+      if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
+      upload.start();
+    });
   });
 }
 ```
 
-Fallback: if the PUT returns 400 in testing, switch to the SDK call (no progress):
+- [ ] **Step 7: Write the signed-out landing**
 
-```ts
-const supabase = createBrowserClient();
-const { error } = await supabase.storage.from("videos").uploadToSignedUrl(path, token, file, { contentType: file.type });
-if (error) throw error;
+```tsx
+// components/SignIn.tsx
+"use client";
+import { useState } from "react";
+import { signInWithGoogle } from "./auth";
+
+export function SignIn() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex w-full max-w-md flex-col items-center gap-5">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await signInWithGoogle("/");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="w-full rounded-2xl bg-neutral-900 px-5 py-4 text-base font-semibold text-white disabled:opacity-60"
+      >
+        Continue with Google
+      </button>
+      <p className="px-4 text-center text-xs text-neutral-500">
+        Your video is stored privately and analysed by AI services to find your songs. Nothing is posted anywhere.
+      </p>
+    </div>
+  );
+}
 ```
 
-- [ ] **Step 7: Write the UploadForm component**
+- [ ] **Step 8: Write the UploadForm component (signed-in only)**
 
 ```tsx
 // components/UploadForm.tsx
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signInWithGoogle } from "./auth";
 import { fileExt } from "./fileExt";
 import { readVideoDuration } from "./videoDuration";
-import { uploadWithProgress } from "./uploadWithProgress";
+import { uploadVideo } from "./upload";
 import { LIMITS } from "@/src/shared/config";
 
-type Creator = { id: string; email: string } | null;
+type Creator = { id: string; email: string };
 type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
 
-const PENDING_KEY = "songfit.pending";
-
-export function UploadForm({ creator, resume }: { creator: Creator; resume: boolean }) {
+export function UploadForm({ creator }: { creator: Creator }) {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [intent, setIntent] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-
-  // Restore intent after the OAuth round-trip. The File cannot survive a redirect.
-  useEffect(() => {
-    if (!resume) return;
-    try {
-      const raw = sessionStorage.getItem(PENDING_KEY);
-      if (raw) {
-        const pending = JSON.parse(raw) as { intent?: string };
-        if (pending.intent) setIntent(pending.intent);
-        sessionStorage.removeItem(PENDING_KEY);
-      }
-    } catch {
-      /* sessionStorage unavailable: nothing to restore */
-    }
-  }, [resume]);
 
   useEffect(() => {
     if (!file) {
@@ -848,24 +1157,13 @@ export function UploadForm({ creator, resume }: { creator: Creator; resume: bool
   }, [file]);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] ?? null;
     setError(null);
-    setFile(f);
+    setFile(e.target.files?.[0] ?? null);
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!creator) {
-      try {
-        sessionStorage.setItem(PENDING_KEY, JSON.stringify({ intent }));
-      } catch {
-        /* ignore */
-      }
-      await signInWithGoogle("/?resume=1");
-      return;
-    }
 
     if (!file) {
       setError("Pick a video first.");
@@ -899,8 +1197,9 @@ export function UploadForm({ creator, resume }: { creator: Creator; resume: bool
         router.push("/subscribe");
         return;
       }
-      if (!urlRes.ok) throw new Error("Couldn't start the upload. Try again.");
-      const { submissionId, path, signedUrl } = (await urlRes.json()) as {
+      if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
+      if (!urlRes.ok) throw new Error("Upload didn't finish. Try again.");
+      const { submissionId, path, token, signedUrl } = (await urlRes.json()) as {
         submissionId: string;
         path: string;
         token: string;
@@ -909,20 +1208,25 @@ export function UploadForm({ creator, resume }: { creator: Creator; resume: bool
 
       setPhase("uploading");
       setProgress(0);
-      await uploadWithProgress(signedUrl, file, setProgress);
+      await uploadVideo({ file, path, token, signedUrl, onProgress: setProgress });
 
       setPhase("creating");
       const createRes = await fetch("/api/submissions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ submissionId, path, creatorIntent: intent.trim() || null }),
+        body: JSON.stringify({ submissionId, path, ext, creatorIntent: intent.trim() || null }),
       });
-      if (!createRes.ok) throw new Error("Upload finished but we couldn't save it. Try again.");
+      if (createRes.status === 402) {
+        router.push("/subscribe");
+        return;
+      }
+      if (!createRes.ok) throw new Error("Upload didn't finish. Try again.");
       const { id } = (await createRes.json()) as { id: string };
       router.push(`/results/${id}`);
     } catch (err) {
       setPhase("error");
-      setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
+      const msg = err instanceof Error ? err.message : "";
+      setError(msg.startsWith("Give it") || msg.startsWith("Upload didn't") ? msg : "Upload didn't finish. Try again.");
     }
   }
 
@@ -938,21 +1242,11 @@ export function UploadForm({ creator, resume }: { creator: Creator; resume: bool
           <video src={previewUrl} muted playsInline className="h-full w-full object-cover" />
         ) : (
           <div className="flex flex-col items-center gap-2 px-6 text-center">
-            <span className="text-lg font-semibold text-neutral-900">
-              {resume && !file ? "Pick your video again to continue" : "Tap to add your Reel"}
-            </span>
+            <span className="text-lg font-semibold text-neutral-900">Tap to add your Reel</span>
             <span className="text-sm text-neutral-500">MP4 or MOV, up to 3 minutes</span>
           </div>
         )}
-        <input
-          id="video"
-          ref={inputRef}
-          type="file"
-          accept="video/*"
-          className="sr-only"
-          onChange={onPick}
-          disabled={busy}
-        />
+        <input id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
       </label>
 
       {file && <p className="truncate text-center text-sm text-neutral-500">{file.name}</p>}
@@ -983,29 +1277,27 @@ export function UploadForm({ creator, resume }: { creator: Creator; resume: bool
         {phase === "checking" && "Checking your video"}
         {phase === "uploading" && `Uploading ${progress}%`}
         {phase === "creating" && "Almost there"}
-        {(phase === "idle" || phase === "error") && (creator ? "Find my songs" : "Find my songs")}
+        {(phase === "idle" || phase === "error") && "Find my songs"}
       </button>
+      <p className="text-center text-xs text-neutral-400">Signed in as {creator.email}</p>
     </form>
   );
 }
 ```
 
-- [ ] **Step 8: Wire the page**
+- [ ] **Step 9: Wire the page: sign-in first**
 
 ```tsx
 // app/page.tsx
 import { getCreator } from "@/src/auth/session";
 import { Logo } from "@/components/Logo";
+import { SignIn } from "@/components/SignIn";
 import { UploadForm } from "@/components/UploadForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ resume?: string }>;
-}) {
-  const [creator, params] = await Promise.all([getCreator(), searchParams]);
+export default async function HomePage() {
+  const creator = await getCreator();
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-8 px-4 pb-10 pt-10">
       <Logo />
@@ -1017,43 +1309,56 @@ export default async function HomePage({
           Upload your Reel and Songfit will find the songs that fit it best, and exactly which part to use.
         </p>
       </div>
-      <UploadForm creator={creator} resume={params.resume === "1"} />
+      {creator ? <UploadForm creator={creator} /> : <SignIn />}
     </main>
   );
 }
 ```
 
-- [ ] **Step 9: Typecheck and run tests**
+- [ ] **Step 10: Typecheck and run tests**
 
 Run: `pnpm typecheck && pnpm test`
 Expected: exits 0; PASS including `tests/components/fileExt.test.ts`
 
-- [ ] **Step 10: Manual check in the browser**
+- [ ] **Step 11: Manual check in the browser**
 
-1. `pnpm dev`, open `http://localhost:3000` signed out. Type an intent, tap "Find my songs". Expected: Google sign-in; on return the URL is `/?resume=1`, the intent is restored, the tap target says "Pick your video again to continue".
-2. Pick a short MP4, tap "Find my songs". Expected: button shows "Uploading NN%", then navigates to `/results/<uuid>`.
-3. In Supabase Studio, Storage → `videos` → `<creatorId>/<uuid>.mp4` exists; `submissions` has one row with `status = analyzing`.
+1. `pnpm dev`, open `http://localhost:3000` signed out. Expected: headline, subline, one "Continue with Google" button, the retention line. No file picker.
+2. Tap it → Google → back on `/` showing the upload form and "Signed in as …".
+3. Pick a 3 MB MP4, tap "Find my songs". Expected: "Uploading NN%", then `/results/<uuid>`.
+4. Pick a 40 MB MOV. Expected: progress climbs in ~6 MB steps (TUS), then `/results/<uuid>`. In Supabase Studio → Storage → `videos` → `<creatorId>/<uuid>.mov` exists; `submissions` has a row with `status = analyzing`.
+5. Toggle devtools → Network → Offline for 5 s during step 4, then back online. Expected: the upload resumes and completes.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
-git add components/UploadForm.tsx components/fileExt.ts components/videoDuration.ts components/uploadWithProgress.ts app/page.tsx tests/components
-git commit -m "Add upload form with Google sign-in, progress and submission creation"
+git add components/UploadForm.tsx components/SignIn.tsx components/fileExt.ts components/videoDuration.ts components/upload.ts app/page.tsx package.json pnpm-lock.yaml tests/components
+git commit -m "Add sign-in-first landing and resumable upload form"
 ```
 
 ---
 
-### Task 1.5: Waiting page with status polling
+### Task 1.5: Waiting page with status polling and an honest failed state
 
 **Files:**
 - Create: `app/results/[id]/page.tsx`
 - Create: `components/WaitingState.tsx`
+- Modify: `app/globals.css` (keyframes)
 
 **Interfaces:**
-- Consumes: `getCreator()`, `isAdminEmail()`, `getSubmission()`, `GET /api/submissions/[id]`.
-- Produces: `<WaitingState id={string} />`; `/results/[id]` renders waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
+- Consumes: `getCreator()`, `isAdmin()`, `getSubmission()`, `GET /api/submissions/[id]`.
+- Produces: `<WaitingState submissionId={string} initialStatus={string} />`; `/results/[id]` renders the waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
+- On `failed`: polling stops and the page says "Something went wrong on our side. We're on it." The admin Retry (Phase 2) puts it back in flight; the creator can reload.
 
-- [ ] **Step 1: Write the WaitingState client component**
+- [ ] **Step 1: Add the keyframes to `app/globals.css`**
+
+```css
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+```
+
+- [ ] **Step 2: Write the WaitingState client component**
 
 ```tsx
 // components/WaitingState.tsx
@@ -1068,26 +1373,34 @@ const SLOW_AFTER_MS = 240_000;
 
 type Status = "uploaded" | "analyzing" | "recommending" | "ready" | "failed";
 
-export function WaitingState({ id }: { id: string }) {
+export function WaitingState({ submissionId, initialStatus }: { submissionId: string; initialStatus: Status }) {
   const router = useRouter();
+  const [status, setStatus] = useState<Status>(initialStatus);
   const [lineIdx, setLineIdx] = useState(0);
   const [slow, setSlow] = useState(false);
   const startedAt = useRef(Date.now());
 
   useEffect(() => {
+    if (status === "failed") return;
     const t = setInterval(() => setLineIdx((i) => (i + 1) % LINES.length), LINE_MS);
     return () => clearInterval(t);
-  }, []);
+  }, [status]);
 
   useEffect(() => {
+    if (status === "failed") return;
     let cancelled = false;
     async function tick() {
       try {
-        const res = await fetch(`/api/submissions/${id}`, { cache: "no-store" });
+        const res = await fetch(`/api/submissions/${submissionId}`, { cache: "no-store" });
         if (res.ok) {
           const body = (await res.json()) as { status: Status };
-          if (body.status === "ready" && !cancelled) {
+          if (cancelled) return;
+          if (body.status === "ready") {
             router.refresh();
+            return;
+          }
+          if (body.status === "failed") {
+            setStatus("failed");
             return;
           }
         }
@@ -1101,7 +1414,16 @@ export function WaitingState({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, router]);
+  }, [submissionId, router, status]);
+
+  if (status === "failed") {
+    return (
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-lg font-medium text-neutral-900">Something went wrong on our side.</p>
+        <p className="text-sm text-neutral-500">We&apos;re on it. Check back in a bit.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
@@ -1114,35 +1436,17 @@ export function WaitingState({ id }: { id: string }) {
       {slow && (
         <p className="text-sm text-neutral-500">This is taking longer than usual, we&apos;ll keep trying.</p>
       )}
-      <style jsx global>{`
-        @keyframes slide {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(400%); }
-        }
-      `}</style>
     </div>
   );
 }
 ```
 
-If `styled-jsx` is not enabled in the scaffold, move the keyframes into `app/globals.css`:
-
-```css
-@keyframes slide {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
-}
-```
-
-and delete the `<style jsx global>` block.
-
-- [ ] **Step 2: Write the results page (waiting branch now, results branch in Phase 3)**
+- [ ] **Step 3: Write the results page (waiting branch now, results branch in Phase 3)**
 
 ```tsx
 // app/results/[id]/page.tsx
 import { notFound, redirect } from "next/navigation";
-import { isAdminEmail } from "@/src/auth/admin";
-import { getCreator } from "@/src/auth/session";
+import { getCreator, isAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { Logo } from "@/components/Logo";
 import { WaitingState } from "@/components/WaitingState";
@@ -1151,13 +1455,11 @@ export const dynamic = "force-dynamic";
 
 export default async function ResultsPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, creator] = await Promise.all([params, getCreator()]);
-  if (!creator) redirect(`/?next=${encodeURIComponent(`/results/${id}`)}`);
+  if (!creator) redirect("/");
 
   const submission = await getSubmission(id);
   if (!submission) notFound();
-  const isOwner = submission.creator_id === creator.id;
-  const isAdmin = isAdminEmail(creator.email, process.env.ADMIN_EMAILS ?? "");
-  if (!isOwner && !isAdmin) notFound();
+  if (submission.creator_id !== creator.id && !isAdmin(creator)) notFound();
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-10 px-4 pb-10 pt-10">
@@ -1166,30 +1468,33 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
         // Phase 3 replaces this block with the recommendation cards.
         <h1 className="text-2xl font-semibold text-neutral-900">Ready</h1>
       ) : (
-        <WaitingState id={id} />
+        <WaitingState
+          submissionId={id}
+          initialStatus={submission.status as "uploaded" | "analyzing" | "recommending" | "failed"}
+        />
       )}
     </main>
   );
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 4: Typecheck**
 
 Run: `pnpm typecheck`
 Expected: exits 0
 
-- [ ] **Step 4: Manual check**
+- [ ] **Step 5: Manual check**
 
 1. Upload a video (Task 1.4). Expected: `/results/<id>` shows the sliding bar and the rotating lines, changing every 4 s.
 2. In Supabase Studio, set that row's `status` to `ready`. Expected: within 3 s the page shows "Ready".
-3. Network tab: a `GET /api/submissions/<id>` every 3 s, `200`.
+3. Set it to `failed`. Expected: within 3 s the page shows "Something went wrong on our side." and the Network tab shows polling has stopped.
 4. Open the same URL in a private window signed in as a different Google account. Expected: 404.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add app/results components/WaitingState.tsx app/globals.css
-git commit -m "Add waiting page that polls submission status"
+git commit -m "Add waiting page with status polling and failed state"
 ```
 
 ---
@@ -1199,7 +1504,7 @@ git commit -m "Add waiting page that polls submission status"
 **Files:** none. Supabase dashboard + Google Cloud Console.
 
 **Interfaces:**
-- Produces: a working Google provider on the Supabase project, with redirect URLs for local and production.
+- Produces: a working Google provider on the Supabase project, with a tight redirect allowlist.
 
 - [ ] **Step 1: Google Cloud Console — OAuth consent screen**
 
@@ -1212,10 +1517,8 @@ git commit -m "Add waiting page that polls submission status"
 - [ ] **Step 2: Google Cloud Console — OAuth client**
 
 1. APIs & Services → Credentials → Create credentials → **OAuth client ID** → Application type **Web application**, name `Songfit web`.
-2. Authorized JavaScript origins: `http://localhost:3000`, `https://thissongfits.com`.
-3. Authorized redirect URIs:
-   - `https://<project-ref>.supabase.co/auth/v1/callback` (project ref from Supabase → Settings → General)
-   - `http://127.0.0.1:54321/auth/v1/callback` (local Supabase, only if using `supabase start`)
+2. Authorized JavaScript origins: `http://localhost:3000`, `https://thissongfits.com`. (Add the exact Vercel URL after Task 1.7.)
+3. Authorized redirect URIs: `https://<project-ref>.supabase.co/auth/v1/callback` (project ref from Supabase → Settings → General).
 4. Create. Copy the **Client ID** and **Client secret**.
 
 - [ ] **Step 3: Supabase dashboard — enable Google**
@@ -1224,49 +1527,116 @@ git commit -m "Add waiting page that polls submission status"
 2. Paste Client ID and Client secret. Save.
 3. Authentication → URL Configuration:
    - Site URL: `https://thissongfits.com`
-   - Redirect URLs (add each): `http://localhost:3000/auth/callback`, `http://localhost:3000/**`, `https://thissongfits.com/auth/callback`, `https://*.vercel.app/auth/callback`
+   - Redirect URLs (add each, no wildcards across hosts): `http://localhost:3000/**`, `https://thissongfits.com/**`. Task 1.7 adds the exact Vercel URL. For phone testing on the LAN add `http://<LAN-IP>:3000/**` and remove it after.
 4. Save.
 
 - [ ] **Step 4: Local env**
 
-In `.env.local` confirm `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` point at this project (or the local stack if using `supabase start`, in which case also enable Google in `supabase/config.toml` under `[auth.external.google]` with `enabled = true`, `client_id`, `secret` via env).
+In `.env.local` confirm `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` point at this project.
 
 - [ ] **Step 5: Manual verify**
 
-1. `pnpm dev`, open `http://localhost:3000`, tap "Find my songs".
-2. Expected: Google account chooser → consent → redirected to `http://localhost:3000/?resume=1`.
-3. Supabase → Authentication → Users shows your Gmail. Table `creators` has a matching row (created by `getCreator()` on the first server render after login).
+1. `pnpm dev`, open `http://localhost:3000`, tap "Continue with Google".
+2. Expected: Google account chooser → consent → redirected to `http://localhost:3000/` showing the upload form.
+3. Supabase → Authentication → Users shows your Gmail. Table `creators` has a matching row and `events` has one `signed_up` row for it.
+
+---
+
+### Task 1.7: Deploy to Vercel and run the phone test (ruling C7)
+
+**Files:**
+- Create: `app/api/health/route.ts`
+- Modify: `README.md` (Deploy section: the steps below)
+
+**Interfaces:**
+- Produces: a public Vercel URL running this branch, a verified 300 s function budget, and a submission created from an iPhone over cellular.
+
+- [ ] **Step 1: Write the health route that proves the function budget**
+
+```ts
+// app/api/health/route.ts
+import { NextResponse } from "next/server";
+
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
+/** GET /api/health?sleep=65 → waits that many seconds then returns 200. Proves maxDuration is honoured. */
+export async function GET(request: Request) {
+  const sleep = Math.min(Number(new URL(request.url).searchParams.get("sleep") ?? "0"), 290);
+  if (sleep > 0) await new Promise((r) => setTimeout(r, sleep * 1000));
+  return NextResponse.json({ ok: true, slept: sleep });
+}
+```
+
+Run locally: `curl -s "http://localhost:3000/api/health?sleep=2"` → `{"ok":true,"slept":2}`.
+
+- [ ] **Step 2: Push the repo to GitHub**
+
+```bash
+gh auth status || gh auth login
+gh repo create songfit --private --source=. --remote=origin --push
+```
+
+Expected: `origin` set, branch `mvp` pushed.
+
+- [ ] **Step 3: Create the Vercel project (Dylan signs in; Claude runs the commands)**
+
+```bash
+pnpm dlx vercel login
+pnpm dlx vercel link        # new project "songfit", framework Next.js, root "./"
+```
+
+In the Vercel dashboard → Project → Settings:
+- **Functions → Fluid Compute: ON** (required for 300 s on Hobby; Pro gives it by default). Codex's note stands: a commercial subscription app should be on Pro; Dylan decides by Wednesday.
+- **Environment Variables**: every key in `.env.example` with the production values (Supabase URL/anon/service role, Anthropic, OpenAI, `ADMIN_EMAILS`, `INTERNAL_TOKEN` = `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL` = the Vercel URL for now). Stripe keys are added in Phase 4.
+- **Git**: production branch `mvp` for now (switch to `main` when merging).
+
+```bash
+pnpm dlx vercel --prod
+```
+
+Expected: a URL like `https://songfit-<hash>.vercel.app` (note the stable project URL `https://songfit.vercel.app` if the name is free).
+
+- [ ] **Step 4: Prove the budget on Vercel**
+
+Run: `curl -s -m 120 "https://<vercel-url>/api/health?sleep=65"`
+Expected: `{"ok":true,"slept":65}` after ~65 s. A 504 or an empty response before 60 s means Fluid Compute is off or the plan caps functions at 60 s; fix that before continuing.
+
+- [ ] **Step 5: Point Supabase and Google at the Vercel URL**
+
+1. Supabase → Authentication → URL Configuration → Redirect URLs: add `https://<vercel-url>/**` (exact host).
+2. Google Cloud → the OAuth client → Authorized JavaScript origins: add `https://<vercel-url>`.
+
+- [ ] **Step 6: Phone test on cellular**
+
+On an iPhone with Wi-Fi OFF:
+1. Open `https://<vercel-url>` in Safari. Tap "Continue with Google" → sign in → upload form appears.
+2. Pick a 60 s MOV shot on the phone (HEVC, 1080p; typically 60–120 MB). Tap "Find my songs".
+3. Expected: progress climbs in steps, then the waiting page with rotating lines.
+4. Supabase Studio: `submissions` has the row with `status = analyzing`, `video_path = <creatorId>/<uuid>.mov`; `events` has `submission_created` and `upload_completed`; Storage → `videos` has the object with the right size.
+5. Vercel → Logs: `pipeline.start` for that id, no errors.
+
+If the upload fails above 50 MB with a Storage error about file size, the Supabase project is on the Free plan (50 MB object limit). Either upgrade to Pro (Dylan's decision, ruling C7) or lower `LIMITS.maxUploadBytes` to `50 * 1024 * 1024` and the copy to "under 50 MB" until then.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/api/health README.md
+git commit -m "Add health route and Vercel deploy steps; phone upload verified on cellular"
+git push
+```
 
 ---
 
 ### Phase 1 demo check
 
-- [ ] **Step 1: Find your Mac's LAN IP and start dev on all interfaces**
-
-Run: `ipconfig getifaddr en0` → e.g. `192.168.1.23`
-Run: `pnpm dev -H 0.0.0.0`
-
-Add `http://192.168.1.23:3000/auth/callback` to Supabase → Authentication → URL Configuration → Redirect URLs, and `http://192.168.1.23:3000` to the Google OAuth client's authorized JavaScript origins (Google rejects private IPs as redirect URIs, but the redirect goes to Supabase, not to the app, so only the origin matters).
-
-- [ ] **Step 2: From a phone on the same Wi-Fi**
-
-1. Open `http://192.168.1.23:3000` in Safari or Chrome.
-2. Tap "Find my songs" → Google sign-in → back on the page with "Pick your video again to continue".
-3. Tap the big target → camera roll → pick a ~20 s video. Tap "Find my songs".
-4. Expected: progress climbs to 100%, then the waiting page with rotating lines.
-
-- [ ] **Step 3: Confirm the data**
-
-In Supabase Studio → Table editor:
-- `submissions`: one row, `status = analyzing`, `video_path = <creatorId>/<uuid>.mov` (iPhone) or `.mp4`, `creator_intent` matches what you typed or is null.
-- `events`: two rows for that `submission_id`: `submission_created` and `upload_completed`.
-- Storage → `videos`: the object exists and plays via a signed URL.
-
-If the status stays `uploaded`, the trigger fetch didn't reach the run route: check the dev server log for `pipeline.trigger_failed` and verify `INTERNAL_TOKEN` is set in `.env.local`.
-
-- [ ] **Step 4: Commit any fixes found during the demo**
+- [ ] `pnpm typecheck && pnpm test && pnpm build` all exit 0 (the end-of-phase gate).
+- [ ] Task 1.7 Step 6 passed on a real iPhone over cellular against the Vercel URL, including a > 50 MB file (or the 50 MB cap was consciously set).
+- [ ] Signed out, the landing shows only the Google button; `GET /api/submissions/<id>` for someone else's id returns 404; a sixth `/api/upload-url` within a minute returns 429.
+- [ ] A second creator account that already has one `ready` row (set it by hand in Studio) gets 402 from `/api/upload-url` and lands on `/subscribe` (page exists in Phase 4; a 404 there is fine for now, the redirect is what's being checked).
+- [ ] Commit any fixes found during the demo:
 
 ```bash
 git add -A
-git commit -m "Phase 1: upload to stored submission working on mobile"
+git commit -m "Phase 1: upload to stored submission working from a phone on the deployed app"
 ```

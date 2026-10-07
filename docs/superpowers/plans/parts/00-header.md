@@ -23,7 +23,16 @@
 - Mobile first. Upload accepts `video/*`, max 150 MB, max 180 s.
 - Paywall: one free result per creator; a second submission requires `subscriptions.status = 'active'`.
 - Price $9.99/month via Stripe Payment Link. Domain thissongfits.com. `ADMIN_EMAILS` gates `/admin`.
-- Deezer ≤ 8 requests/s. iTunes only for the final 3.
+- Deezer: bounded concurrency 6, 8 s timeout per request, 429/5xx retried with backoff. iTunes only for a missing preview, and only when `PREVIEWS_ENABLED`.
+- Previews are optional and never block a result. `PREVIEWS_ENABLED = false` at launch (C8).
+- Candidate matching: normalised title EQUALITY (no prefix matching); version markers (live, remix, acoustic, sped up, slowed, instrumental, karaoke, cover, demo) must match on both sides; featuring credits stripped before artist comparison; no splitting on "and". Store provider canonical title/artist. Dedupe verified by deezer_id.
+- Sections: candidates carry `anchor_seconds`. Alignment to a video moment T is claimed only when the final window contains the anchor and `anchor − start = T` is feasible; otherwise keep the window and set `aligned_to_moment = null`. Anchor ≥ track duration drops the candidate. No clamping-and-pretending.
+- Rank 1 is always labeled "Best fit". Browser receives only `RecommendationView`.
+- Paywall is enforced atomically in the `create_submission()` SQL function (ready + in-flight < FREE_RESULTS_PER_CREATOR unless subscribed). The submissions table has NO authenticated insert policy.
+- One runner (`runSubmission`), entered via an atomic claim (`claimSubmissionRun`). The submit route runs it with `waitUntil` and `maxDuration = 300`; the run route exists for admin retry only.
+- Stripe: process → activate/update from the Stripe object's current status → record event id. Never record before processing. Validate price id against `STRIPE_PRICE_ID`. No email fallback.
+- Every milestone event carries `creatorId` and `submissionId` when known.
+- End of every phase: `pnpm typecheck && pnpm test && pnpm build` must pass before the next phase starts. Phases 1 and 2 end with a DEPLOYED phone test.
 - Run `pnpm typecheck && pnpm test` before every commit. Commit after every task with an imperative message.
 - Do not build: carousels, "more like this" beyond an event, catalog retrieval, trend feeds, queues, cron, charts.
 
@@ -36,6 +45,8 @@
 | 2 Analysis | Admin inspector shows the structured analysis, transcript and music brief for a real uploaded video. |
 | 3 Engine → results | Full loop: upload → 3 real songs with sections and reasons on the results page, previews play. |
 | 4 Feedback, paywall, admin, launch | Use this / Not for me recorded; second upload hits the $9.99 paywall; Stripe webhook activates; metrics page shows the funnel; live on thissongfits.com. |
+
+Codex reviewed this plan on 2026-10-06 (`docs/review/02-codex-review.md`); the rulings in `docs/review/03-claude-rulings.md` are applied throughout. Where a task's text and the Global Constraints disagree, the constraints win.
 
 ---
 
@@ -164,27 +175,33 @@ export type AnalysisResult = z.infer<typeof AnalysisResult>;
 
 export const DirectionTag = z.enum(["safe", "current", "unexpected"]);
 export type DirectionTag = z.infer<typeof DirectionTag>;
+/** Labels for ranks 2–3 by primary direction. Rank 1 is ALWAYS "Best fit" regardless of direction. */
 export const DIRECTION_LABEL: Record<DirectionTag, string> = {
-  safe: "Best fit", current: "More current", unexpected: "Unexpected",
+  safe: "Safe bet", current: "More current", unexpected: "Unexpected",
 };
+export const BEST_FIT_LABEL = "Best fit";
 
 export const GeneratedCandidate = z.object({
   title: z.string(),
   artist: z.string(),
   proposed_start: z.number().min(0),
   proposed_end: z.number().min(0),
+  anchor_seconds: z.number().min(0),   // the model's claimed musical hit (chorus entry, drop) inside the window
+  section_is_vocal: z.boolean(),       // does the proposed section carry lead vocals
   section_reason: z.string(),
   fit_reason: z.string(),
-  direction: DirectionTag,
+  directions: z.array(DirectionTag).min(1), // every generation direction that proposed it (dedupe keeps all)
 });
 export type GeneratedCandidate = z.infer<typeof GeneratedCandidate>;
 
 export const VerifiedCandidate = GeneratedCandidate.extend({
   deezer_id: z.string(),
+  canonical_title: z.string(),        // provider's title, stored verbatim
+  canonical_artist: z.string(),
   duration_seconds: z.number(),
   artwork_url: z.string().nullable(),
   deezer_url: z.string(),
-  preview_url: z.string().nullable(),
+  preview_url: z.string().nullable(), // null when previews are disabled (config.PREVIEWS_ENABLED)
 });
 export type VerifiedCandidate = z.infer<typeof VerifiedCandidate>;
 
@@ -202,9 +219,10 @@ export type ScoredCandidate = z.infer<typeof ScoredCandidate>;
 
 export const Pick = ScoredCandidate.extend({
   rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  direction_label: z.string(),
+  direction_label: z.string(),        // rank 1 is always "Best fit"; ranks 2–3 get DIRECTION_LABEL of their primary direction
   start_seconds: z.number(),
   end_seconds: z.number(),
+  aligned_to_moment: z.number().nullable(), // video time T the anchor was aligned to, or null when no alignment was claimed
 });
 export type Pick = z.infer<typeof Pick>;
 
@@ -215,6 +233,23 @@ export const FinalRecommendation = Pick.extend({
 });
 export type FinalRecommendation = z.infer<typeof FinalRecommendation>;
 
+/** The ONLY shape sent to the browser. No scores, reasons, directions or provider internals. */
+export const RecommendationView = z.object({
+  rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  direction_label: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  start_seconds: z.number(),
+  end_seconds: z.number(),
+  explanation: z.string(),
+  artwork_url: z.string().nullable(),
+  preview_url: z.string().nullable(),
+  spotify_url: z.string(),
+  selected: z.boolean(),
+  rejected: z.boolean(),
+});
+export type RecommendationView = z.infer<typeof RecommendationView>;
+
 export const SubmissionStatus = z.enum(["uploaded","analyzing","recommending","ready","failed"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
 ```
@@ -222,8 +257,10 @@ export type SubmissionStatus = z.infer<typeof SubmissionStatus>;
 `src/shared/config.ts` exports:
 
 ```ts
-export const MODELS = { analysis: "claude-fable-5-1", candidates: "claude-fable-5-1", scoring: "claude-fable-5-1", explain: "claude-sonnet-5-5", whisper: "whisper-1" } as const;
-export const LIMITS = { maxUploadBytes: 150 * 1024 * 1024, maxDurationSeconds: 180, maxFrames: 60, frameWidth: 512, candidatesPerDirection: 25, deezerRps: 8, sectionMin: 12, sectionMax: 20, sectionDefault: 15, pipelineBudgetMs: 280_000 } as const;
+export const MODELS = { analysis: "claude-fable-5-1", candidates: "claude-sonnet-5-5", scoring: "claude-sonnet-5-5", explain: "claude-sonnet-5-5", whisper: "whisper-1" } as const;
+export const LIMITS = { maxUploadBytes: 150 * 1024 * 1024, maxDurationSeconds: 180, maxFrames: 60, frameWidth: 512, candidatesPerDirection: 25, deezerConcurrency: 6, deezerTimeoutMs: 8_000, sectionMin: 12, sectionMax: 20, sectionDefault: 15, pipelineBudgetMs: 280_000, modelTimeoutMs: 120_000, inFlightStaleMinutes: 6 } as const;
+export const PREVIEWS_ENABLED = false; // C8 ruling: no audio previews at launch unless Dylan enables
+export const FREE_RESULTS_PER_CREATOR = 1;
 export const CONTENT_CATEGORIES = ["fashion","beauty","fitness","travel","food","lifestyle","comedy","music","dance","education","business","gaming","pets","family","other"] as const;
 export function env(name: string): string; // throws if missing
 ```
@@ -257,7 +294,9 @@ export async function canSubmit(creatorId: string): Promise<{ ok: true } | { ok:
 // auth
 export async function getCreator(): Promise<{ id: string; email: string } | null>;
 export async function requireAdmin(): Promise<{ id: string; email: string }>; // throws/redirects if not in ADMIN_EMAILS
-// db queries follow the pattern: getSubmission(id), createSubmission({...}), setSubmissionStatus(id, status, error?), upsertAnalysis(...), replaceCandidates(submissionId, rows), replaceRecommendations(submissionId, rows), listSubmissions(), insertEvent(...), getActiveSubscription(creatorId), activateSubscription(...)
+// db queries follow the pattern: getSubmission(id), createSubmission({ id, creatorId, videoPath, creatorIntent }) [calls the create_submission() SQL function which enforces the paywall atomically and throws "needs_subscription"], claimSubmissionRun(id) [atomic conditional status update, returns row or null], setSubmissionStatus(id, status, error?), upsertAnalysis(...), getAnalysisRow(id), getAnalysis(id) → { analysis, brief, row }, replaceCandidates(submissionId, rows: CandidateInsert[]), replaceRecommendations(submissionId, rows: RecommendationInsert[]), listRecommendations(submissionId), listSubmissions() → SubmissionWithCreator[], insertEvent(...), getActiveSubscription(creatorId), activateSubscription(...), recordStripeEvent(id, type) [AFTER successful processing]
+// logger: `export const logger = { info, warn, error }` — the name is `logger` everywhere.
+// json: `export function extractJson(text: string): unknown` — strips fences, finds first `{` or `[`, JSON.parse, throws with raw text attached. Callers pass the result to Zod.
 ```
 
 ---

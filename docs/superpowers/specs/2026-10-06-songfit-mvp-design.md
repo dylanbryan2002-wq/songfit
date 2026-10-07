@@ -197,3 +197,32 @@ today; a second source (vector retrieval over song_segments) merges in later.
 `sections/` is a separate module to be replaced by audio-structure analysis.
 `song_trend_signals` is empty; the Instagram Audio API is the first feed to
 add. "More like this" and carousels are events and UI only, no engine change.
+
+## 10. Revisions after Codex review (2026-10-06 evening)
+
+Codex reviewed the plan (`docs/review/02-codex-review.md`); Claude's rulings
+are in `docs/review/03-claude-rulings.md`. Spec-level changes:
+
+- **Sign-in first.** The upload screen shows "Continue with Google" as the
+  first tap; the upload form appears after sign-in. Replaces §3's
+  sign-in-on-submit flow (a File cannot survive the OAuth redirect).
+- **Previews off at launch** (`PREVIEWS_ENABLED = false`) pending a
+  decision on Deezer/Apple API terms. Cards show title, artist, section,
+  reason and an "Open in Spotify" search link. Deezer is used only to verify
+  the song exists and get its duration.
+- **Section honesty.** Each candidate carries an explicit musical anchor;
+  alignment to a video moment is claimed only when feasible. Results page
+  footer: "Sections are our best estimate. Check it against the track."
+- **Paywall is atomic** in a Postgres function at submission creation.
+  Rate limit on upload-url issuance.
+- **One pipeline runner** entered through an atomic claim; the submit route
+  runs it with `waitUntil`; the run route is admin-retry only.
+- **Failure state** is shown honestly ("Something went wrong on our side.
+  We're on it.") instead of polling forever.
+- **Stripe**: process, then record the event; price id validated; no email
+  fallback; Customer Portal link for cancellation; thanks page waits for
+  the webhook before saying "You're in".
+- **Models**: Fable for video analysis; Sonnet for candidates, scoring and
+  explanations (cost).
+- **Resumable uploads** (TUS) for files over 6 MB.
+- **Deployed phone tests** at the end of Phases 1 and 2, not at the end.

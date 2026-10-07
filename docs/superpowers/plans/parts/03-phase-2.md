@@ -1,10 +1,10 @@
 ## Phase 2 — Analysis
 
-**Demo when done:** upload a real Reel; status moves `uploaded → analyzing → recommending`; `/admin/submissions/[id]` shows the video, a sensible structured analysis, the transcript and a music brief.
+**Demo when done:** a real Reel uploaded from an iPhone over cellular to the DEPLOYED app moves `uploaded → analyzing → recommending`; `/admin/submissions/[id]` shows the video, a sensible structured analysis, the transcript and a music brief. `pnpm typecheck && pnpm test && pnpm build` pass.
 
-Assumes Phases 0–1 delivered: scaffold, `src/shared/{types,config,errors,logger}.ts`, `src/db/queries/*` (`getSubmission`, `setSubmissionStatus`, `upsertAnalysis`, `getAnalysis`, `listSubmissions`, `updateSubmission`), `src/media/storage.ts` (`downloadToTmp`, `getSignedPlaybackUrl`), `src/feedback/events.ts` (`logEvent`), `src/auth/session.ts` (`requireAdmin`), and a stub `src/pipeline/run.ts`.
+Assumes Phase 0 delivered: `src/shared/{types,config,errors,logger}.ts` (`logger` is the export name), `src/shared/json.ts` (`extractJson(text): unknown` — strips fences, finds the first `{` or `[`, `JSON.parse`, throws with the raw text attached), `src/shared/anthropic.ts` (`callClaude`, used by Phase 3's text-only stages; Task 2.3 keeps its own client because it sends image blocks), `src/db/queries/*` (`getSubmission`, `setSubmissionStatus(id, status, error?)`, `claimSubmissionRun(id)`, `updateSubmission`, `upsertAnalysis`, `getAnalysisRow`, `getAnalysis`, `listRecommendations`, `listSubmissions`), the `video_analyses.content_category` column, and `submissions.updated_at` (used by `claimSubmissionRun`). Assumes Phase 1 delivered `src/media/storage.ts` (`downloadToTmp` into a fresh private dir, `getSignedPlaybackUrl`), `src/feedback/events.ts` (`logEvent`), `src/auth/session.ts` (`requireAdmin`), and a stub `src/pipeline/run.ts`.
 
-`PipelineError` (from Phase 0, `src/shared/errors.ts`) has the shape:
+`PipelineError` (Phase 0, `src/shared/errors.ts`) has the shape:
 
 ```ts
 export class PipelineError extends Error {
@@ -14,6 +14,8 @@ export class PipelineError extends Error {
   }
 }
 ```
+
+Deadline convention used by every stage in this phase (and by Phase 3): the runner computes `deadlineAt = started + LIMITS.pipelineBudgetMs` and passes `{ deadlineAt }` down. A stage never starts a model call or subprocess whose default timeout would overrun `deadlineAt`; it shortens the timeout to the remaining time via the `timeoutFor()` helper (Task 2.1), so the function always fails cleanly with time left to persist `failed`.
 
 ---
 
@@ -27,10 +29,13 @@ export class PipelineError extends Error {
 - Modify: `package.json` (add deps)
 
 **Interfaces:**
-- Consumes: `LIMITS` from `src/shared/config.ts`; `PipelineError` from `src/shared/errors.ts`.
+- Consumes: `LIMITS` from `src/shared/config.ts`; `PipelineError` from `src/shared/errors.ts`; `logger`.
 - Produces:
   ```ts
-  export async function extractMedia(videoPath: string, workDir?: string): Promise<{
+  export async function extractMedia(
+    videoPath: string,
+    opts?: { workDir?: string; deadlineAt?: number },
+  ): Promise<{
     durationSeconds: number;
     frames: { time: number; path: string }[];
     audioPath: string | null;
@@ -38,7 +43,11 @@ export class PipelineError extends Error {
   }>;
   export function pickFps(durationSeconds: number, maxFrames: number): number;
   export function frameTimestamps(count: number, fps: number): number[];
+  /** min(defaultMs, time left until deadlineAt), never below 1000 ms; defaultMs when no deadline */
+  export function timeoutFor(defaultMs: number, deadlineAt: number | undefined, now?: number): number;
   ```
+- Subprocess timeouts (ruling C3): ffprobe 20 s, ffmpeg frames 90 s, ffmpeg audio 60 s. A timed-out process is killed and surfaces as `PipelineError("analyze", "ffmpeg timeout: <step>")`.
+- iPhone input: Safari hands us `.mov` containing HEVC (H.265). The `ffmpeg-static` builds decode HEVC, so no transcoding step is needed; the Phase 2 deployed test (Task 2.7) proves it on Vercel.
 
 - [ ] **Step 1: Install the ffmpeg binaries**
 
@@ -55,7 +64,7 @@ Expected: both appear in `package.json` dependencies. `node -e "console.log(requ
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { pickFps, frameTimestamps } from "../../src/media/extractHelpers";
+import { pickFps, frameTimestamps, timeoutFor } from "../../src/media/extractHelpers";
 
 describe("pickFps", () => {
   it("uses 1 fps for short videos", () => {
@@ -84,6 +93,18 @@ describe("frameTimestamps", () => {
     expect(frameTimestamps(0, 1)).toEqual([]);
   });
 });
+
+describe("timeoutFor", () => {
+  it("returns the default when there is no deadline", () => {
+    expect(timeoutFor(90_000, undefined, 0)).toBe(90_000);
+  });
+  it("shortens to the remaining time when the deadline is closer", () => {
+    expect(timeoutFor(90_000, 50_000, 20_000)).toBe(30_000);
+  });
+  it("never drops below 1000 ms", () => {
+    expect(timeoutFor(90_000, 10, 5)).toBe(1000);
+  });
+});
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -108,12 +129,22 @@ export function frameTimestamps(count: number, fps: number): number[] {
   for (let i = 0; i < count; i++) out.push(Math.round((i / fps) * 1000) / 1000);
   return out;
 }
+
+/**
+ * Timeout to hand a subprocess or SDK call: the step's default, shortened to whatever
+ * is left before the pipeline deadline, floored at 1 s so a call always gets a chance
+ * to fail with a real error rather than a zero timeout.
+ */
+export function timeoutFor(defaultMs: number, deadlineAt: number | undefined, now: number = Date.now()): number {
+  if (deadlineAt === undefined) return defaultMs;
+  return Math.max(1000, Math.min(defaultMs, deadlineAt - now));
+}
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/media/extractHelpers.test.ts`
-Expected: PASS (7 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 6: Write extractMedia**
 
@@ -121,7 +152,6 @@ Expected: PASS (7 tests)
 
 ```ts
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -130,9 +160,9 @@ import ffprobeStatic from "ffprobe-static";
 import { LIMITS } from "../shared/config";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
-import { pickFps, frameTimestamps } from "./extractHelpers";
+import { pickFps, frameTimestamps, timeoutFor } from "./extractHelpers";
 
-const run = promisify(execFile);
+const TIMEOUTS = { probe: 20_000, frames: 90_000, audio: 60_000 } as const;
 
 function bin(): { ffmpeg: string; ffprobe: string } {
   if (!ffmpegPath) throw new PipelineError("analyze", "ffmpeg binary not found");
@@ -141,34 +171,56 @@ function bin(): { ffmpeg: string; ffprobe: string } {
   return { ffmpeg: ffmpegPath, ffprobe };
 }
 
-async function probeDuration(ffprobe: string, input: string): Promise<number> {
-  const { stdout } = await run(ffprobe, [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "json",
-    input,
-  ]);
+/**
+ * Runs a binary with a hard timeout. On timeout Node sends SIGKILL to the child and
+ * rejects with `killed: true`; we translate that into a PipelineError so the runner
+ * records "ffmpeg timeout: <step>" instead of an opaque signal name.
+ */
+function run(file: string, args: string[], step: string, timeoutMs: number): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ stdout: String(stdout) });
+        const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+        if (e.killed || e.signal === "SIGKILL") {
+          return reject(new PipelineError("analyze", `ffmpeg timeout: ${step} (${timeoutMs} ms)`));
+        }
+        reject(new PipelineError("analyze", `${step} failed: ${e.message}`, String(stderr).slice(0, 2000)));
+      },
+    );
+  });
+}
+
+async function probeDuration(ffprobe: string, input: string, deadlineAt?: number): Promise<number> {
+  const { stdout } = await run(
+    ffprobe,
+    ["-v", "error", "-show_entries", "format=duration", "-of", "json", input],
+    "ffprobe duration",
+    timeoutFor(TIMEOUTS.probe, deadlineAt),
+  );
   const parsed = JSON.parse(stdout) as { format?: { duration?: string } };
   const d = Number(parsed.format?.duration);
   if (!Number.isFinite(d) || d <= 0) throw new PipelineError("analyze", "could not read video duration", stdout);
   return d;
 }
 
-async function hasAudioStream(ffprobe: string, input: string): Promise<boolean> {
-  const { stdout } = await run(ffprobe, [
-    "-v", "error",
-    "-select_streams", "a",
-    "-show_streams",
-    "-of", "json",
-    input,
-  ]);
+async function hasAudioStream(ffprobe: string, input: string, deadlineAt?: number): Promise<boolean> {
+  const { stdout } = await run(
+    ffprobe,
+    ["-v", "error", "-select_streams", "a", "-show_streams", "-of", "json", input],
+    "ffprobe streams",
+    timeoutFor(TIMEOUTS.probe, deadlineAt),
+  );
   const parsed = JSON.parse(stdout) as { streams?: unknown[] };
   return Array.isArray(parsed.streams) && parsed.streams.length > 0;
 }
 
 export async function extractMedia(
   videoPath: string,
-  workDir?: string,
+  opts: { workDir?: string; deadlineAt?: number } = {},
 ): Promise<{
   durationSeconds: number;
   frames: { time: number; path: string }[];
@@ -176,37 +228,48 @@ export async function extractMedia(
   workDir: string;
 }> {
   const { ffmpeg, ffprobe } = bin();
-  const dir = workDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "songfit-")));
+  const { deadlineAt } = opts;
+  const dir = opts.workDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "songfit-")));
   await fs.mkdir(dir, { recursive: true });
 
-  const durationSeconds = await probeDuration(ffprobe, videoPath);
+  const durationSeconds = await probeDuration(ffprobe, videoPath, deadlineAt);
   if (durationSeconds > LIMITS.maxDurationSeconds) {
     throw new PipelineError("analyze", `video too long: ${Math.round(durationSeconds)}s > ${LIMITS.maxDurationSeconds}s`);
   }
 
   const fps = pickFps(durationSeconds, LIMITS.maxFrames);
   const framePattern = path.join(dir, "frame_%03d.jpg");
-  await run(ffmpeg, [
-    "-hide_banner", "-loglevel", "error",
-    "-i", videoPath,
-    "-vf", `fps=${fps},scale=${LIMITS.frameWidth}:-2`,
-    "-q:v", "4",
-    framePattern,
-  ]);
+  await run(
+    ffmpeg,
+    [
+      "-hide_banner", "-loglevel", "error",
+      "-i", videoPath,
+      "-vf", `fps=${fps},scale=${LIMITS.frameWidth}:-2`,
+      "-q:v", "4",
+      framePattern,
+    ],
+    "ffmpeg frames",
+    timeoutFor(TIMEOUTS.frames, deadlineAt),
+  );
   const names = (await fs.readdir(dir)).filter((n) => /^frame_\d{3}\.jpg$/.test(n)).sort();
   const times = frameTimestamps(names.length, fps);
   const frames = names.map((n, i) => ({ time: times[i], path: path.join(dir, n) }));
   if (frames.length === 0) throw new PipelineError("analyze", "no frames extracted");
 
   let audioPath: string | null = null;
-  if (await hasAudioStream(ffprobe, videoPath)) {
+  if (await hasAudioStream(ffprobe, videoPath, deadlineAt)) {
     audioPath = path.join(dir, "audio.wav");
-    await run(ffmpeg, [
-      "-hide_banner", "-loglevel", "error",
-      "-i", videoPath,
-      "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
-      audioPath,
-    ]);
+    await run(
+      ffmpeg,
+      [
+        "-hide_banner", "-loglevel", "error",
+        "-i", videoPath,
+        "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
+        audioPath,
+      ],
+      "ffmpeg audio",
+      timeoutFor(TIMEOUTS.audio, deadlineAt),
+    );
   }
 
   logger.info("media.extracted", { durationSeconds, frames: frames.length, fps, audio: audioPath !== null });
@@ -214,7 +277,9 @@ export async function extractMedia(
 }
 ```
 
-- [ ] **Step 7: Write the integration test (skips when binaries are missing)**
+- [ ] **Step 7: Write the integration test (runs for real; skips only when the binary path is null)**
+
+`ffmpeg-static` is a hard dependency, so this test runs in every environment that ran `pnpm install`. The only skip is when the package resolved no binary for this platform — and then it prints a loud warning so nobody mistakes a skip for a pass.
 
 `tests/media/extract.integration.test.ts`:
 
@@ -225,14 +290,16 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import ffmpegPath from "ffmpeg-static";
 
 const run = promisify(execFile);
+const ffmpeg: string | null = (ffmpegPath as string | null) ?? null;
 
-let ffmpeg: string | null = null;
-try {
-  ffmpeg = (await import("ffmpeg-static")).default as string | null;
-} catch {
-  ffmpeg = null;
+if (!ffmpeg) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "\n!!! ffmpeg-static resolved NO binary for this platform. extract.integration is SKIPPED, which is NOT a pass. Fix the install before trusting Phase 2.\n",
+  );
 }
 
 describe.skipIf(!ffmpeg)("extractMedia (integration)", () => {
@@ -262,13 +329,31 @@ describe.skipIf(!ffmpeg)("extractMedia (integration)", () => {
     const stat = await fs.stat(out.audioPath!);
     expect(stat.size).toBeGreaterThan(1000);
   });
+
+  it("fails with a PipelineError timeout when the deadline leaves too little time", async () => {
+    const { extractMedia } = await import("../../src/media/extract");
+    // A 170 s 720p clip takes several seconds to decode for frames. With ~1.5 s left before the
+    // deadline, ffprobe (fast) succeeds but the frames step is capped near the 1 s floor and is killed.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "songfit-long-"));
+    const long = path.join(dir, "long.mp4");
+    await run(ffmpeg!, [
+      "-hide_banner", "-loglevel", "error",
+      "-f", "lavfi", "-i", "testsrc=duration=170:size=1280x720:rate=30",
+      "-pix_fmt", "yuv420p", "-preset", "ultrafast", long,
+    ]);
+    await expect(extractMedia(long, { deadlineAt: Date.now() + 1500 })).rejects.toMatchObject({
+      name: "PipelineError",
+      stage: "analyze",
+      message: expect.stringMatching(/timeout/),
+    });
+  }, 60_000);
 });
 ```
 
 - [ ] **Step 8: Run all media tests**
 
 Run: `pnpm vitest run tests/media`
-Expected: PASS. If `ffmpeg-static` failed to download its binary, the integration suite reports `skipped`; otherwise 8 tests pass.
+Expected: PASS, 12 tests, no "SKIPPED" warning in the output. If the warning prints, stop and fix `pnpm install` (re-run it; check the network) — do not proceed on a skipped integration suite.
 
 Manual check if you want to see the frames: `ls $(node -e "console.log(require('os').tmpdir())")/songfit-*/` after running the test.
 
@@ -277,7 +362,7 @@ Manual check if you want to see the frames: `ls $(node -e "console.log(require('
 ```bash
 pnpm typecheck && pnpm test
 git add package.json pnpm-lock.yaml src/media/extract.ts src/media/extractHelpers.ts tests/media
-git commit -m "Add ffmpeg media extraction for frames and audio"
+git commit -m "Add ffmpeg media extraction with hard timeouts"
 ```
 
 ---
@@ -289,12 +374,17 @@ git commit -m "Add ffmpeg media extraction for frames and audio"
 - Test: `tests/analysis/transcribe.test.ts`
 
 **Interfaces:**
-- Consumes: `MODELS.whisper` from config; `env("OPENAI_API_KEY")`.
+- Consumes: `MODELS.whisper` from config; `env("OPENAI_API_KEY")`; `timeoutFor` from `src/media/extractHelpers.ts`.
 - Produces:
   ```ts
-  export async function transcribe(audioPath: string | null, client?: OpenAI): Promise<string>;
-  export function hasDialogue(transcript: string): boolean;
+  export type TranscriptSegment = { start: number; end: number; text: string };
+  export type Transcript = { text: string; segments: TranscriptSegment[] };
+  export async function transcribe(
+    audioPath: string | null,
+    opts?: { client?: OpenAI; deadlineAt?: number },
+  ): Promise<Transcript>;
   ```
+- Ruling I9: there is NO word-count dialogue heuristic. Whisper returns whatever words it hears — spoken or sung. Whether speech is *spoken dialogue* is decided by the analysis model in Task 2.3 from the timestamped transcript plus the frames; `dialogue_present` is its answer.
 
 - [ ] **Step 1: Install the OpenAI SDK**
 
@@ -308,27 +398,39 @@ pnpm add openai
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { hasDialogue, transcribe } from "../../src/analysis/transcribe";
-
-describe("hasDialogue", () => {
-  it("is false for empty", () => expect(hasDialogue("")).toBe(false));
-  it("is false under 5 words", () => expect(hasDialogue("yeah ok so um")).toBe(false));
-  it("is true at 5 words", () => expect(hasDialogue("this is my new fit")).toBe(true));
-  it("ignores surrounding whitespace", () => expect(hasDialogue("  a b c d e  ")).toBe(true));
-});
+import { transcribe } from "../../src/analysis/transcribe";
 
 describe("transcribe", () => {
-  it("returns empty string when there is no audio", async () => {
-    expect(await transcribe(null)).toBe("");
+  it("returns an empty transcript when there is no audio", async () => {
+    expect(await transcribe(null)).toEqual({ text: "", segments: [] });
   });
-  it("calls Whisper and trims the result", async () => {
-    const create = vi.fn().mockResolvedValue("  hello world  ");
+
+  it("calls Whisper with verbose_json and maps text + segments", async () => {
+    const create = vi.fn().mockResolvedValue({
+      text: "  this is my new fit  ",
+      segments: [
+        { start: 0.0, end: 1.4, text: " this is " },
+        { start: 1.4, end: 2.9, text: " my new fit " },
+      ],
+    });
     const client = { audio: { transcriptions: { create } } } as unknown as import("openai").default;
-    const text = await transcribe(__filename, client);
-    expect(text).toBe("hello world");
+    const t = await transcribe(__filename, { client });
+    expect(t.text).toBe("this is my new fit");
+    expect(t.segments).toEqual([
+      { start: 0, end: 1.4, text: "this is" },
+      { start: 1.4, end: 2.9, text: "my new fit" },
+    ]);
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "whisper-1", response_format: "text" }),
+      expect.objectContaining({ model: "whisper-1", response_format: "verbose_json" }),
+      expect.objectContaining({ timeout: expect.any(Number) }),
     );
+  });
+
+  it("tolerates a response with no segments array", async () => {
+    const create = vi.fn().mockResolvedValue({ text: "hello" });
+    const client = { audio: { transcriptions: { create } } } as unknown as import("openai").default;
+    const t = await transcribe(__filename, { client });
+    expect(t).toEqual({ text: "hello", segments: [] });
   });
 });
 ```
@@ -347,6 +449,12 @@ import fs from "node:fs";
 import OpenAI from "openai";
 import { MODELS, env } from "../shared/config";
 import { logger } from "../shared/logger";
+import { timeoutFor } from "../media/extractHelpers";
+
+export type TranscriptSegment = { start: number; end: number; text: string };
+export type Transcript = { text: string; segments: TranscriptSegment[] };
+
+const WHISPER_TIMEOUT_MS = 60_000;
 
 let singleton: OpenAI | null = null;
 function defaultClient(): OpenAI {
@@ -354,37 +462,46 @@ function defaultClient(): OpenAI {
   return singleton;
 }
 
-/** Speech only. Returns "" when there is no audio track. */
-export async function transcribe(audioPath: string | null, client?: OpenAI): Promise<string> {
-  if (!audioPath) return "";
-  const c = client ?? defaultClient();
-  const result = await c.audio.transcriptions.create({
-    file: fs.createReadStream(audioPath),
-    model: MODELS.whisper,
-    response_format: "text",
-  });
-  const text = String(result).trim();
-  logger.info("analysis.transcribed", { chars: text.length });
-  return text;
-}
+/**
+ * Words Whisper hears, spoken or sung, with segment timestamps. Returns an empty
+ * transcript when there is no audio track. Does NOT decide whether this is dialogue —
+ * the analysis model does (Task 2.3).
+ */
+export async function transcribe(
+  audioPath: string | null,
+  opts: { client?: OpenAI; deadlineAt?: number } = {},
+): Promise<Transcript> {
+  if (!audioPath) return { text: "", segments: [] };
+  const c = opts.client ?? defaultClient();
+  const result = (await c.audio.transcriptions.create(
+    {
+      file: fs.createReadStream(audioPath),
+      model: MODELS.whisper,
+      response_format: "verbose_json",
+    },
+    { timeout: timeoutFor(WHISPER_TIMEOUT_MS, opts.deadlineAt) },
+  )) as { text?: string; segments?: { start: number; end: number; text: string }[] };
 
-export function hasDialogue(transcript: string): boolean {
-  const words = transcript.trim().split(/\s+/).filter(Boolean);
-  return words.length >= 5;
+  const text = (result.text ?? "").trim();
+  const segments: TranscriptSegment[] = Array.isArray(result.segments)
+    ? result.segments.map((s) => ({ start: s.start, end: s.end, text: s.text.trim() }))
+    : [];
+  logger.info("analysis.transcribed", { chars: text.length, segments: segments.length });
+  return { text, segments };
 }
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/analysis/transcribe.test.ts`
-Expected: PASS (6 tests)
+Expected: PASS (3 tests)
 
 - [ ] **Step 6: Commit**
 
 ```bash
 pnpm typecheck && pnpm test
 git add package.json pnpm-lock.yaml src/analysis/transcribe.ts tests/analysis/transcribe.test.ts
-git commit -m "Add Whisper transcription with dialogue detection"
+git commit -m "Add Whisper transcription with timestamped segments"
 ```
 
 ---
@@ -393,22 +510,29 @@ git commit -m "Add Whisper transcription with dialogue detection"
 
 **Files:**
 - Create: `src/analysis/analyzeVideo.ts`
-- Create: `src/shared/json.ts`
-- Test: `tests/shared/json.test.ts`
 - Test: `tests/analysis/analyzeVideo.test.ts`
 
 **Interfaces:**
-- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `PipelineError`.
+- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `LIMITS.modelTimeoutMs`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `extractJson` from `src/shared/json.ts` (Phase 0); `PipelineError`; `timeoutFor`; `TranscriptSegment` from Task 2.2.
 - Produces:
   ```ts
-  export const PROMPT_VERSION = "analyze-v1";
+  export const PROMPT_VERSION = "analyze-v2";
+  export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
+  export type AnalyzeInput = {
+    frames: { time: number; base64: string }[];
+    transcript: string;
+    transcriptSegments: TranscriptSegment[];
+    creatorIntent: string | null;
+    durationSeconds: number;
+  };
   export async function analyzeVideo(
-    input: { frames: { time: number; base64: string }[]; transcript: string; creatorIntent: string | null; durationSeconds: number },
-    client?: Anthropic,
+    input: AnalyzeInput,
+    opts?: { client?: Anthropic; deadlineAt?: number },
   ): Promise<AnalysisResult & { raw: string }>;
-  // src/shared/json.ts
-  export function extractJson(text: string): string;
   ```
+- Ruling C1: parse = `extractJson` → Zod. One retry carrying the Zod error, then `PipelineError("analyze", "model output invalid", raw)`. Nothing is silently dropped or defaulted.
+- Ruling I9: the prompt distinguishes spoken dialogue from singing/lyrics; `dialogue_present` is true only for spoken words.
+- `important_moments[].type` must come from `MOMENT_TYPES` (the Zod schema keeps `type: z.string()`; we enforce the list with a refinement here so the engine's alignment rule in Phase 3 can match on `main_visual_reveal | climax | transition | beat_cut`).
 
 - [ ] **Step 1: Install the Anthropic SDK**
 
@@ -416,61 +540,9 @@ git commit -m "Add Whisper transcription with dialogue detection"
 pnpm add @anthropic-ai/sdk
 ```
 
-- [ ] **Step 2: Write the failing test for extractJson**
+(No-op if Phase 0 already added it for `src/shared/anthropic.ts`.)
 
-`tests/shared/json.test.ts`:
-
-```ts
-import { describe, it, expect } from "vitest";
-import { extractJson } from "../../src/shared/json";
-
-describe("extractJson", () => {
-  it("returns unfenced JSON untouched", () => {
-    expect(extractJson('{"a":1}')).toBe('{"a":1}');
-  });
-  it("strips ```json fences", () => {
-    expect(extractJson('```json\n{"a":1}\n```')).toBe('{"a":1}');
-  });
-  it("strips bare ``` fences", () => {
-    expect(extractJson('```\n{"a":1}\n```')).toBe('{"a":1}');
-  });
-  it("takes the first { to the last } when there is prose around it", () => {
-    expect(extractJson('Here you go:\n{"a":{"b":2}}\nThanks')).toBe('{"a":{"b":2}}');
-  });
-  it("throws when no object is present", () => {
-    expect(() => extractJson("no json here")).toThrow();
-  });
-});
-```
-
-- [ ] **Step 3: Run test to verify it fails**
-
-Run: `pnpm vitest run tests/shared/json.test.ts`
-Expected: FAIL with `Cannot find module '../../src/shared/json'`
-
-- [ ] **Step 4: Implement extractJson**
-
-`src/shared/json.ts`:
-
-```ts
-/** Pulls a single JSON object out of model text: strips code fences and surrounding prose. */
-export function extractJson(text: string): string {
-  let t = text.trim();
-  const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  if (fence) t = fence[1].trim();
-  const start = t.indexOf("{");
-  const end = t.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) throw new Error("no JSON object found in model output");
-  return t.slice(start, end + 1);
-}
-```
-
-- [ ] **Step 5: Run test to verify it passes**
-
-Run: `pnpm vitest run tests/shared/json.test.ts`
-Expected: PASS (5 tests)
-
-- [ ] **Step 6: Write the failing tests for analyzeVideo**
+- [ ] **Step 2: Write the failing tests for analyzeVideo**
 
 `tests/analysis/analyzeVideo.test.ts`:
 
@@ -512,7 +584,7 @@ const validPayload = {
 function fakeClient(responses: string[]): { client: Anthropic; create: ReturnType<typeof vi.fn> } {
   const create = vi.fn();
   for (const r of responses) {
-    create.mockResolvedValueOnce({ content: [{ type: "text", text: r }] });
+    create.mockResolvedValueOnce({ content: [{ type: "text", text: r }], stop_reason: "end_turn" });
   }
   return { client: { messages: { create } } as unknown as Anthropic, create };
 }
@@ -520,6 +592,7 @@ function fakeClient(responses: string[]): { client: Anthropic; create: ReturnTyp
 const input = {
   frames: [{ time: 0, base64: "AAAA" }, { time: 1, base64: "BBBB" }],
   transcript: "",
+  transcriptSegments: [],
   creatorIntent: null,
   durationSeconds: 12,
 };
@@ -527,70 +600,123 @@ const input = {
 describe("analyzeVideo", () => {
   it("parses a valid response into AnalysisResult", async () => {
     const { client, create } = fakeClient([JSON.stringify(validPayload)]);
-    const out = await analyzeVideo(input, client);
+    const out = await analyzeVideo(input, { client });
     expect(out.analysis.content_category).toBe("fashion");
     expect(out.brief.fields.energy).toBe(0.72);
     expect(out.transcript).toBe("");
     expect(out.prompt_version).toBe(PROMPT_VERSION);
     expect(create).toHaveBeenCalledTimes(1);
-    const call = create.mock.calls[0][0];
-    expect(call.model).toBeDefined();
+    const [params, reqOpts] = create.mock.calls[0];
+    expect(params.model).toBeDefined();
+    expect(reqOpts).toEqual(expect.objectContaining({ timeout: expect.any(Number) }));
     // two image blocks, each preceded by a timestamp label
-    const content = call.messages[0].content as { type: string; text?: string }[];
+    const content = params.messages[0].content as { type: string; text?: string }[];
     expect(content.filter((b) => b.type === "image")).toHaveLength(2);
     expect(content.some((b) => b.type === "text" && b.text?.includes("t=1.0s"))).toBe(true);
   });
 
   it("accepts fenced JSON", async () => {
     const { client } = fakeClient(["```json\n" + JSON.stringify(validPayload) + "\n```"]);
-    const out = await analyzeVideo(input, client);
+    const out = await analyzeVideo(input, { client });
     expect(out.analysis.summary).toContain("NYC");
+  });
+
+  it("renders transcript segments with timestamps into the prompt", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo(
+      {
+        ...input,
+        transcript: "okay so here is the fit",
+        transcriptSegments: [{ start: 2.1, end: 4.0, text: "okay so here is the fit" }],
+      },
+      { client },
+    );
+    const content = create.mock.calls[0][0].messages[0].content as { type: string; text?: string }[];
+    const joined = content.map((b) => b.text ?? "").join("\n");
+    expect(joined).toContain("[2.1–4.0] okay so here is the fit");
   });
 
   it("retries once when the first response fails validation, then succeeds", async () => {
     const bad = JSON.stringify({ analysis: { summary: "x" }, brief: {} });
     const { client, create } = fakeClient([bad, JSON.stringify(validPayload)]);
-    const out = await analyzeVideo(input, client);
+    const out = await analyzeVideo(input, { client });
     expect(out.analysis.content_category).toBe("fashion");
     expect(create).toHaveBeenCalledTimes(2);
     const retryMessages = create.mock.calls[1][0].messages;
-    const lastText = JSON.stringify(retryMessages);
-    expect(lastText).toContain("did not match the schema");
+    expect(JSON.stringify(retryMessages)).toContain("did not match the schema");
+  });
+
+  it("rejects an important_moments type outside MOMENT_TYPES (then retries)", async () => {
+    const wrongType = JSON.parse(JSON.stringify(validPayload));
+    wrongType.analysis.important_moments[0].type = "vibe_shift";
+    const { client, create } = fakeClient([JSON.stringify(wrongType), JSON.stringify(validPayload)]);
+    const out = await analyzeVideo(input, { client });
+    expect(out.analysis.important_moments[0].type).toBe("main_visual_reveal");
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it("throws PipelineError with raw text after two invalid responses", async () => {
     const bad = "{\"nope\": true}";
     const { client } = fakeClient([bad, bad]);
-    await expect(analyzeVideo(input, client)).rejects.toMatchObject({
+    await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
       name: "PipelineError",
       stage: "analyze",
       raw: bad,
     });
   });
+
+  it("throws PipelineError when the response is not JSON at all, twice", async () => {
+    const { client } = fakeClient(["Sorry, I cannot see the video.", "Still nothing."]);
+    await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
+      name: "PipelineError",
+      stage: "analyze",
+      raw: "Still nothing.",
+    });
+  });
 });
 ```
 
-- [ ] **Step 7: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `pnpm vitest run tests/analysis/analyzeVideo.test.ts`
 Expected: FAIL with `Cannot find module '../../src/analysis/analyzeVideo'`
 
-- [ ] **Step 8: Implement analyzeVideo with the full prompt**
+- [ ] **Step 4: Implement analyzeVideo with the full prompt**
 
 `src/analysis/analyzeVideo.ts`:
 
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { MODELS, CONTENT_CATEGORIES, env } from "../shared/config";
+import { MODELS, LIMITS, CONTENT_CATEGORIES, env } from "../shared/config";
 import { VideoAnalysis, MusicBrief, type AnalysisResult } from "../shared/types";
 import { PipelineError } from "../shared/errors";
 import { extractJson } from "../shared/json";
 import { logger } from "../shared/logger";
+import { timeoutFor } from "../media/extractHelpers";
+import type { TranscriptSegment } from "./transcribe";
 
-export const PROMPT_VERSION = "analyze-v1";
+export const PROMPT_VERSION = "analyze-v2";
 
-const ModelOutput = z.object({ analysis: VideoAnalysis, brief: MusicBrief });
+export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
+const momentTypeSet = new Set<string>(MOMENT_TYPES);
+
+/** Shared VideoAnalysis, tightened: moment types must come from MOMENT_TYPES. */
+const StrictVideoAnalysis = VideoAnalysis.extend({
+  important_moments: VideoAnalysis.shape.important_moments.refine(
+    (ms) => ms.every((m) => momentTypeSet.has(m.type)),
+    { message: `important_moments[].type must be one of: ${MOMENT_TYPES.join(", ")}` },
+  ),
+});
+const ModelOutput = z.object({ analysis: StrictVideoAnalysis, brief: MusicBrief });
+
+export type AnalyzeInput = {
+  frames: { time: number; base64: string }[];
+  transcript: string;
+  transcriptSegments: TranscriptSegment[];
+  creatorIntent: string | null;
+  durationSeconds: number;
+};
 
 let singleton: Anthropic | null = null;
 function defaultClient(): Anthropic {
@@ -601,16 +727,16 @@ function defaultClient(): Anthropic {
 const SYSTEM_PROMPT = `You are Songfit's video analyst. You watch short-form videos (Reels, TikToks, Shorts) and produce a precise, structured understanding of the content plus a music brief that a music supervisor could act on.
 
 Rules:
-- You are given sampled frames labelled with their timestamp (t=Ns), the transcript of any speech, the video duration, and optionally what the creator wants the video to feel like.
-- IGNORE any music that may already be in the video. Treat it as silent except for speech. Never mention existing music.
+- You are given sampled frames labelled with their timestamp (t=Ns), a timestamped transcript of any words heard (spoken OR sung), the video duration, and optionally what the creator wants the video to feel like.
+- IGNORE any music that may already be in the video. Treat it as silent except for speech. Never mention existing music. Lyrics heard in the transcript belong to that existing music and are NOT dialogue.
 - Describe what actually happens: people, setting, actions, visual aesthetic, story, motion, cuts, pacing, energy, emotional arc.
-- important_moments: list the moments a song should react to, each with a timestamp in seconds taken from the frame labels: scene changes, the main visual reveal, a climax, a beat where energy shifts. Use type values like "scene_change", "main_visual_reveal", "climax", "energy_shift", "text_overlay", "ending". Include at most 6.
+- dialogue_present: true ONLY if a person speaks words meant to be heard by the viewer (talking to camera, voiceover, conversation). Singing, rapping along, or lyrics from background music are NOT dialogue. Use the frames (is someone talking to camera?) together with the transcript to decide. If unsure, prefer false and mention the uncertainty in the brief text.
+- important_moments: the moments a song should react to, each with a timestamp in seconds taken from the frame labels. type must be exactly one of: ${MOMENT_TYPES.join(", ")}. Use main_visual_reveal for the single biggest reveal (outfit, before/after, product, location), climax for the emotional or energetic peak, transition for a hard visual transition, beat_cut for a rhythmic cut pattern starting, scene_change for a location/scene change, text_overlay for a text card that carries meaning. Include at most 6. Include at least one if the video has any identifiable peak.
 - content_category must be exactly one of: ${CONTENT_CATEGORIES.join(", ")}.
 - energy is one of: low, medium, medium-high, high. pacing is one of: slow, medium, fast.
-- dialogue_present is true only if someone speaks words meant to be heard (transcript has real speech).
 - The music brief combines WHAT THE VIDEO IS with WHAT THE CREATOR WANTS IT TO BECOME. If the creator gave no intent, infer the most likely intended feel from the content and say in the brief text that it was inferred.
 - brief.text is 3–6 sentences in plain language, written for a human music supervisor: the feel, the energy, the cultural register (current vs timeless, mainstream vs niche), vocal considerations given any dialogue, and where in the video a musical lift or hit should land (reference timestamps).
-- brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present, desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
+- brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either — choose instrumental or "either with no vocals over speech" when dialogue_present is true), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present (same value as analysis.dialogue_present), desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
 
 Output exactly ONE JSON object with this shape and nothing else, no prose, no code fences:
 {
@@ -625,7 +751,7 @@ Output exactly ONE JSON object with this shape and nothing else, no prose, no co
     "energy": "low" | "medium" | "medium-high" | "high",
     "pacing": "slow" | "medium" | "fast",
     "dialogue_present": boolean,
-    "important_moments": [{ "time": number, "type": string, "note"?: string }]
+    "important_moments": [{ "time": number, "type": "${MOMENT_TYPES.join('" | "')}", "note"?: string }]
   },
   "brief": {
     "text": string,
@@ -645,12 +771,16 @@ Output exactly ONE JSON object with this shape and nothing else, no prose, no co
 
 type Block = Anthropic.Messages.ContentBlockParam;
 
-function buildUserContent(input: {
-  frames: { time: number; base64: string }[];
-  transcript: string;
-  creatorIntent: string | null;
-  durationSeconds: number;
-}): Block[] {
+function renderTranscript(input: AnalyzeInput): string {
+  if (input.transcriptSegments.length > 0) {
+    return input.transcriptSegments
+      .map((s) => `[${s.start.toFixed(1)}–${s.end.toFixed(1)}] ${s.text}`)
+      .join("\n");
+  }
+  return input.transcript;
+}
+
+function buildUserContent(input: AnalyzeInput): Block[] {
   const blocks: Block[] = [];
   blocks.push({
     type: "text",
@@ -663,9 +793,10 @@ function buildUserContent(input: {
       source: { type: "base64", media_type: "image/jpeg", data: f.base64 },
     });
   }
+  const transcript = renderTranscript(input);
   blocks.push({
     type: "text",
-    text: `Transcript of speech (empty means no speech detected):\n"""${input.transcript}"""`,
+    text: `Words heard (spoken or sung), with [start–end] seconds. Empty means nothing was heard:\n"""${transcript}"""`,
   });
   blocks.push({
     type: "text",
@@ -677,24 +808,29 @@ function buildUserContent(input: {
   return blocks;
 }
 
-async function callModel(client: Anthropic, content: Block[]): Promise<string> {
-  const res = await client.messages.create({
-    model: MODELS.analysis,
-    max_tokens: 4000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content }],
-  });
-  const text = res.content
+async function callModel(client: Anthropic, content: Block[], deadlineAt?: number): Promise<string> {
+  const res = await client.messages.create(
+    {
+      model: MODELS.analysis,
+      max_tokens: 4000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content }],
+    },
+    { timeout: timeoutFor(LIMITS.modelTimeoutMs, deadlineAt) },
+  );
+  if (res.stop_reason === "max_tokens") {
+    logger.warn("analysis.truncated", { stop_reason: res.stop_reason });
+  }
+  return res.content
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("\n");
-  return text;
 }
 
 function tryParse(raw: string): z.infer<typeof ModelOutput> | { error: string } {
   let json: unknown;
   try {
-    json = JSON.parse(extractJson(raw));
+    json = extractJson(raw);
   } catch (e) {
     return { error: `not valid JSON: ${(e as Error).message}` };
   }
@@ -704,13 +840,13 @@ function tryParse(raw: string): z.infer<typeof ModelOutput> | { error: string } 
 }
 
 export async function analyzeVideo(
-  input: { frames: { time: number; base64: string }[]; transcript: string; creatorIntent: string | null; durationSeconds: number },
-  client?: Anthropic,
+  input: AnalyzeInput,
+  opts: { client?: Anthropic; deadlineAt?: number } = {},
 ): Promise<AnalysisResult & { raw: string }> {
-  const c = client ?? defaultClient();
+  const c = opts.client ?? defaultClient();
   const content = buildUserContent(input);
 
-  const first = await callModel(c, content);
+  const first = await callModel(c, content, opts.deadlineAt);
   let result = tryParse(first);
   let raw = first;
 
@@ -723,7 +859,7 @@ export async function analyzeVideo(
         text: `Your previous output did not match the schema: ${result.error}. Output the corrected single JSON object only.`,
       },
     ];
-    raw = await callModel(c, retryContent);
+    raw = await callModel(c, retryContent, opts.deadlineAt);
     result = tryParse(raw);
   }
 
@@ -731,7 +867,11 @@ export async function analyzeVideo(
     throw new PipelineError("analyze", `model output invalid: ${result.error}`, raw);
   }
 
-  logger.info("analysis.done", { category: result.analysis.content_category, moments: result.analysis.important_moments.length });
+  logger.info("analysis.done", {
+    category: result.analysis.content_category,
+    moments: result.analysis.important_moments.length,
+    dialogue: result.analysis.dialogue_present,
+  });
   return {
     analysis: result.analysis,
     brief: result.brief,
@@ -742,126 +882,17 @@ export async function analyzeVideo(
 }
 ```
 
-- [ ] **Step 9: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify they pass**
 
-Run: `pnpm vitest run tests/analysis/analyzeVideo.test.ts tests/shared/json.test.ts`
-Expected: PASS (9 tests)
+Run: `pnpm vitest run tests/analysis/analyzeVideo.test.ts`
+Expected: PASS (7 tests)
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 pnpm typecheck && pnpm test
-git add package.json pnpm-lock.yaml src/shared/json.ts src/analysis/analyzeVideo.ts tests/shared/json.test.ts tests/analysis/analyzeVideo.test.ts
+git add package.json pnpm-lock.yaml src/analysis/analyzeVideo.ts tests/analysis/analyzeVideo.test.ts
 git commit -m "Add Claude video analysis producing VideoAnalysis and MusicBrief"
-```
-
----
-
-### Task 2.3b: Shared `callClaude` helper
-
-**Files:**
-- Create: `src/shared/anthropic.ts`
-- Test: `tests/shared/anthropic.test.ts`
-
-**Interfaces:**
-- Consumes: `env()` from `src/shared/config.ts`.
-- Produces (every Phase 3 stage depends on this exact shape):
-  ```ts
-  export type ClaudeCall = (args: { model: string; system: string; user: string; maxTokens?: number }) => Promise<string>;
-  export const callClaude: ClaudeCall;
-  export function makeClaudeCall(client: Pick<Anthropic, "messages">): ClaudeCall; // for tests
-  ```
-
-- [ ] **Step 1: Write the failing test**
-
-```ts
-// tests/shared/anthropic.test.ts
-import { describe, expect, it, vi } from "vitest";
-import { makeClaudeCall } from "../../src/shared/anthropic";
-
-describe("makeClaudeCall", () => {
-  it("sends system + user and returns concatenated text blocks", async () => {
-    const create = vi.fn().mockResolvedValue({
-      content: [{ type: "text", text: "hello " }, { type: "text", text: "world" }],
-    });
-    const call = makeClaudeCall({ messages: { create } } as never);
-    const out = await call({ model: "m", system: "S", user: "U", maxTokens: 10 });
-    expect(out).toBe("hello world");
-    expect(create).toHaveBeenCalledWith({
-      model: "m",
-      max_tokens: 10,
-      system: "S",
-      messages: [{ role: "user", content: "U" }],
-    });
-  });
-
-  it("throws when the response has no text", async () => {
-    const create = vi.fn().mockResolvedValue({ content: [] });
-    const call = makeClaudeCall({ messages: { create } } as never);
-    await expect(call({ model: "m", system: "S", user: "U" })).rejects.toThrow(/no text/);
-  });
-});
-```
-
-- [ ] **Step 2: Run it to see it fail**
-
-Run: `pnpm test -- tests/shared/anthropic.test.ts`
-Expected: FAIL, cannot find module `src/shared/anthropic`.
-
-- [ ] **Step 3: Implement**
-
-```ts
-// src/shared/anthropic.ts
-import Anthropic from "@anthropic-ai/sdk";
-import { env } from "./config";
-
-export type ClaudeCall = (args: {
-  model: string;
-  system: string;
-  user: string;
-  maxTokens?: number;
-}) => Promise<string>;
-
-/** Builds a text-in / text-out caller around an Anthropic client. Tests inject a stub client. */
-export function makeClaudeCall(client: Pick<Anthropic, "messages">): ClaudeCall {
-  return async ({ model, system, user, maxTokens = 4000 }) => {
-    const res = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: user }],
-    });
-    const text = res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    if (!text) throw new Error("claude: no text in response");
-    return text;
-  };
-}
-
-let singleton: Anthropic | null = null;
-function defaultClient(): Anthropic {
-  if (!singleton) singleton = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY") });
-  return singleton;
-}
-
-/** Default caller used in production. Lazily constructs the client so tests never need a key. */
-export const callClaude: ClaudeCall = (args) => makeClaudeCall(defaultClient())(args);
-```
-
-`analyzeVideo` (Task 2.3) keeps its own client because it sends image blocks; every text-only stage in Phase 3 uses `callClaude`.
-
-- [ ] **Step 4: Run tests**
-
-Run: `pnpm test -- tests/shared/anthropic.test.ts`
-Expected: PASS (2).
-
-- [ ] **Step 5: Commit**
-
-```bash
-pnpm typecheck && git add src/shared/anthropic.ts tests/shared/anthropic.test.ts
-git commit -m "Add shared callClaude helper for text-only model stages"
 ```
 
 ---
@@ -873,19 +904,21 @@ git commit -m "Add shared callClaude helper for text-only model stages"
 - Test: `tests/analysis/analyzeSubmission.test.ts`
 
 **Interfaces:**
-- Consumes: `getSubmission(id)`, `upsertAnalysis(row)`, `updateSubmission(id, patch)` from `src/db/queries/{submissions,analyses}.ts`; `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
-- Produces: `export async function analyzeSubmission(submissionId: string, deps?: Partial<AnalyzeDeps>): Promise<void>;`
+- Consumes: `getSubmission(id)`, `updateSubmission(id, patch)` from `src/db/queries/submissions.ts`; `upsertAnalysis(row)` from `src/db/queries/analyses.ts`; `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
+- Produces: `export async function analyzeSubmission(submissionId: string, ctx: { deadlineAt: number }, deps?: Partial<AnalyzeDeps>): Promise<void>;`
+- Ruling C5/I7: persists `content_category` on BOTH `video_analyses` and `submissions`; `analysis_completed` carries `creatorId`.
 
-Expected db query shapes (from Phase 1):
+Expected db query shapes (Phase 0):
 
 ```ts
-// src/db/queries/analyses.ts
+// src/db/queries/analyses.ts — AnalysisInsert is the generated Insert type; the relevant columns:
 export async function upsertAnalysis(row: {
-  submission_id: string; summary: string; content_type: string; setting: string | null; story: string | null;
+  submission_id: string; summary: string; content_type: string; content_category: string;
+  setting: string | null; story: string | null;
   aesthetic: string[]; mood: string[]; energy: string; pacing: string; dialogue_present: boolean;
   transcript: string | null; important_moments: unknown; music_brief: string; music_brief_fields: unknown;
   prompt_version: string; raw_response: unknown;
-}): Promise<void>;
+}): Promise<unknown>;
 // src/db/queries/submissions.ts
 export async function updateSubmission(id: string, patch: { content_category?: string; duration_seconds?: number; analyzed_at?: string; recommended_at?: string; viewed_at?: string }): Promise<void>;
 ```
@@ -920,14 +953,16 @@ const analysisResult = {
     },
   },
   transcript: "",
-  prompt_version: "analyze-v1",
+  prompt_version: "analyze-v2",
   raw: "{}",
 };
+
+const ctx = { deadlineAt: 1_000_000 };
 
 function deps() {
   return {
     getSubmission: vi.fn().mockResolvedValue(submission),
-    downloadToTmp: vi.fn().mockResolvedValue("/tmp/x/sub-1.mp4"),
+    downloadToTmp: vi.fn().mockResolvedValue("/tmp/x/video.mp4"),
     extractMedia: vi.fn().mockResolvedValue({
       durationSeconds: 12.3,
       frames: [{ time: 0, path: "/tmp/x/frame_001.jpg" }],
@@ -935,7 +970,7 @@ function deps() {
       workDir: "/tmp/x",
     }),
     readFrame: vi.fn().mockResolvedValue("QUJD"),
-    transcribe: vi.fn().mockResolvedValue(""),
+    transcribe: vi.fn().mockResolvedValue({ text: "", segments: [] }),
     analyzeVideo: vi.fn().mockResolvedValue(analysisResult),
     upsertAnalysis: vi.fn().mockResolvedValue(undefined),
     updateSubmission: vi.fn().mockResolvedValue(undefined),
@@ -945,24 +980,29 @@ function deps() {
 }
 
 describe("analyzeSubmission", () => {
-  it("runs the stages in order and persists every column", async () => {
+  it("runs the stages in order, threads the deadline, and persists every column", async () => {
     const d = deps();
-    await analyzeSubmission("sub-1", d);
+    await analyzeSubmission("sub-1", ctx, d);
 
     expect(d.downloadToTmp).toHaveBeenCalledWith("cre-1/sub-1.mp4");
+    expect(d.extractMedia).toHaveBeenCalledWith("/tmp/x/video.mp4", { workDir: "/tmp/x", deadlineAt: 1_000_000 });
+    expect(d.transcribe).toHaveBeenCalledWith("/tmp/x/audio.wav", { deadlineAt: 1_000_000 });
     expect(d.analyzeVideo).toHaveBeenCalledWith(
       expect.objectContaining({
         frames: [{ time: 0, base64: "QUJD" }],
         transcript: "",
+        transcriptSegments: [],
         creatorIntent: "make it feel luxurious",
         durationSeconds: 12.3,
       }),
+      { deadlineAt: 1_000_000 },
     );
     expect(d.upsertAnalysis).toHaveBeenCalledWith(
       expect.objectContaining({
         submission_id: "sub-1",
         summary: "s",
         content_type: "fashion reel",
+        content_category: "fashion",
         setting: null,
         story: null,
         aesthetic: ["luxury"],
@@ -974,7 +1014,7 @@ describe("analyzeSubmission", () => {
         important_moments: [{ time: 7.8, type: "main_visual_reveal" }],
         music_brief: "brief",
         music_brief_fields: expect.objectContaining({ energy: 0.7 }),
-        prompt_version: "analyze-v1",
+        prompt_version: "analyze-v2",
         raw_response: "{}",
       }),
     );
@@ -991,7 +1031,7 @@ describe("analyzeSubmission", () => {
   it("cleans up the work dir even when analysis throws", async () => {
     const d = deps();
     d.analyzeVideo.mockRejectedValue(new Error("boom"));
-    await expect(analyzeSubmission("sub-1", d)).rejects.toThrow("boom");
+    await expect(analyzeSubmission("sub-1", ctx, d)).rejects.toThrow("boom");
     expect(d.removeDir).toHaveBeenCalledWith("/tmp/x");
     expect(d.upsertAnalysis).not.toHaveBeenCalled();
   });
@@ -999,7 +1039,7 @@ describe("analyzeSubmission", () => {
   it("throws when the submission does not exist", async () => {
     const d = deps();
     d.getSubmission.mockResolvedValue(null);
-    await expect(analyzeSubmission("nope", d)).rejects.toThrow(/not found/);
+    await expect(analyzeSubmission("nope", ctx, d)).rejects.toThrow(/not found/);
   });
 });
 ```
@@ -1052,8 +1092,15 @@ const defaultDeps: AnalyzeDeps = {
   removeDir: async (dir) => fs.rm(dir, { recursive: true, force: true }),
 };
 
-/** Stage 1 of the pipeline: media → transcript → Claude analysis → video_analyses row. Idempotent (upsert). */
-export async function analyzeSubmission(submissionId: string, overrides: Partial<AnalyzeDeps> = {}): Promise<void> {
+/**
+ * Stage 1 of the pipeline: media → transcript → Claude analysis → video_analyses row.
+ * Idempotent (upsert on submission_id). The deadline is threaded into every external call.
+ */
+export async function analyzeSubmission(
+  submissionId: string,
+  ctx: { deadlineAt: number },
+  overrides: Partial<AnalyzeDeps> = {},
+): Promise<void> {
   const d: AnalyzeDeps = { ...defaultDeps, ...overrides };
   const sub = await d.getSubmission(submissionId);
   if (!sub) throw new PipelineError("analyze", `submission not found: ${submissionId}`);
@@ -1061,22 +1108,27 @@ export async function analyzeSubmission(submissionId: string, overrides: Partial
   const videoPath = await d.downloadToTmp(sub.video_path);
   const workDir = path.dirname(videoPath);
   try {
-    const media = await d.extractMedia(videoPath, workDir);
+    const media = await d.extractMedia(videoPath, { workDir, deadlineAt: ctx.deadlineAt });
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
     );
-    const transcript = await d.transcribe(media.audioPath);
-    const result = await d.analyzeVideo({
-      frames,
-      transcript,
-      creatorIntent: sub.creator_intent ?? null,
-      durationSeconds: media.durationSeconds,
-    });
+    const transcript = await d.transcribe(media.audioPath, { deadlineAt: ctx.deadlineAt });
+    const result = await d.analyzeVideo(
+      {
+        frames,
+        transcript: transcript.text,
+        transcriptSegments: transcript.segments,
+        creatorIntent: sub.creator_intent ?? null,
+        durationSeconds: media.durationSeconds,
+      },
+      { deadlineAt: ctx.deadlineAt },
+    );
 
     await d.upsertAnalysis({
       submission_id: submissionId,
       summary: result.analysis.summary,
       content_type: result.analysis.content_type,
+      content_category: result.analysis.content_category,
       setting: result.analysis.setting,
       story: result.analysis.story,
       aesthetic: result.analysis.aesthetic,
@@ -1106,7 +1158,7 @@ export async function analyzeSubmission(submissionId: string, overrides: Partial
 }
 ```
 
-Note: `downloadToTmp` (Phase 1) must place the file inside its own fresh directory (e.g. `/tmp/songfit-<id>/video.mp4`) so `path.dirname` is safe to delete. If Phase 1 wrote it elsewhere, change `downloadToTmp` to use `fs.mkdtemp` and return the file path inside that directory.
+`downloadToTmp` (Phase 1) places the file inside its own fresh `mkdtemp` directory (`/tmp/songfit-<random>/video.<ext>`), so `path.dirname(videoPath)` is safe to delete.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1123,7 +1175,7 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
 
 ---
 
-### Task 2.5: Pipeline runner with status handling, retry-from-stage and time budget
+### Task 2.5: The single pipeline runner — atomic claim, resume from stored outputs, deadline, failure recording
 
 **Files:**
 - Modify: `src/pipeline/run.ts` (replace the Phase 1 stub)
@@ -1132,16 +1184,28 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
 - Test: `tests/pipeline/run.test.ts`
 
 **Interfaces:**
-- Consumes: `getSubmission`, `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)` (returns the raw row or null; Phase 0), `listRecommendations(submissionId)` (returns array; Phase 1 may return `[]`), `analyzeSubmission`, `logEvent`, `LIMITS.pipelineBudgetMs`.
+- Consumes: `claimSubmissionRun(id)` (Phase 0: atomic conditional update that moves `uploaded | failed`, or an in-flight row whose `updated_at` is older than `LIMITS.inFlightStaleMinutes`, to `analyzing` and returns the row; returns `null` otherwise — this relies on `submissions.updated_at` from migration 0001), `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)`, `listRecommendations(submissionId)`, `analyzeSubmission(id, { deadlineAt })`, `logEvent`, `LIMITS.pipelineBudgetMs`.
 - Produces:
   ```ts
   // src/pipeline/stages.ts
   export type Stage = "analyze" | "recommend" | "done";
-  export function nextStage(status: SubmissionStatus, hasAnalysis: boolean, hasRecommendations: boolean): Stage;
+  export function nextStage(hasAnalysis: boolean, hasRecommendations: boolean): Stage;
   // src/pipeline/run.ts
-  export async function runSubmission(submissionId: string, deps?: Partial<RunDeps>): Promise<void>;
+  export type StageCtx = { deadlineAt: number };
+  export type RunDeps = {
+    claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
+    getAnalysisRow: (submissionId: string) => Promise<unknown | null>;
+    listRecommendations: (submissionId: string) => Promise<unknown[]>;
+    setSubmissionStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
+    analyze: (id: string, ctx: StageCtx) => Promise<void>;
+    recommend: (id: string, ctx: StageCtx) => Promise<void>;
+    logEvent: typeof logEvent;
+    now: () => number;
+  };
+  export async function runSubmission(submissionId: string, overrides?: Partial<RunDeps>): Promise<void>;
   ```
-  Phase 3 fills `recommendSubmission` into `RunDeps`; until then it is a stub that throws `PipelineError("recommend", "not implemented")`, which is caught and recorded like any failure.
+- **Contract with Phase 3 (ruling C3 — ONE runner):** this file is the only runner. Phase 3 does not rewrite it. Phase 3 changes exactly two lines: the import of `recommendSubmission` from `src/engine/recommend.ts`, and `defaultDeps.recommend`, which until then is `recommendNotImplemented` (throws `PipelineError("recommend", "not implemented")`). Everything else — claim, stage selection, deadline, failure recording — stays as written here. Admin retry (Task 2.6) and the submit route (Phase 1, via `waitUntil`) both call `runSubmission(id)`; the claim makes concurrent calls safe.
+- Behaviour: (a) claim or return; (b) stage from stored outputs, never from the status string; (c) `deadlineAt = started + LIMITS.pipelineBudgetMs`, checked before each stage and threaded into it; (d) on any error: `failed`, `error` = message (internal, admin-only), event `pipeline_failed { stage, error }` with `creatorId`; never throws; (e) the recorded stage is the one that was running.
 
 - [ ] **Step 1: Write the failing test for nextStage**
 
@@ -1152,13 +1216,11 @@ import { describe, it, expect } from "vitest";
 import { nextStage } from "../../src/pipeline/stages";
 
 describe("nextStage", () => {
-  it("fresh upload → analyze", () => expect(nextStage("uploaded", false, false)).toBe("analyze"));
-  it("failed before analysis → analyze", () => expect(nextStage("failed", false, false)).toBe("analyze"));
-  it("failed after analysis → recommend (skips analyze)", () => expect(nextStage("failed", true, false)).toBe("recommend"));
-  it("analyzing with analysis row present (crashed between) → recommend", () => expect(nextStage("analyzing", true, false)).toBe("recommend"));
-  it("recommending → recommend", () => expect(nextStage("recommending", true, false)).toBe("recommend"));
-  it("ready with recommendations → done", () => expect(nextStage("ready", true, true)).toBe("done"));
-  it("ready but recommendations missing → recommend", () => expect(nextStage("ready", true, false)).toBe("recommend"));
+  it("no analysis → analyze", () => expect(nextStage(false, false)).toBe("analyze"));
+  it("analysis but no recommendations → recommend", () => expect(nextStage(true, false)).toBe("recommend"));
+  it("both present → done", () => expect(nextStage(true, true)).toBe("done"));
+  it("recommendations without analysis is impossible but still re-analyzes", () =>
+    expect(nextStage(false, true)).toBe("analyze"));
 });
 ```
 
@@ -1172,23 +1234,25 @@ Expected: FAIL with `Cannot find module '../../src/pipeline/stages'`
 `src/pipeline/stages.ts`:
 
 ```ts
-import type { SubmissionStatus } from "../shared/types";
-
 export type Stage = "analyze" | "recommend" | "done";
 
-/** Which stage to run next, derived from persisted state so retries resume where they failed. */
-export function nextStage(status: SubmissionStatus, hasAnalysis: boolean, hasRecommendations: boolean): Stage {
+/**
+ * Which stage to run next, derived ONLY from persisted outputs (ruling C3): a row in
+ * video_analyses means analyze is done; rows in recommendations mean recommend is done.
+ * The status string is never consulted, so a crash between "write output" and
+ * "update status" resumes correctly.
+ */
+export function nextStage(hasAnalysis: boolean, hasRecommendations: boolean): Stage {
   if (!hasAnalysis) return "analyze";
   if (!hasRecommendations) return "recommend";
-  if (status === "ready") return "done";
-  return "recommend";
+  return "done";
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/pipeline/stages.test.ts`
-Expected: PASS (7 tests)
+Expected: PASS (4 tests)
 
 - [ ] **Step 5: Write the failing tests for runSubmission**
 
@@ -1200,14 +1264,14 @@ import { runSubmission } from "../../src/pipeline/run";
 import { PipelineError } from "../../src/shared/errors";
 
 function deps(over: Record<string, unknown> = {}) {
-  const state = { status: "uploaded", hasAnalysis: false, hasRecs: false };
+  const state = { hasAnalysis: false, hasRecs: false };
   const d = {
-    getSubmission: vi.fn(async () => ({ id: "sub-1", creator_id: "cre-1", status: state.status })),
+    claimSubmissionRun: vi.fn(async () => ({ id: "sub-1", creator_id: "cre-1" })),
     getAnalysisRow: vi.fn(async () => (state.hasAnalysis ? { id: "an-1" } : null)),
     listRecommendations: vi.fn(async () => (state.hasRecs ? [{ id: "r1" }] : [])),
-    setSubmissionStatus: vi.fn(async (_id: string, status: string) => { state.status = status; }),
-    analyzeSubmission: vi.fn(async () => { state.hasAnalysis = true; }),
-    recommendSubmission: vi.fn(async () => { state.hasRecs = true; }),
+    setSubmissionStatus: vi.fn(async () => undefined),
+    analyze: vi.fn(async () => { state.hasAnalysis = true; }),
+    recommend: vi.fn(async () => { state.hasRecs = true; }),
     logEvent: vi.fn(async () => undefined),
     now: () => 0,
     ...over,
@@ -1216,60 +1280,100 @@ function deps(over: Record<string, unknown> = {}) {
 }
 
 describe("runSubmission", () => {
-  it("runs analyze then recommend and ends ready", async () => {
-    const { d, state } = deps();
+  it("is a no-op when the claim fails (another run is in flight or the row is ready)", async () => {
+    const { d } = deps();
+    d.claimSubmissionRun.mockResolvedValue(null);
     await runSubmission("sub-1", d);
+    expect(d.analyze).not.toHaveBeenCalled();
+    expect(d.recommend).not.toHaveBeenCalled();
+    expect(d.setSubmissionStatus).not.toHaveBeenCalled();
+  });
+
+  it("runs analyze then recommend, in order, and ends ready", async () => {
+    const { d } = deps();
+    const order: string[] = [];
+    d.analyze.mockImplementation(async () => { order.push("analyze"); });
+    d.recommend.mockImplementation(async () => { order.push("recommend"); });
+    await runSubmission("sub-1", d);
+    expect(order).toEqual(["analyze", "recommend"]);
     const statuses = d.setSubmissionStatus.mock.calls.map((c) => c[1]);
     expect(statuses).toEqual(["analyzing", "recommending", "ready"]);
-    expect(d.analyzeSubmission).toHaveBeenCalledTimes(1);
-    expect(d.recommendSubmission).toHaveBeenCalledTimes(1);
-    expect(state.status).toBe("ready");
+  });
+
+  it("threads a deadline into every stage", async () => {
+    const { d } = deps({ now: () => 1_000 });
+    await runSubmission("sub-1", d);
+    const ctx = d.analyze.mock.calls[0][1];
+    expect(ctx).toEqual({ deadlineAt: expect.any(Number) });
+    expect(ctx.deadlineAt).toBeGreaterThan(1_000);
+    expect(d.recommend.mock.calls[0][1]).toEqual(ctx);
   });
 
   it("skips analyze on retry when the analysis row exists", async () => {
-    const { d } = deps();
-    d.getAnalysisRow.mockResolvedValue({ id: "an-1" });
-    d.getSubmission.mockResolvedValue({ id: "sub-1", creator_id: "cre-1", status: "failed" });
+    const { d, state } = deps();
+    state.hasAnalysis = true;
     await runSubmission("sub-1", d);
-    expect(d.analyzeSubmission).not.toHaveBeenCalled();
-    expect(d.recommendSubmission).toHaveBeenCalledTimes(1);
+    expect(d.analyze).not.toHaveBeenCalled();
+    expect(d.recommend).toHaveBeenCalledTimes(1);
+    const statuses = d.setSubmissionStatus.mock.calls.map((c) => c[1]);
+    expect(statuses).toEqual(["recommending", "ready"]);
   });
 
-  it("records failure with stage and error and does not throw", async () => {
+  it("marks ready without running anything when both outputs already exist", async () => {
+    const { d, state } = deps();
+    state.hasAnalysis = true;
+    state.hasRecs = true;
+    await runSubmission("sub-1", d);
+    expect(d.analyze).not.toHaveBeenCalled();
+    expect(d.recommend).not.toHaveBeenCalled();
+    expect(d.setSubmissionStatus).toHaveBeenCalledTimes(1);
+    expect(d.setSubmissionStatus).toHaveBeenCalledWith("sub-1", "ready", null);
+  });
+
+  it("records a failure in analyze with stage, error and creatorId, and does not throw", async () => {
     const { d } = deps();
-    d.analyzeSubmission.mockRejectedValue(new PipelineError("analyze", "video too long"));
+    d.analyze.mockRejectedValue(new PipelineError("analyze", "video too long"));
     await expect(runSubmission("sub-1", d)).resolves.toBeUndefined();
     expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "video too long");
     expect(d.logEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "pipeline_failed", submissionId: "sub-1", metadata: { stage: "analyze", error: "video too long" } }),
+      expect.objectContaining({
+        name: "pipeline_failed",
+        submissionId: "sub-1",
+        creatorId: "cre-1",
+        metadata: { stage: "analyze", error: "video too long" },
+      }),
     );
+    expect(d.recommend).not.toHaveBeenCalled();
   });
 
-  it("wraps unknown errors with the current stage", async () => {
+  it("records a failure in recommend as stage recommend, even for a plain Error", async () => {
     const { d } = deps();
-    d.recommendSubmission.mockRejectedValue(new Error("deezer down"));
+    d.recommend.mockRejectedValue(new Error("deezer down"));
     await runSubmission("sub-1", d);
     expect(d.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: { stage: "recommend", error: "deezer down" } }),
     );
+    expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "deezer down");
   });
 
-  it("fails cleanly when the time budget is exceeded before a stage", async () => {
+  it("fails cleanly when the time budget is exhausted before a stage", async () => {
     let t = 0;
     const { d } = deps({ now: () => t });
-    d.analyzeSubmission.mockImplementation(async () => { t = 290_000; });
+    d.analyze.mockImplementation(async () => { t = 290_000; });
     await runSubmission("sub-1", d);
-    expect(d.recommendSubmission).not.toHaveBeenCalled();
-    expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", expect.stringMatching(/budget exceeded/));
+    expect(d.recommend).not.toHaveBeenCalled();
+    expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", expect.stringMatching(/budget exceeded before recommend/));
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ stage: "recommend" }) }),
+    );
   });
 
-  it("does nothing when already done", async () => {
+  it("still records failure if setSubmissionStatus itself throws once", async () => {
     const { d } = deps();
-    d.getSubmission.mockResolvedValue({ id: "sub-1", creator_id: "cre-1", status: "ready" });
-    d.getAnalysisRow.mockResolvedValue({ id: "an-1" });
-    d.listRecommendations.mockResolvedValue([{ id: "r1" }]);
-    await runSubmission("sub-1", d);
-    expect(d.setSubmissionStatus).not.toHaveBeenCalled();
+    d.analyze.mockRejectedValue(new Error("boom"));
+    d.setSubmissionStatus.mockRejectedValueOnce(new Error("db hiccup")); // the 'analyzing' write fails
+    await expect(runSubmission("sub-1", d)).resolves.toBeUndefined();
+    expect(d.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "pipeline_failed" }));
   });
 });
 ```
@@ -1284,8 +1388,8 @@ Expected: FAIL (the Phase 1 stub does not accept deps / does not call these func
 `src/pipeline/run.ts`:
 
 ```ts
-import { getSubmission, setSubmissionStatus } from "../db/queries/submissions";
-import { getAnalysisRowRow } from "../db/queries/analyses";
+import { claimSubmissionRun, setSubmissionStatus } from "../db/queries/submissions";
+import { getAnalysisRow } from "../db/queries/analyses";
 import { listRecommendations } from "../db/queries/recommendations";
 import { analyzeSubmission } from "../analysis";
 import { logEvent } from "../feedback/events";
@@ -1295,29 +1399,31 @@ import { logger } from "../shared/logger";
 import { nextStage, type Stage } from "./stages";
 import type { SubmissionStatus } from "../shared/types";
 
+export type StageCtx = { deadlineAt: number };
+
 export type RunDeps = {
-  getSubmission: (id: string) => Promise<{ id: string; creator_id: string; status: string } | null>;
+  claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
   getAnalysisRow: (submissionId: string) => Promise<unknown | null>;
   listRecommendations: (submissionId: string) => Promise<unknown[]>;
   setSubmissionStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
-  analyzeSubmission: (id: string) => Promise<void>;
-  recommendSubmission: (id: string) => Promise<void>;
+  analyze: (id: string, ctx: StageCtx) => Promise<void>;
+  recommend: (id: string, ctx: StageCtx) => Promise<void>;
   logEvent: typeof logEvent;
   now: () => number;
 };
 
-// Phase 3 replaces this with the real engine orchestrator.
-async function recommendSubmissionStub(_id: string): Promise<void> {
+// Phase 3 replaces ONLY the next line's import and the `recommend:` default below.
+async function recommendNotImplemented(_id: string, _ctx: StageCtx): Promise<void> {
   throw new PipelineError("recommend", "not implemented");
 }
 
 const defaultDeps: RunDeps = {
-  getSubmission,
+  claimSubmissionRun,
   getAnalysisRow,
   listRecommendations,
   setSubmissionStatus,
-  analyzeSubmission,
-  recommendSubmission: recommendSubmissionStub,
+  analyze: (id, ctx) => analyzeSubmission(id, ctx),
+  recommend: recommendNotImplemented,
   logEvent,
   now: () => Date.now(),
 };
@@ -1328,61 +1434,72 @@ const STAGE_STATUS: Record<Exclude<Stage, "done">, SubmissionStatus> = {
 };
 
 /**
- * Runs the pipeline for one submission from whichever stage is next.
- * Never throws: failures are written to the submission and the events table.
+ * The one and only pipeline runner. Safe to call from the submit route, the run route
+ * and the admin retry action concurrently: the atomic claim admits exactly one run.
+ * Resumes from stored outputs. Never throws.
  */
 export async function runSubmission(submissionId: string, overrides: Partial<RunDeps> = {}): Promise<void> {
   const d: RunDeps = { ...defaultDeps, ...overrides };
-  const started = d.now();
 
-  const sub = await d.getSubmission(submissionId);
-  if (!sub) {
-    logger.error("pipeline.missing", { submissionId });
+  const claimed = await d.claimSubmissionRun(submissionId);
+  if (!claimed) {
+    logger.info("run.skipped_in_flight", { submissionId });
     return;
   }
 
+  const started = d.now();
+  const ctx: StageCtx = { deadlineAt: started + LIMITS.pipelineBudgetMs };
+
   let stage: Stage = nextStage(
-    sub.status as SubmissionStatus,
-    (await d.getAnalysisRowRow(submissionId)) !== null,
+    (await d.getAnalysisRow(submissionId)) !== null,
     (await d.listRecommendations(submissionId)).length > 0,
   );
-  let current: Exclude<Stage, "done"> = stage === "done" ? "analyze" : stage;
+  let current: Exclude<Stage, "done"> = stage === "done" ? "recommend" : stage;
 
   try {
     while (stage !== "done") {
       current = stage;
-      if (d.now() - started > LIMITS.pipelineBudgetMs) {
+      if (d.now() >= ctx.deadlineAt) {
         throw new PipelineError(current, `budget exceeded before ${current}`);
       }
       await d.setSubmissionStatus(submissionId, STAGE_STATUS[current], null);
-      logger.info("pipeline.stage", { submissionId, stage: current });
+      logger.info("pipeline.stage", { submissionId, stage: current, remainingMs: ctx.deadlineAt - d.now() });
 
       if (current === "analyze") {
-        await d.analyzeSubmission(submissionId);
+        await d.analyze(submissionId, ctx);
         stage = "recommend";
       } else {
-        await d.recommendSubmission(submissionId);
+        await d.recommend(submissionId, ctx);
         stage = "done";
-        await d.setSubmissionStatus(submissionId, "ready", null);
       }
     }
+    await d.setSubmissionStatus(submissionId, "ready", null);
+    logger.info("pipeline.ready", { submissionId, ms: d.now() - started });
   } catch (err) {
-    const e = err as Error & { stage?: string };
+    const e = err as Error;
     const failedStage = e instanceof PipelineError ? e.stage : current;
     const message = e.message ?? String(err);
     logger.error("pipeline.failed", { submissionId, stage: failedStage, message });
-    await d.setSubmissionStatus(submissionId, "failed", message);
-    await d.logEvent({
-      name: "pipeline_failed",
-      submissionId,
-      creatorId: sub.creator_id,
-      metadata: { stage: failedStage, error: message },
-    });
+    try {
+      await d.setSubmissionStatus(submissionId, "failed", message);
+    } catch (writeErr) {
+      logger.error("pipeline.failed_write", { submissionId, error: String(writeErr) });
+    }
+    try {
+      await d.logEvent({
+        name: "pipeline_failed",
+        submissionId,
+        creatorId: claimed.creator_id,
+        metadata: { stage: failedStage, error: message },
+      });
+    } catch (eventErr) {
+      logger.error("pipeline.failed_event", { submissionId, error: String(eventErr) });
+    }
   }
 }
 ```
 
-`setSubmissionStatus` (Phase 1) must accept a third `error` argument and write it to `submissions.error` (null clears it). If Phase 1's version has only two parameters, add the third now.
+Why `current` starts as `"recommend"` when `stage === "done"`: it is never used in that case (the loop doesn't run), but TypeScript needs a value of the narrowed type; `recommend` is the more plausible stage to blame if `setSubmissionStatus("ready")` itself throws.
 
 - [ ] **Step 8: Run tests to verify they pass**
 
@@ -1394,7 +1511,7 @@ Expected: PASS (13 tests)
 ```bash
 pnpm typecheck && pnpm test
 git add src/pipeline/run.ts src/pipeline/stages.ts tests/pipeline
-git commit -m "Add pipeline runner with stage resume, failure recording and time budget"
+git commit -m "Add single pipeline runner with atomic claim, resume and deadline"
 ```
 
 ---
@@ -1410,24 +1527,17 @@ git commit -m "Add pipeline runner with stage resume, failure recording and time
 - Test: `tests/db/adminFormat.test.ts`
 
 **Interfaces:**
-- Consumes: `requireAdmin()` from `src/auth/session.ts`; `listSubmissions()` and `getSubmission(id)` from `src/db/queries/submissions.ts`; `getAnalysisRow(submissionId)` from `src/db/queries/analyses.ts`; `getSignedPlaybackUrl(storagePath)` from `src/media/storage.ts`; `runSubmission` from `src/pipeline/run.ts`.
+- Consumes: `requireAdmin()` from `src/auth/session.ts`; `listSubmissions()` (returns `SubmissionWithCreator[]`, with `creator.email`) and `getSubmission(id)` from `src/db/queries/submissions.ts`; `getAnalysisRow(submissionId)` from `src/db/queries/analyses.ts`; `getSignedPlaybackUrl(storagePath)` from `src/media/storage.ts`; `runSubmission` from `src/pipeline/run.ts`.
 - Produces:
   ```ts
   // src/db/queries/admin.ts
   export function formatElapsed(fromIso: string | null, toIso: string | null): string; // "1m 12s" | "—"
   export function shortId(id: string): string; // first 8 chars
   // app/admin/submissions/[id]/actions.ts
-  export async function retrySubmission(formData: FormData): Promise<void>; // server action
+  export async function retrySubmission(formData: FormData): Promise<void>; // server action; FormData carries `id`
   ```
-
-`listSubmissions()` is expected to return rows joined with creator email:
-
-```ts
-{ id: string; status: string; created_at: string; analyzed_at: string | null; recommended_at: string | null;
-  content_category: string | null; error: string | null; creator: { email: string } | null }[]
-```
-
-Phase 0's `listSubmissions` already returns `SubmissionWithCreator[]` with `creator.email`.
+- Ruling M3: `requireAdmin()` is called in the layout AND in every admin page AND in the server action. The layout gate is UX; the per-page/per-action gates are the security boundary (layouts can be bypassed by direct server-action calls and by certain routing modes).
+- Raw pipeline errors (`submissions.error`) are shown here only, never to creators.
 
 - [ ] **Step 1: Write the failing test for the formatting helpers**
 
@@ -1520,12 +1630,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
 ```tsx
 import Link from "next/link";
+import { requireAdmin } from "@/src/auth/session";
 import { listSubmissions } from "@/src/db/queries/submissions";
 import { formatElapsed, shortId } from "@/src/db/queries/admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminQueuePage() {
+  await requireAdmin(); // ruling M3: every admin page gates itself, not just the layout
   const rows = await listSubmissions();
   return (
     <div>
@@ -1578,6 +1690,11 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/src/auth/session";
 import { runSubmission } from "@/src/pipeline/run";
 
+/**
+ * Admin retry. Goes through the same claimed runner as the submit route (ruling C3), so a
+ * retry while a run is still in flight is a safe no-op, and a stale in-flight row
+ * (updated_at older than LIMITS.inFlightStaleMinutes) can be reclaimed.
+ */
 export async function retrySubmission(formData: FormData): Promise<void> {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
@@ -1594,6 +1711,7 @@ export async function retrySubmission(formData: FormData): Promise<void> {
 
 ```tsx
 import { notFound } from "next/navigation";
+import { requireAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { getAnalysisRow } from "@/src/db/queries/analyses";
 import { getSignedPlaybackUrl } from "@/src/media/storage";
@@ -1611,6 +1729,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default async function SubmissionInspectorPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdmin(); // ruling M3
   const { id } = await params;
   const sub = await getSubmission(id);
   if (!sub) notFound();
@@ -1628,6 +1747,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
         </form>
       </div>
 
+      {/* Raw pipeline error: admin-only. Creators see a generic failed state (Phase 4). */}
       {sub.error && <p className="rounded bg-red-50 p-3 text-sm text-red-800">Error: {sub.error}</p>}
 
       <section className="grid gap-6 md:grid-cols-[320px_1fr]">
@@ -1637,6 +1757,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
           <Row label="Duration" value={sub.duration_seconds ? `${sub.duration_seconds.toFixed(1)}s` : "—"} />
           <Row label="Category" value={sub.content_category ?? "—"} />
           <Row label="Created" value={new Date(sub.created_at).toLocaleString()} />
+          <Row label="Updated" value={new Date(sub.updated_at).toLocaleString()} />
           <Row label="Analyzed" value={sub.analyzed_at ? new Date(sub.analyzed_at).toLocaleString() : "—"} />
           <Row label="Recommended" value={sub.recommended_at ? new Date(sub.recommended_at).toLocaleString() : "—"} />
         </dl>
@@ -1651,12 +1772,13 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
             <dl>
               <Row label="Summary" value={analysis.summary} />
               <Row label="Content type" value={analysis.content_type} />
+              <Row label="Category" value={analysis.content_category} />
               <Row label="Setting" value={analysis.setting ?? "—"} />
               <Row label="Story" value={analysis.story ?? "—"} />
               <Row label="Aesthetic" value={analysis.aesthetic.join(", ")} />
               <Row label="Mood" value={analysis.mood.join(", ")} />
               <Row label="Energy / pacing" value={`${analysis.energy} / ${analysis.pacing}`} />
-              <Row label="Dialogue" value={analysis.dialogue_present ? "yes" : "no"} />
+              <Row label="Spoken dialogue" value={analysis.dialogue_present ? "yes" : "no"} />
               <Row label="Prompt version" value={analysis.prompt_version} />
             </dl>
             <div>
@@ -1669,8 +1791,8 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
               <pre className="mt-2 overflow-x-auto rounded bg-neutral-50 p-3">{JSON.stringify(analysis.music_brief_fields, null, 2)}</pre>
             </div>
             <div>
-              <h3 className="font-medium">Transcript</h3>
-              <p className="whitespace-pre-wrap rounded bg-neutral-50 p-3">{analysis.transcript || "(no speech)"}</p>
+              <h3 className="font-medium">Transcript (words heard, spoken or sung)</h3>
+              <p className="whitespace-pre-wrap rounded bg-neutral-50 p-3">{analysis.transcript || "(nothing heard)"}</p>
             </div>
           </div>
         )}
@@ -1684,7 +1806,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
 }
 ```
 
-`getAnalysis` must return the row with `aesthetic`, `mood` as `string[]`, `important_moments` and `music_brief_fields` as parsed JSON (Supabase returns jsonb as objects already). If Phase 1 typed these columns as `unknown`, cast at the query boundary in `src/db/queries/analyses.ts`, not in the page.
+`getAnalysisRow` returns the generated Row type: `aesthetic` and `mood` are `string[]`, `important_moments` and `music_brief_fields` are `Json` (Supabase returns jsonb as objects already). If the generated type widens any of these to `unknown`, cast at the query boundary in `src/db/queries/analyses.ts`, not in the page.
 
 - [ ] **Step 9: Typecheck, run dev, and check the pages**
 
@@ -1692,7 +1814,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
 pnpm typecheck && pnpm test && pnpm dev
 ```
 
-Open `http://localhost:3000/admin` signed in as the `ADMIN_EMAILS` account. Expected: the table lists submissions. Open a submission: the video plays, "No analysis yet." shows until the pipeline has run. Signed in as a non-admin: redirected or 403 per `requireAdmin()`.
+Open `http://localhost:3000/admin` signed in as the `ADMIN_EMAILS` account. Expected: the table lists submissions. Open a submission: the video plays, "No analysis yet." shows until the pipeline has run. Signed in as a non-admin: redirected per `requireAdmin()`. Call the retry action from a non-admin session (e.g. curl the server action id): rejected by `requireAdmin()` inside the action, not only by the layout.
 
 - [ ] **Step 10: Commit**
 
@@ -1703,10 +1825,95 @@ git commit -m "Add admin queue and submission inspector with analysis view"
 
 ---
 
+### Task 2.7: Deployed media test from an iPhone (ruling C7)
+
+**Files:**
+- Modify: `next.config.ts` (only if the deployed run fails on ffmpeg — see Step 4)
+- Modify: `docs/RESEARCH.md` (append measured elapsed time and cost)
+
+**Interfaces:**
+- Consumes: the Vercel project linked in Phase 1 (Task 1.7, deployed phone upload test), the Phase 1 submit route calling `runSubmission` via `waitUntil`, `/admin/submissions/[id]`.
+- Produces: proof that `ffmpeg-static` + `ffprobe-static` execute inside a Vercel Node function on a real iPhone HEVC `.mov`, and a measured per-run cost.
+
+This is the release gate for Phase 2. It moves the riskiest deployment unknowns — binary execution, function size, HEVC decode, 60-frame payload to the model — ahead of all admin polish.
+
+- [ ] **Step 1: Push and deploy**
+
+```bash
+git push origin mvp
+```
+
+Expected: Vercel builds the `mvp` branch preview (or production, per Phase 1's project setup) and the build log shows no warnings about `ffmpeg-static` or `ffprobe-static` being bundled/externalised incorrectly. Note the deployment URL.
+
+- [ ] **Step 2: Upload a real iPhone clip over cellular**
+
+On an iPhone, Wi-Fi OFF, open the deployment URL, sign in with Google, pick a 45–60 s `.mov` shot with the iPhone camera (default HEVC), submit.
+
+Expected: the waiting page appears; within ~90 s `/admin` (on a laptop) shows the row at `recommending`, then `failed` with error `not implemented` (the Phase 3 stub) — that failure is expected and proves the runner reached the recommend stage after a successful analyze on Vercel.
+
+- [ ] **Step 3: Inspect**
+
+Open the inspector. Check every box:
+
+- [ ] The video plays (signed URL works on the deployed project).
+- [ ] `Duration` is populated and within ±1 s of the clip length (ffprobe ran).
+- [ ] `Analysis` shows a summary that matches the clip; `Category` is one of `CONTENT_CATEGORIES`; `Spoken dialogue` is correct for what you filmed (talk to camera for a few seconds in the clip so this is testable).
+- [ ] `important_moments` has at least one entry with a `type` from `MOMENT_TYPES` and a timestamp that matches a real moment in the clip.
+- [ ] `Transcript` contains the words you spoke.
+- [ ] Vercel function logs (Vercel dashboard → Logs, filter by the submit route) show `media.extracted` with `frames` between 45 and 60 and `audio: true`, then `analysis.done`.
+
+- [ ] **Step 4: If the function fails on ffmpeg, fix the deployment config (one checkbox per cause)**
+
+Read the Vercel function log for the `pipeline.failed` line. Match the message:
+
+- [ ] `ffmpeg binary not found` / `ENOENT`: the binary was not traced into the function bundle. In `next.config.ts` ensure BOTH of these are present (keep any existing `images.remotePatterns` from Phase 0):
+  ```ts
+  // next.config.ts
+  import type { NextConfig } from "next";
+
+  const nextConfig: NextConfig = {
+    serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+    outputFileTracingIncludes: {
+      "/api/submissions/**": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffprobe-static/bin/**"],
+      "/admin/**": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffprobe-static/bin/**"],
+    },
+    // Phase 0's remotePatterns stay here.
+  };
+  export default nextConfig;
+  ```
+  Then `git commit -am "Trace ffmpeg binaries into Vercel functions"` and redeploy.
+- [ ] `EACCES` (permission denied): the traced binary lost its executable bit. Add `"postinstall": "chmod +x node_modules/ffmpeg-static/ffmpeg node_modules/ffprobe-static/bin/*/*/ffprobe || true"` to `package.json` scripts, commit, redeploy.
+- [ ] `Serverless Function has exceeded the unzipped maximum size` (250 MB): remove the `ffprobe-static` dependency and use `ffmpeg -i <file>` stderr parsing for duration instead — only do this if the size error actually occurs; it has not in similar projects at 60 frames/512 px.
+- [ ] `ffmpeg timeout: ffmpeg frames`: the Vercel Node runtime is older/slower than expected. Confirm Project → Settings → General → Node.js Version is 20.x (not 18), redeploy. If it persists on a 60 s clip, halve `LIMITS.frameWidth` to 384 and note it in the ledger.
+- [ ] Function timed out before `pipeline.failed` was written (row stuck at `analyzing`): the submit route lacks `export const maxDuration = 300;` or Fluid Compute is off (Project → Settings → Functions). Fix per Phase 1 Task 1.3 and the C7 ruling; a stuck row is reclaimable via admin Retry after `LIMITS.inFlightStaleMinutes`.
+
+Re-run Step 2 after each fix until every Step 3 box is checked.
+
+- [ ] **Step 5: Record measurements**
+
+From the Vercel log line `pipeline.failed` (or `pipeline.ready` once Phase 3 lands) read the elapsed ms. From console.anthropic.com → Usage read the cost of the analysis call (expect roughly $0.05–0.15 for 60 frames at 512 px on Fable); from platform.openai.com → Usage read the Whisper cost (under $0.01 for 60 s). Append to `docs/RESEARCH.md`:
+
+```markdown
+## 2026-10-07 — First deployed analysis run (Phase 2, Task 2.7)
+- Device/clip: iPhone <model>, <N> s .mov HEVC, cellular upload.
+- Upload → analyzed: <X> s. Frames: <N>. Transcript chars: <N>.
+- Cost: Anthropic analysis $<x.xx> (model <MODELS.analysis>), Whisper $<x.xx>.
+- Deployment fixes needed: <none | list from Step 4>.
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs/RESEARCH.md next.config.ts package.json
+git commit -m "Record first deployed analysis run and any deployment fixes"
+git push origin mvp
+```
+
+---
+
 ### Phase 2 demo check
 
-1. `pnpm dev`, upload a real ~30 s Reel from the phone flow built in Phase 1.
-2. Watch `/admin`: status goes `uploaded → analyzing → recommending`, then `failed` with error `not implemented` (the Phase 3 stub). That failure is expected and proves the runner records failures.
-3. Open the inspector. Expected: the video plays; summary, category, moods and energy match what you see; `important_moments` timestamps line up with real cuts or the reveal; the brief reads like something a music supervisor could act on and mentions where the lift should land; the transcript is empty for a music-only Reel and populated for a talking one.
-4. Click "Retry pipeline". Expected: `analyzeSubmission` is skipped (status jumps to `recommending`, then `failed` again) — confirms resume-from-stage.
-5. Note the cost per run in the Anthropic console (expect roughly $0.05–0.15 for 60 frames at 512 px) and the OpenAI console (Whisper, under $0.01 for 30 s). Write both numbers into `docs/RESEARCH.md` under a new dated entry.
+1. Task 2.7 completed with every Step 3 box checked on the deployed app from an iPhone over cellular.
+2. Locally: `pnpm typecheck && pnpm test && pnpm build` all pass; the media integration suite ran (no SKIPPED warning).
+3. In `/admin`, click "Retry pipeline" on the `failed` row. Expected: `analyze` is skipped (status jumps to `recommending`, then `failed` with `not implemented` again) — confirms resume-from-stored-outputs. Click Retry twice quickly: the second click is a no-op (`run.skipped_in_flight` in the logs) — confirms the atomic claim.
+4. Measurements written to `docs/RESEARCH.md`.

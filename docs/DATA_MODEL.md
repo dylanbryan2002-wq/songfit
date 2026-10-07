@@ -36,12 +36,14 @@ A creator's upload and its pipeline state.
 | analyzed_at       | timestamptz | nullable                                          |
 | recommended_at    | timestamptz | nullable                                          |
 | viewed_at         | timestamptz | nullable, first results view                      |
+| updated_at        | timestamptz | trigger-maintained; used by the run claim         |
 | created_at        | timestamptz |                                                   |
 
 Status (advance in order, retry from the failed stage):
 `uploaded` → `analyzing` → `recommending` → `ready`, or `failed`.
 
-RLS: creator reads own rows; inserts via server with creator_id = auth.uid().
+RLS: creator reads own rows. NO authenticated insert policy: rows are created only by the
+service role through `create_submission()`.
 
 ## video_analyses
 One per submission. Output of src/analysis.
@@ -61,6 +63,7 @@ One per submission. Output of src/analysis.
 | dialogue_present    | boolean     |                                         |
 | transcript          | text        | nullable, from Whisper                  |
 | important_moments   | jsonb       | [{ time: number, type: string, note?: string }] |
+| content_category    | text        | nullable, same value copied to submissions |
 | music_brief         | text        | natural-language brief                  |
 | music_brief_fields  | jsonb       | structured brief (moods, energy 0..1, tempo, vocals, genres, familiarity) |
 | prompt_version      | text        |                                         |
@@ -85,7 +88,15 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | verified          | boolean     | false = dropped, never shown                       |
 | proposed_start    | numeric     | seconds                                            |
 | proposed_end      | numeric     | seconds                                            |
-| generator_reason  | text        | why the generator proposed it                      |
+| canonical_title   | text        | nullable, provider's title verbatim                |
+| canonical_artist  | text        | nullable, provider's artist verbatim               |
+| anchor_seconds    | numeric     | the model's claimed musical hit inside the window  |
+| section_is_vocal  | boolean     | lead vocals in the proposed section                |
+| directions        | text[]      | every generation direction that proposed it        |
+| section_reason    | text        | what happens musically there                       |
+| fit_reason        | text        | why it fits this video                             |
+| source            | text        | 'model' now; 'catalog' later                       |
+| segment_id        | uuid        | nullable, → song_segments (later)                  |
 | component_scores  | jsonb       | { semantic, emotional, aesthetic, pacing, dialogue, cultural, originality } each { score, reason } |
 | total_score       | numeric     | nullable until scored                              |
 | prompt_version    | text        |                                                    |
@@ -107,7 +118,11 @@ The final 3 shown to the creator.
 | artist          | text        |                                         |
 | start_seconds   | numeric     |                                         |
 | end_seconds     | numeric     |                                         |
+| aligned_to_moment | numeric   | nullable, video time the anchor was aligned to |
 | explanation     | text        | creator-facing, tied to the video       |
+| explain_prompt_version | text | nullable                                |
+| selected        | boolean     | default false; exclusive per submission |
+| rejected        | boolean     | default false                           |
 | spotify_url     | text        | constructed search link, no API         |
 | deezer_url      | text        | nullable                                |
 | artwork_url     | text        | nullable                                |
@@ -149,6 +164,27 @@ pipeline_failed              metadata.stage, metadata.error
 
 RLS: service role only.
 
+## stripe_events
+Idempotency for the webhook. A row is written ONLY after an event was fully
+processed; a failure before that leaves the event retryable.
+
+| column       | type        |
+|--------------|-------------|
+| id           | text pk     | Stripe event id |
+| type         | text        |                 |
+| processed_at | timestamptz |                 |
+
+## SQL functions (security definer, execute granted to service_role only)
+- `create_submission(p_id, p_creator_id, p_video_path, p_intent) returns submissions`
+  — counts the creator's `ready` rows plus in-flight rows (`uploaded|analyzing|recommending`,
+  `updated_at` within 10 min); if ≥ FREE_RESULTS_PER_CREATOR and no `active` subscription,
+  raises `needs_subscription`; else inserts and returns the row. The paywall lives here.
+- `claim_submission_run(p_id) returns submissions` — single conditional update to
+  `analyzing` when status is `uploaded|failed` or the row is stale (> 6 min); returns the
+  row or nothing. Every pipeline run starts here.
+- `metrics_summary() returns jsonb` — funnel by distinct submissions and creators, medians,
+  by-category, paid, returning.
+
 ## subscriptions
 Written by the Stripe webhook.
 
@@ -157,7 +193,7 @@ Written by the Stripe webhook.
 | id                  | uuid        |                                    |
 | creator_id          | uuid        | → creators ON DELETE CASCADE       |
 | stripe_customer_id  | text        |                                    |
-| stripe_subscription_id | text     | nullable                           |
+| stripe_subscription_id | text     | nullable, unique                   |
 | status              | text        | active / canceled / past_due       |
 | started_at          | timestamptz |                                    |
 | created_at          | timestamptz |                                    |

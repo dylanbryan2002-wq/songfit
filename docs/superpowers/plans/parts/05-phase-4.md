@@ -1,196 +1,198 @@
 ## Phase 4 — Feedback, paywall, admin metrics, launch
 
-**Demo when done:** on thissongfits.com from a phone: upload → results → "Use this" → offer → pay (Stripe test mode) → thanks → second upload allowed. A second creator who has not paid hits `/subscribe` on their second upload. `/admin/metrics` shows the funnel.
+**Demo when done:** on thissongfits.com from a phone: upload → results → "Use this" → offer → pay (Stripe test mode) → thanks (entitlement confirmed) → second upload allowed. A second creator who has not paid hits `/subscribe` on their second upload. `/admin/metrics` shows the funnel with distinct creators and distinct submissions.
 
-Assumes Phases 0–3 are merged: full pipeline, `app/results/[id]/page.tsx` rendering `RecommendationCard` with `onSelect(rank)` / `onReject(rank)` props, `logEvent` in `src/feedback/events.ts`, `canSubmit` in `src/billing/paywall.ts`, queries `insertEvent`, `getActiveSubscription`, `activateSubscription`, `listSubmissions`, `getSubmission`, `getCreator`, `requireAdmin`, admin queue and inspector pages.
+Assumes Phases 0–3 are merged. From Phase 0 (migrations 0001–0003 and queries): `recommendations.selected` / `recommendations.rejected`, `stripe_events(id, type, processed_at)`, `submissions.updated_at` + trigger, SQL functions `create_submission()` and `claim_submission_run()`, queries `recordStripeEvent(id, type)`, `markRecommendationFeedback(submissionId, rank, { selected?, rejected? })` (selecting a rank clears `selected` on the other ranks), `listRecommendations(submissionId)`, `getSubmission`, `getActiveSubscription`, `activateSubscription`, `listSubmissions`, `insertEvent`, and `logger` from `src/shared/logger.ts`. From Phase 1: Task 1.7 did the first Vercel deploy, the submit route runs the pipeline via `waitUntil(runSubmission(id))`, `getCreator()` / `requireAdmin()`. From Phase 3: `GET /api/submissions/[id]` returns `RecommendationView[]` (with `selected`/`rejected`), `RecommendationCard` takes `{ rec, chosen, collapsed, onSelect, onReject }`, the admin queue and inspector exist, and the queue already highlights failed rows with their error text and a Retry form.
+
+Rulings applied in this phase (see `docs/review/03-claude-rulings.md`): C4 (Stripe order and validation), C5 (`RecommendationView` DTO), I7 (metrics correctness), I10 (honest billing/feedback UX), M1 (queue polish cut), M2 (hosted Supabase, metrics grants), M3 (admin gate per page/action, no raw errors, retention disclosure).
+
+Migration numbering after Phase 0 ships 0001–0003: this phase adds only `0004_metrics.sql` (Task 4.5). There is no feedback migration.
 
 ---
 
-### Task 4.1: Feedback actions, migration and API route
+### Task 4.1: Feedback actions and API route
 
 **Files:**
-- Create: `supabase/migrations/0004_feedback.sql`
 - Create: `src/feedback/actions.ts`
 - Create: `app/api/submissions/[id]/feedback/route.ts`
-- Modify: `src/db/queries/recommendations.ts` (add `markRecommendation`)
-- Modify: `docs/DATA_MODEL.md` (recommendations table, new `stripe_events` table)
+- Modify: `src/db/queries/events.ts` (add `hasEvent`)
 - Test: `tests/feedback/actions.test.ts`
 
+No migration: `recommendations.selected`, `recommendations.rejected` and `stripe_events` were created in Phase 0 (`0001_init.sql`). If `pnpm db:types` output lacks `selected` on `recommendations`, stop and fix Phase 0 Task 0.3 first.
+
 **Interfaces:**
-- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` from `src/db/queries/submissions.ts` returning `{ id, creator_id, status, ... } | null`; `createServiceClient()` from `src/db/client.ts`; `getCreator()` from `src/auth/session.ts`.
+- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` → `{ id, creator_id, status, ... } | null`; `markRecommendationFeedback(submissionId, rank, patch)` from `src/db/queries/recommendations.ts` — returns the number of rows updated (`Promise<number>`); `insertEvent` / `createServiceClient()`; `getCreator()`.
 - Produces:
   ```ts
-  // src/db/queries/recommendations.ts
-  export async function markRecommendation(submissionId: string, rank: 1 | 2 | 3, patch: { selected?: boolean; rejected?: boolean }): Promise<void>;
+  // src/db/queries/events.ts
+  export async function hasEvent(submissionId: string, name: EventName, metadata?: Record<string, unknown>): Promise<boolean>;
   // src/feedback/actions.ts
-  export type FeedbackAction = "select" | "reject" | "all_rejected" | "offer_viewed" | "offer_clicked";
-  export async function selectRecommendation(submissionId: string, rank: 1 | 2 | 3, creatorId: string): Promise<void>;
-  export async function rejectRecommendation(submissionId: string, rank: 1 | 2 | 3, creatorId: string): Promise<void>;
+  export type Rank = 1 | 2 | 3;
+  export type FeedbackAction = "select" | "reject" | "all_rejected";
+  export class FeedbackError extends Error { status: 403 | 404 }
+  export async function selectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void>;
+  export async function rejectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void>;
   export async function allRejected(submissionId: string, creatorId: string): Promise<void>;
-  export async function offerViewed(submissionId: string, creatorId: string): Promise<void>;
-  export async function offerClicked(submissionId: string, creatorId: string): Promise<void>;
   ```
-  Route: `POST /api/submissions/[id]/feedback` body `{ action: FeedbackAction; rank?: 1|2|3 }` → `204`, `400` bad body, `401` signed out, `403` not owner, `404` no submission.
+  Route: `POST /api/submissions/[id]/feedback` body `{ action: "select" | "reject"; rank: 1|2|3 } | { action: "all_rejected" }` → `204`; `400` bad body; `401` signed out; `403` not owner; `404` no submission or no such recommendation. Offer events are NOT on this route (Task 4.3 adds `/api/offer-events`).
 
-- [ ] **Step 1: Write the migration**
-
-`supabase/migrations/0004_feedback.sql`:
-
-```sql
--- Feedback flags on recommendations
-alter table recommendations
-  add column selected boolean not null default false,
-  add column rejected boolean not null default false;
-
--- Stripe webhook idempotency
-create table stripe_events (
-  id text primary key,
-  type text not null,
-  created_at timestamptz not null default now()
-);
-alter table stripe_events enable row level security;
--- service role only: no policies.
-```
-
-- [ ] **Step 2: Apply it and regenerate types**
-
-Run: `pnpm db:reset && pnpm db:types`
-Expected: `Finished supabase db reset` and `src/db/types.ts` now contains `selected: boolean` under `recommendations` and a `stripe_events` table.
-
-- [ ] **Step 3: Update docs/DATA_MODEL.md**
-
-In the `## recommendations` table append two rows after `preview_url`:
-
-```markdown
-| selected        | boolean     | default false, set by "Use this"        |
-| rejected        | boolean     | default false, set by "Not for me"      |
-```
-
-After the `## subscriptions` section add:
-
-```markdown
-## stripe_events
-Idempotency log for the Stripe webhook. One row per processed Stripe event id.
-
-| column     | type        | notes                      |
-|------------|-------------|----------------------------|
-| id         | text        | Stripe event id, primary key |
-| type       | text        | Stripe event type          |
-| created_at | timestamptz |                            |
-
-RLS: service role only.
-```
-
-- [ ] **Step 4: Write the failing test**
+- [ ] **Step 1: Write the failing test**
 
 `tests/feedback/actions.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const markRecommendation = vi.fn();
+const markRecommendationFeedback = vi.fn();
+const getSubmission = vi.fn();
+const hasEvent = vi.fn();
 const logEvent = vi.fn();
-vi.mock("@/src/db/queries/recommendations", () => ({ markRecommendation }));
+vi.mock("@/src/db/queries/recommendations", () => ({ markRecommendationFeedback }));
+vi.mock("@/src/db/queries/submissions", () => ({ getSubmission }));
+vi.mock("@/src/db/queries/events", () => ({ hasEvent }));
 vi.mock("@/src/feedback/events", () => ({ logEvent }));
 
-import { selectRecommendation, rejectRecommendation, allRejected, offerViewed, offerClicked } from "@/src/feedback/actions";
+import { selectRecommendation, rejectRecommendation, allRejected, FeedbackError } from "@/src/feedback/actions";
+
+const owned = { id: "sub-1", creator_id: "cre-1", status: "ready" };
 
 describe("feedback actions", () => {
-  beforeEach(() => { markRecommendation.mockReset(); logEvent.mockReset(); });
+  beforeEach(() => {
+    markRecommendationFeedback.mockReset().mockResolvedValue(1);
+    getSubmission.mockReset().mockResolvedValue(owned);
+    hasEvent.mockReset().mockResolvedValue(false);
+    logEvent.mockReset();
+  });
 
-  it("select marks the row and logs recommendation_selected with rank", async () => {
+  it("select marks the row exclusively and logs recommendation_selected with creator and rank", async () => {
     await selectRecommendation("sub-1", 2, "cre-1");
-    expect(markRecommendation).toHaveBeenCalledWith("sub-1", 2, { selected: true });
+    expect(markRecommendationFeedback).toHaveBeenCalledWith("sub-1", 2, { selected: true, rejected: false });
     expect(logEvent).toHaveBeenCalledWith({ name: "recommendation_selected", creatorId: "cre-1", submissionId: "sub-1", metadata: { rank: 2 } });
   });
 
-  it("reject marks the row and logs recommendation_rejected with rank", async () => {
+  it("select does not log twice for the same submission and rank", async () => {
+    hasEvent.mockResolvedValue(true);
+    await selectRecommendation("sub-1", 2, "cre-1");
+    expect(markRecommendationFeedback).toHaveBeenCalledTimes(1);
+    expect(logEvent).not.toHaveBeenCalled();
+  });
+
+  it("reject marks the row and logs recommendation_rejected", async () => {
     await rejectRecommendation("sub-1", 3, "cre-1");
-    expect(markRecommendation).toHaveBeenCalledWith("sub-1", 3, { rejected: true });
+    expect(markRecommendationFeedback).toHaveBeenCalledWith("sub-1", 3, { rejected: true, selected: false });
     expect(logEvent).toHaveBeenCalledWith({ name: "recommendation_rejected", creatorId: "cre-1", submissionId: "sub-1", metadata: { rank: 3 } });
   });
 
-  it("allRejected logs all_rejected then more_like_this_requested", async () => {
-    await allRejected("sub-1", "cre-1");
-    expect(logEvent.mock.calls.map((c) => c[0].name)).toEqual(["all_rejected", "more_like_this_requested"]);
+  it("refuses a submission owned by someone else before touching anything", async () => {
+    getSubmission.mockResolvedValue({ ...owned, creator_id: "someone-else" });
+    await expect(selectRecommendation("sub-1", 1, "cre-1")).rejects.toBeInstanceOf(FeedbackError);
+    expect(markRecommendationFeedback).not.toHaveBeenCalled();
+    expect(logEvent).not.toHaveBeenCalled();
   });
 
-  it("offer events log paid_offer_viewed / paid_offer_clicked", async () => {
-    await offerViewed("sub-1", "cre-1");
-    await offerClicked("sub-1", "cre-1");
-    expect(logEvent.mock.calls.map((c) => c[0].name)).toEqual(["paid_offer_viewed", "paid_offer_clicked"]);
+  it("does not log when no recommendation row was updated", async () => {
+    markRecommendationFeedback.mockResolvedValue(0);
+    await expect(selectRecommendation("sub-1", 1, "cre-1")).rejects.toMatchObject({ status: 404 });
+    expect(logEvent).not.toHaveBeenCalled();
+  });
+
+  it("allRejected logs all_rejected then more_like_this_requested with the creator", async () => {
+    await allRejected("sub-1", "cre-1");
+    expect(logEvent.mock.calls.map((c) => c[0])).toEqual([
+      { name: "all_rejected", creatorId: "cre-1", submissionId: "sub-1" },
+      { name: "more_like_this_requested", creatorId: "cre-1", submissionId: "sub-1" },
+    ]);
   });
 });
 ```
 
-- [ ] **Step 5: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/feedback/actions.test.ts`
 Expected: FAIL — `Cannot find module '@/src/feedback/actions'`.
 
-- [ ] **Step 6: Add the query**
+- [ ] **Step 3: Add `hasEvent` to the events query**
 
-Append to `src/db/queries/recommendations.ts`:
+Append to `src/db/queries/events.ts`:
 
 ```ts
-export async function markRecommendation(
+/** True when an event with this name (and, if given, this exact metadata) already exists for the submission. */
+export async function hasEvent(
   submissionId: string,
-  rank: 1 | 2 | 3,
-  patch: { selected?: boolean; rejected?: boolean },
-): Promise<void> {
-  const db = createServiceClient();
-  const { error } = await db
-    .from("recommendations")
-    .update(patch)
+  name: EventName,
+  metadata?: Record<string, unknown>,
+): Promise<boolean> {
+  let q = createServiceClient()
+    .from("events")
+    .select("id", { count: "exact", head: true })
     .eq("submission_id", submissionId)
-    .eq("rank", rank);
-  if (error) throw new Error(`markRecommendation: ${error.message}`);
+    .eq("name", name);
+  if (metadata) q = q.contains("metadata", metadata);
+  const { count, error } = await q;
+  if (error) throw error;
+  return (count ?? 0) > 0;
 }
 ```
 
-(`createServiceClient` is already imported at the top of that file from `../client`.)
+(`EventName` is already imported in that file from `@/src/feedback/events`; if not, add `import type { EventName } from "@/src/feedback/events";`.)
 
-- [ ] **Step 7: Write the actions**
+- [ ] **Step 4: Write the actions**
 
 `src/feedback/actions.ts`:
 
 ```ts
-import { markRecommendation } from "@/src/db/queries/recommendations";
+import { markRecommendationFeedback } from "@/src/db/queries/recommendations";
+import { getSubmission } from "@/src/db/queries/submissions";
+import { hasEvent } from "@/src/db/queries/events";
 import { logEvent } from "@/src/feedback/events";
 
-export type FeedbackAction = "select" | "reject" | "all_rejected" | "offer_viewed" | "offer_clicked";
 export type Rank = 1 | 2 | 3;
+export type FeedbackAction = "select" | "reject" | "all_rejected";
+
+export class FeedbackError extends Error {
+  constructor(public status: 403 | 404, message: string) {
+    super(message);
+  }
+}
+
+/** Throws unless the submission exists and belongs to the creator. Runs before any write or log. */
+async function assertOwned(submissionId: string, creatorId: string): Promise<void> {
+  const submission = await getSubmission(submissionId);
+  if (!submission) throw new FeedbackError(404, "submission not found");
+  if (submission.creator_id !== creatorId) throw new FeedbackError(403, "not your submission");
+}
 
 export async function selectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void> {
-  await markRecommendation(submissionId, rank, { selected: true });
+  await assertOwned(submissionId, creatorId);
+  // Exclusive: the query clears `selected` on the other ranks in the same statement.
+  const updated = await markRecommendationFeedback(submissionId, rank, { selected: true, rejected: false });
+  if (updated === 0) throw new FeedbackError(404, "no such recommendation");
+  if (await hasEvent(submissionId, "recommendation_selected", { rank })) return;
   await logEvent({ name: "recommendation_selected", creatorId, submissionId, metadata: { rank } });
 }
 
 export async function rejectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void> {
-  await markRecommendation(submissionId, rank, { rejected: true });
+  await assertOwned(submissionId, creatorId);
+  const updated = await markRecommendationFeedback(submissionId, rank, { rejected: true, selected: false });
+  if (updated === 0) throw new FeedbackError(404, "no such recommendation");
+  if (await hasEvent(submissionId, "recommendation_rejected", { rank })) return;
   await logEvent({ name: "recommendation_rejected", creatorId, submissionId, metadata: { rank } });
 }
 
 export async function allRejected(submissionId: string, creatorId: string): Promise<void> {
+  await assertOwned(submissionId, creatorId);
+  if (await hasEvent(submissionId, "all_rejected")) return;
   await logEvent({ name: "all_rejected", creatorId, submissionId });
   await logEvent({ name: "more_like_this_requested", creatorId, submissionId });
 }
-
-export async function offerViewed(submissionId: string, creatorId: string): Promise<void> {
-  await logEvent({ name: "paid_offer_viewed", creatorId, submissionId });
-}
-
-export async function offerClicked(submissionId: string, creatorId: string): Promise<void> {
-  await logEvent({ name: "paid_offer_clicked", creatorId, submissionId });
-}
 ```
 
-- [ ] **Step 8: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/feedback/actions.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
-- [ ] **Step 9: Write the route**
+- [ ] **Step 6: Write the route**
 
 `app/api/submissions/[id]/feedback/route.ts`:
 
@@ -198,17 +200,14 @@ Expected: PASS, 4 tests.
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCreator } from "@/src/auth/session";
-import { getSubmission } from "@/src/db/queries/submissions";
-import {
-  selectRecommendation, rejectRecommendation, allRejected, offerViewed, offerClicked,
-} from "@/src/feedback/actions";
+import { selectRecommendation, rejectRecommendation, allRejected, FeedbackError } from "@/src/feedback/actions";
+import { logger } from "@/src/shared/logger";
 
+const Rank = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 const Body = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("select"), rank: z.union([z.literal(1), z.literal(2), z.literal(3)]) }),
-  z.object({ action: z.literal("reject"), rank: z.union([z.literal(1), z.literal(2), z.literal(3)]) }),
+  z.object({ action: z.literal("select"), rank: Rank }),
+  z.object({ action: z.literal("reject"), rank: Rank }),
   z.object({ action: z.literal("all_rejected") }),
-  z.object({ action: z.literal("offer_viewed") }),
-  z.object({ action: z.literal("offer_clicked") }),
 ]);
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -219,39 +218,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  const submission = await getSubmission(id);
-  if (!submission) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (submission.creator_id !== creator.id) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-
-  const body = parsed.data;
-  switch (body.action) {
-    case "select": await selectRecommendation(id, body.rank, creator.id); break;
-    case "reject": await rejectRecommendation(id, body.rank, creator.id); break;
-    case "all_rejected": await allRejected(id, creator.id); break;
-    case "offer_viewed": await offerViewed(id, creator.id); break;
-    case "offer_clicked": await offerClicked(id, creator.id); break;
+  try {
+    const body = parsed.data;
+    if (body.action === "select") await selectRecommendation(id, body.rank, creator.id);
+    else if (body.action === "reject") await rejectRecommendation(id, body.rank, creator.id);
+    else await allRejected(id, creator.id);
+    return new NextResponse(null, { status: 204 });
+  } catch (e) {
+    if (e instanceof FeedbackError) return NextResponse.json({ error: e.message }, { status: e.status });
+    logger.error("feedback.failed", { submissionId: id, err: String(e) });
+    return NextResponse.json({ error: "feedback_failed" }, { status: 500 }); // generic: no raw error text to creators
   }
-  return new NextResponse(null, { status: 204 });
 }
 ```
 
-- [ ] **Step 10: Typecheck and manual check**
+- [ ] **Step 7: Typecheck and manual check**
 
 Run: `pnpm typecheck && pnpm test`
 Expected: no type errors, all tests pass.
 
-Run (with `pnpm dev` up and a signed-in browser session; copy the `sb-*` cookie value from devtools, or use the browser console):
+With `pnpm dev` up and a signed-in browser, in the console on a ready `/results/<id>`:
 
 ```js
-await fetch("/api/submissions/<a ready submission id>/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "select", rank: 1 }) }).then(r => r.status)
+await fetch(location.pathname.replace("/results/", "/api/submissions/") + "/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "select", rank: 1 }) }).then(r => r.status)
 ```
-Expected: `204`, and in Supabase Studio the `recommendations` row with rank 1 has `selected = true` and `events` has a `recommendation_selected` row.
+Expected: `204`; in Supabase Studio the rank-1 row has `selected = true`, ranks 2–3 have `selected = false`, and `events` has exactly one `recommendation_selected` row with `creator_id` set even after running the snippet twice.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add supabase/migrations/0004_feedback.sql src/db/types.ts src/db/queries/recommendations.ts src/feedback/actions.ts app/api/submissions/[id]/feedback/route.ts tests/feedback/actions.test.ts docs/DATA_MODEL.md
-git commit -m "Add feedback actions, flags and API route"
+git add src/feedback/actions.ts src/db/queries/events.ts app/api/submissions/[id]/feedback/route.ts tests/feedback/actions.test.ts
+git commit -m "Add owned, idempotent feedback actions and API route"
 ```
 
 ---
@@ -265,15 +262,17 @@ git commit -m "Add feedback actions, flags and API route"
 - Test: `tests/feedback/resultsState.test.ts`
 
 **Interfaces:**
-- Consumes: `RecommendationCard` props `{ rec: FinalRecommendation; onSelect: (rank: 1|2|3) => void; onReject: (rank: 1|2|3) => void; collapsed?: boolean; chosen?: boolean }` (add `collapsed`/`chosen` props to the card in this task if Phase 3 did not include them: `collapsed` hides everything but title/artist, `chosen` shows a "Your pick" badge and hides the buttons). `Offer` from Task 4.3 (create a stub in this task's Step 7 if executing out of order).
+- Consumes: `RecommendationView` from `@/src/shared/types` (fields `rank, direction_label, title, artist, start_seconds, end_seconds, explanation, artwork_url, preview_url, spotify_url, selected, rejected`); `RecommendationCard` props `{ rec: RecommendationView; chosen: boolean; collapsed: boolean; onSelect: (rank) => void; onReject: (rank) => void }` (Phase 3); `Offer` from Task 4.3 (stub in Step 7 if executed first).
 - Produces:
   ```ts
   // src/feedback/resultsState.ts
-  export type ResultsState = { chosen: 1 | 2 | 3 | null; rejected: Set<1 | 2 | 3>; showOffer: boolean; allRejected: boolean };
-  export type ResultsAction = { type: "select"; rank: 1 | 2 | 3 } | { type: "reject"; rank: 1 | 2 | 3 };
-  export const initialResultsState: ResultsState;
+  export type Rank = 1 | 2 | 3;
+  export type ResultsState = { chosen: Rank | null; rejected: Rank[]; showOffer: boolean; allRejected: boolean };
+  export type ResultsAction = { type: "select"; rank: Rank } | { type: "reject"; rank: Rank };
+  export function initialResultsState(recs: { rank: Rank; selected: boolean; rejected: boolean }[]): ResultsState;
   export function nextResultsState(state: ResultsState, action: ResultsAction): ResultsState;
   ```
+  State is derived from the server's `selected`/`rejected` flags on load, so a refresh shows the same choice.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -283,39 +282,51 @@ git commit -m "Add feedback actions, flags and API route"
 import { describe, it, expect } from "vitest";
 import { initialResultsState, nextResultsState } from "@/src/feedback/resultsState";
 
-describe("nextResultsState", () => {
+const fresh = () => initialResultsState([
+  { rank: 1, selected: false, rejected: false },
+  { rank: 2, selected: false, rejected: false },
+  { rank: 3, selected: false, rejected: false },
+]);
+
+describe("results state", () => {
   it("select sets chosen and shows the offer", () => {
-    const s = nextResultsState(initialResultsState, { type: "select", rank: 2 });
+    const s = nextResultsState(fresh(), { type: "select", rank: 2 });
     expect(s.chosen).toBe(2);
     expect(s.showOffer).toBe(true);
     expect(s.allRejected).toBe(false);
   });
 
-  it("rejecting one does not show the offer", () => {
-    const s = nextResultsState(initialResultsState, { type: "reject", rank: 1 });
-    expect(s.rejected.has(1)).toBe(true);
-    expect(s.showOffer).toBe(false);
+  it("selecting another rank replaces the choice (exclusive)", () => {
+    let s = nextResultsState(fresh(), { type: "select", rank: 1 });
+    s = nextResultsState(s, { type: "select", rank: 3 });
+    expect(s.chosen).toBe(3);
   });
 
-  it("rejecting all three sets allRejected and shows the offer", () => {
-    let s = initialResultsState;
-    s = nextResultsState(s, { type: "reject", rank: 1 });
+  it("rejecting one does not show the offer; rejecting all three does", () => {
+    let s = nextResultsState(fresh(), { type: "reject", rank: 1 });
+    expect(s.showOffer).toBe(false);
     s = nextResultsState(s, { type: "reject", rank: 2 });
     s = nextResultsState(s, { type: "reject", rank: 3 });
     expect(s.allRejected).toBe(true);
     expect(s.showOffer).toBe(true);
   });
 
-  it("select after a chosen pick is ignored", () => {
-    let s = nextResultsState(initialResultsState, { type: "select", rank: 1 });
-    s = nextResultsState(s, { type: "select", rank: 3 });
-    expect(s.chosen).toBe(1);
+  it("rejecting the chosen pick clears the choice", () => {
+    let s = nextResultsState(fresh(), { type: "select", rank: 1 });
+    s = nextResultsState(s, { type: "reject", rank: 1 });
+    expect(s.chosen).toBeNull();
+    expect(s.rejected).toEqual([1]);
   });
 
-  it("rejecting the chosen pick is ignored", () => {
-    let s = nextResultsState(initialResultsState, { type: "select", rank: 1 });
-    s = nextResultsState(s, { type: "reject", rank: 1 });
-    expect(s.rejected.size).toBe(0);
+  it("initial state reflects a selection persisted on the server (refresh)", () => {
+    const s = initialResultsState([
+      { rank: 1, selected: false, rejected: true },
+      { rank: 2, selected: true, rejected: false },
+      { rank: 3, selected: false, rejected: false },
+    ]);
+    expect(s.chosen).toBe(2);
+    expect(s.rejected).toEqual([1]);
+    expect(s.showOffer).toBe(true);
   });
 });
 ```
@@ -331,20 +342,25 @@ Expected: FAIL — module not found.
 
 ```ts
 export type Rank = 1 | 2 | 3;
-export type ResultsState = { chosen: Rank | null; rejected: Set<Rank>; showOffer: boolean; allRejected: boolean };
+export type ResultsState = { chosen: Rank | null; rejected: Rank[]; showOffer: boolean; allRejected: boolean };
 export type ResultsAction = { type: "select"; rank: Rank } | { type: "reject"; rank: Rank };
 
-export const initialResultsState: ResultsState = { chosen: null, rejected: new Set(), showOffer: false, allRejected: false };
+export function initialResultsState(recs: { rank: Rank; selected: boolean; rejected: boolean }[]): ResultsState {
+  const chosen = recs.find((r) => r.selected)?.rank ?? null;
+  const rejected = recs.filter((r) => r.rejected).map((r) => r.rank).sort((a, b) => a - b);
+  const allRejected = chosen === null && rejected.length === 3;
+  return { chosen, rejected, showOffer: chosen !== null || allRejected, allRejected };
+}
 
 export function nextResultsState(state: ResultsState, action: ResultsAction): ResultsState {
-  if (state.chosen !== null) return state; // once chosen, nothing changes
   if (action.type === "select") {
-    return { ...state, chosen: action.rank, showOffer: true, allRejected: false };
+    const rejected = state.rejected.filter((r) => r !== action.rank);
+    return { chosen: action.rank, rejected, showOffer: true, allRejected: false };
   }
-  const rejected = new Set(state.rejected);
-  rejected.add(action.rank);
-  const all = rejected.size === 3;
-  return { ...state, rejected, allRejected: all, showOffer: state.showOffer || all };
+  const rejected = state.rejected.includes(action.rank) ? state.rejected : [...state.rejected, action.rank].sort((a, b) => a - b);
+  const chosen = state.chosen === action.rank ? null : state.chosen;
+  const allRejected = chosen === null && rejected.length === 3;
+  return { chosen, rejected, allRejected, showOffer: state.showOffer || allRejected };
 }
 ```
 
@@ -360,23 +376,24 @@ Expected: PASS, 5 tests.
 ```tsx
 "use client";
 import { useReducer, useCallback } from "react";
-import type { FinalRecommendation } from "@/src/shared/types";
+import type { RecommendationView } from "@/src/shared/types";
 import { initialResultsState, nextResultsState, type Rank } from "@/src/feedback/resultsState";
 import { RecommendationCard } from "@/components/RecommendationCard";
 import { Offer } from "@/components/Offer";
 
-type Props = { submissionId: string; recs: FinalRecommendation[]; creatorEmail: string; creatorId: string };
+type Props = { submissionId: string; recs: RecommendationView[]; creatorEmail: string; creatorId: string };
 
 async function post(submissionId: string, body: Record<string, unknown>) {
   await fetch(`/api/submissions/${submissionId}/feedback`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  }).catch(() => undefined); // feedback is best-effort for the UI
+    keepalive: true,
+  }).catch(() => undefined); // best-effort for the UI; the server is the record
 }
 
 export function ResultsClient({ submissionId, recs, creatorEmail, creatorId }: Props) {
-  const [state, dispatch] = useReducer(nextResultsState, initialResultsState);
+  const [state, dispatch] = useReducer(nextResultsState, recs, initialResultsState);
 
   const onSelect = useCallback((rank: Rank) => {
     dispatch({ type: "select", rank });
@@ -417,7 +434,7 @@ export function ResultsClient({ submissionId, recs, creatorEmail, creatorId }: P
 
 - [ ] **Step 6: Wire it into the results page**
 
-In `app/results/[id]/page.tsx`, where Phase 3 rendered the three cards, replace that block with:
+In `app/results/[id]/page.tsx`, replace the block where Phase 3 maps `recommendations` to three `RecommendationCard`s with:
 
 ```tsx
 <ResultsClient
@@ -428,21 +445,7 @@ In `app/results/[id]/page.tsx`, where Phase 3 rendered the three cards, replace 
 />
 ```
 
-and add `import { ResultsClient } from "@/components/ResultsClient";`. The page already has `creator` from `getCreator()` and `recommendations` as `FinalRecommendation[]`.
-
-If `RecommendationCard` lacks `chosen`/`collapsed`, add to its props and render:
-
-```tsx
-// in RecommendationCard props type
-chosen?: boolean;
-collapsed?: boolean;
-// in the JSX, at the top of the card
-{chosen && <span className="rounded-full bg-black px-3 py-1 text-xs text-white">Your pick</span>}
-// wrap the explanation, preview, Spotify link and buttons in:
-{!collapsed && ( ...existing body... )}
-// hide buttons when chosen:
-{!chosen && !collapsed && ( ...Use this / Not for me buttons... )}
-```
+and add `import { ResultsClient } from "@/components/ResultsClient";`. The page already has `creator` from `getCreator()` and `recommendations: RecommendationView[]` built by Phase 3's `toRecommendationView` mapper (which copies `selected`/`rejected` from the rows). Remove the now-unused `RecommendationCard` import from the page.
 
 - [ ] **Step 7: Temporary Offer stub (only if Task 4.3 is not done yet)**
 
@@ -450,7 +453,7 @@ collapsed?: boolean;
 
 ```tsx
 "use client";
-export function Offer(_: { submissionId: string; creatorEmail: string; creatorId: string }) {
+export function Offer(_: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }) {
   return <div className="rounded-2xl border p-6 text-center">Offer goes here.</div>;
 }
 ```
@@ -462,37 +465,42 @@ Task 4.3 replaces this file.
 Run: `pnpm typecheck && pnpm test`
 Expected: pass.
 
-Run `pnpm dev`, open a ready `/results/<id>` on a 390 px wide viewport. Tap "Use this" on #2: #1 and #3 collapse to title/artist, #2 shows "Your pick", the offer block appears. Reload, tap "Not for me" on all three: the "Want 3 different directions?" line and the offer appear. In Supabase Studio `events` contains `recommendation_selected`, `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`.
+`pnpm dev`, open a ready `/results/<id>` at 390 px wide. Tap "Use this" on #2: #1 and #3 collapse, #2 shows "Your pick", the offer appears. Reload: #2 is still the pick (state came from the server). Tap "Use this" on #3: #3 becomes the pick, #2 collapses. Reload again, tap "Not for me" on all three: "Want 3 different directions?" and the offer appear. In Supabase Studio exactly one recommendation has `selected = true` at any time, and `events` has `recommendation_selected` ×2 (ranks 2 and 3), `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`, each with `creator_id`.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/feedback/resultsState.ts components/ResultsClient.tsx components/RecommendationCard.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
-git commit -m "Wire results feedback with a state reducer and client wrapper"
+git add src/feedback/resultsState.ts components/ResultsClient.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
+git commit -m "Wire results feedback with server-derived state and exclusive selection"
 ```
 
 ---
 
-### Task 4.3: Offer component and paywall pages
+### Task 4.3: Offer component, offer events and paywall pages
 
 **Files:**
 - Create (replace stub): `components/Offer.tsx`
 - Create: `src/billing/paymentLink.ts`
+- Create: `app/api/offer-events/route.ts`
+- Create: `app/api/me/subscription/route.ts`
 - Create: `app/subscribe/page.tsx`
 - Create: `app/subscribe/thanks/page.tsx`
-- Modify: `.env.example` (add `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`)
+- Create: `components/ThanksClient.tsx`
+- Modify: `.env.example` (add `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`)
 - Test: `tests/billing/paymentLink.test.ts`
 
 **Interfaces:**
-- Consumes: `getCreator()`; `redirect` from `next/navigation`; `UploadForm` already redirects to `/subscribe` when `POST /api/upload-url` returns 402 (Phase 1).
+- Consumes: `getCreator()`; `getActiveSubscription(creatorId)` → row or null; `logEvent`; `UploadForm` already redirects to `/subscribe` when `POST /api/upload-url` returns 402 (Phase 1). Sign-in is the first tap on `/` (Phase 1, ruling I6), so `/subscribe` can simply redirect signed-out users to `/`.
 - Produces:
   ```ts
   // src/billing/paymentLink.ts
   export function buildPaymentLink(base: string, creatorEmail: string, creatorId: string): string;
   // components/Offer.tsx
   export function Offer(props: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }): JSX.Element;
+  // POST /api/offer-events  body { action: "offer_viewed" | "offer_clicked"; submissionId?: string } → 204 | 400 | 401
+  // GET  /api/me/subscription → { status: "active" | "canceled" | "past_due" | "none" }
   ```
-  Env: `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL` (public: it is a public Stripe URL; being `NEXT_PUBLIC_` lets the client component build the link).
+  Env: `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL` (both public Stripe URLs; `NEXT_PUBLIC_` lets client components read them).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -535,7 +543,63 @@ export function buildPaymentLink(base: string, creatorEmail: string, creatorId: 
 Run: `pnpm vitest run tests/billing/paymentLink.test.ts`
 Expected: PASS, 2 tests.
 
-- [ ] **Step 5: Write the Offer component**
+- [ ] **Step 5: Offer events route (creator-level, submission optional)**
+
+`app/api/offer-events/route.ts`:
+
+```ts
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { getCreator } from "@/src/auth/session";
+import { getSubmission } from "@/src/db/queries/submissions";
+import { logEvent } from "@/src/feedback/events";
+
+const Body = z.object({
+  action: z.enum(["offer_viewed", "offer_clicked"]),
+  submissionId: z.string().uuid().optional(),
+});
+
+const NAME = { offer_viewed: "paid_offer_viewed", offer_clicked: "paid_offer_clicked" } as const;
+
+export async function POST(req: Request) {
+  const creator = await getCreator();
+  if (!creator) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const parsed = Body.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
+
+  // Attach the submission only when it is the caller's; never trust a foreign id.
+  let submissionId: string | null = null;
+  if (parsed.data.submissionId) {
+    const s = await getSubmission(parsed.data.submissionId);
+    if (s && s.creator_id === creator.id) submissionId = s.id;
+  }
+  await logEvent({ name: NAME[parsed.data.action], creatorId: creator.id, submissionId });
+  return new NextResponse(null, { status: 204 });
+}
+```
+
+- [ ] **Step 6: Subscription status route**
+
+`app/api/me/subscription/route.ts`:
+
+```ts
+import { NextResponse } from "next/server";
+import { getCreator } from "@/src/auth/session";
+import { getActiveSubscription } from "@/src/db/queries/subscriptions";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const creator = await getCreator();
+  if (!creator) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const sub = await getActiveSubscription(creator.id);
+  return NextResponse.json({ status: sub ? "active" : "none" });
+}
+```
+
+(`getActiveSubscription` returns only rows with `status = 'active'`, so anything else reads as `none` here; the webhook keeps the row's true status.)
+
+- [ ] **Step 7: Write the Offer component**
 
 `components/Offer.tsx` (replaces the Task 4.2 stub):
 
@@ -546,25 +610,25 @@ import { buildPaymentLink } from "@/src/billing/paymentLink";
 
 type Props = { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string };
 
-function track(submissionId: string | null, action: "offer_viewed" | "offer_clicked") {
-  if (!submissionId) return;
-  void fetch(`/api/submissions/${submissionId}/feedback`, {
+function track(action: "offer_viewed" | "offer_clicked", submissionId: string | null) {
+  void fetch("/api/offer-events", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify(submissionId ? { action, submissionId } : { action }),
     keepalive: true,
   }).catch(() => undefined);
 }
 
 export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want Songfit for your next posts?" }: Props) {
   const base = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL ?? "";
+  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
   const href = base ? buildPaymentLink(base, creatorEmail, creatorId) : "#";
   const viewed = useRef(false);
 
   useEffect(() => {
     if (viewed.current) return;
     viewed.current = true;
-    track(submissionId, "offer_viewed");
+    track("offer_viewed", submissionId);
   }, [submissionId]);
 
   return (
@@ -573,17 +637,22 @@ export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want 
       <p className="mt-2 text-neutral-600">$9.99/month, cancel anytime.</p>
       <a
         href={href}
-        onClick={() => track(submissionId, "offer_clicked")}
+        onClick={() => track("offer_clicked", submissionId)}
         className="mt-5 inline-block w-full rounded-full bg-black px-6 py-3 text-base font-medium text-white"
       >
         Get Songfit
       </a>
+      {portal && (
+        <p className="mt-3 text-xs text-neutral-500">
+          Already subscribed? <a href={portal} className="underline">Manage or cancel</a>
+        </p>
+      )}
     </section>
   );
 }
 ```
 
-- [ ] **Step 6: Write the paywall pages**
+- [ ] **Step 8: Write the paywall pages**
 
 `app/subscribe/page.tsx`:
 
@@ -593,15 +662,78 @@ import { getCreator } from "@/src/auth/session";
 import { Offer } from "@/components/Offer";
 import { Logo } from "@/components/Logo";
 
+export const dynamic = "force-dynamic";
+
 export default async function SubscribePage() {
   const creator = await getCreator();
-  if (!creator) redirect("/?signin=1");
+  if (!creator) redirect("/"); // sign-in is the first tap on the upload screen (Phase 1)
+  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 py-10">
       <Logo />
       <p className="text-center text-neutral-700">You&apos;ve used your free Songfit. Subscribe to keep going.</p>
       <Offer submissionId={null} creatorEmail={creator.email} creatorId={creator.id} headline="Songfit for every post" />
+      {portal && (
+        <p className="text-center text-xs text-neutral-500">
+          <a href={portal} className="underline">Manage or cancel</a> an existing subscription.
+        </p>
+      )}
     </main>
+  );
+}
+```
+
+`components/ThanksClient.tsx` (polls entitlement; "You're in" only when the webhook has landed):
+
+```tsx
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+
+type Phase = "checking" | "active" | "slow";
+
+export function ThanksClient() {
+  const [phase, setPhase] = useState<Phase>("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    const started = Date.now();
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const r = await fetch("/api/me/subscription", { cache: "no-store" });
+        const j = (await r.json()) as { status?: string };
+        if (j.status === "active") { setPhase("active"); return; }
+      } catch { /* keep polling */ }
+      if (Date.now() - started > 60_000) { setPhase("slow"); return; }
+      setTimeout(tick, 2_000);
+    };
+    void tick();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (phase === "active") {
+    return (
+      <>
+        <h1 className="text-2xl font-semibold tracking-tight">You&apos;re in.</h1>
+        <p className="text-neutral-700">Upload your next video.</p>
+        <Link href="/" className="rounded-full bg-black px-6 py-3 font-medium text-white">Find my songs</Link>
+      </>
+    );
+  }
+  if (phase === "slow") {
+    return (
+      <>
+        <h1 className="text-2xl font-semibold tracking-tight">Payment received.</h1>
+        <p className="text-neutral-700">Taking longer than expected — refresh in a minute.</p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h1 className="text-2xl font-semibold tracking-tight">Payment received.</h1>
+      <p className="text-neutral-700">Activating…</p>
+    </>
   );
 }
 ```
@@ -609,52 +741,51 @@ export default async function SubscribePage() {
 `app/subscribe/thanks/page.tsx`:
 
 ```tsx
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCreator } from "@/src/auth/session";
 import { Logo } from "@/components/Logo";
+import { ThanksClient } from "@/components/ThanksClient";
 
-export default function ThanksPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ThanksPage() {
+  const creator = await getCreator();
+  if (!creator) redirect("/");
+  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-4 py-10 text-center">
       <Logo />
-      <h1 className="text-2xl font-semibold tracking-tight">You&apos;re in.</h1>
-      <p className="text-neutral-700">Upload your next video.</p>
-      <Link href="/" className="rounded-full bg-black px-6 py-3 font-medium text-white">Find my songs</Link>
+      <ThanksClient />
+      {portal && (
+        <p className="text-xs text-neutral-500"><a href={portal} className="underline">Manage or cancel</a></p>
+      )}
     </main>
   );
 }
 ```
 
-`?signin=1` on `/`: `UploadForm` (Phase 1) opens Google sign-in when the button is tapped; if the Phase 1 form does not already read this param, add in `UploadForm`:
+- [ ] **Step 9: Env example**
 
-```tsx
-useEffect(() => {
-  if (new URLSearchParams(window.location.search).get("signin") === "1") void signInWithGoogle();
-}, []);
-```
-
-- [ ] **Step 7: Env example**
-
-Append to `.env.example`:
+Append to `.env.example` (keep the existing Stripe lines):
 
 ```
-# Stripe
+# Public Stripe URLs (safe to expose)
 NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL=https://buy.stripe.com/test_replace_me
-STRIPE_SECRET_KEY=sk_test_replace_me
-STRIPE_WEBHOOK_SECRET=whsec_replace_me
+NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL=https://billing.stripe.com/p/login/test_replace_me
 ```
 
-- [ ] **Step 8: Typecheck and verify**
+- [ ] **Step 10: Typecheck and verify**
 
 Run: `pnpm typecheck && pnpm test`
 Expected: pass.
 
-Run `pnpm dev`; sign in as a creator who already has one ready submission; tap "Find my songs" with a new file. Expected: redirected to `/subscribe`, offer shows, `events` gets `paid_offer_viewed` only when a `submissionId` is present (on `/subscribe` it is null, so none; on results it logs). The "Get Songfit" link opens the Stripe test link with your email prefilled.
+`pnpm dev`; sign in as a creator who already has one ready submission; tap "Find my songs" with a new file. Expected: redirected to `/subscribe`; `events` gets a `paid_offer_viewed` row with `creator_id` set and `submission_id` null. Tap "Get Songfit": a `paid_offer_clicked` row, and the Stripe test link opens with your email prefilled. Open `/subscribe/thanks` directly without paying: shows "Payment received. Activating…" then after 60 s the "refresh in a minute" line (no "You're in").
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add components/Offer.tsx src/billing/paymentLink.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx .env.example tests/billing/paymentLink.test.ts components/UploadForm.tsx
-git commit -m "Add offer component and subscribe pages"
+git add components/Offer.tsx components/ThanksClient.tsx src/billing/paymentLink.ts app/api/offer-events/route.ts app/api/me/subscription/route.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx .env.example tests/billing/paymentLink.test.ts
+git commit -m "Add offer, creator-level offer events, and entitlement-aware subscribe pages"
 ```
 
 ---
@@ -664,29 +795,38 @@ git commit -m "Add offer component and subscribe pages"
 **Files:**
 - Create: `src/billing/stripe.ts`
 - Create: `app/api/stripe/webhook/route.ts`
-- Modify: `src/db/queries/subscriptions.ts` (add `setSubscriptionStatusByStripeId`), `src/db/queries/creators.ts` (add `getCreatorByEmail`), create `src/db/queries/stripeEvents.ts`
+- Modify: `src/db/queries/subscriptions.ts` (add `upsertSubscriptionFromStripe`, `getCreatorIdByStripeCustomer`)
+- Modify: `src/db/queries/stripeEvents.ts` (ensure `recordStripeEvent` and add `isStripeEventRecorded`)
+- Modify: `src/db/queries/events.ts` (reuse `hasEvent`; add `hasCreatorEvent`)
 - Test: `tests/billing/stripe.test.ts`
 
 **Interfaces:**
-- Consumes: `activateSubscription({ creatorId, stripeCustomerId, stripeSubscriptionId })` (Phase 1/3 query: upserts a `subscriptions` row with `status = 'active'`, `started_at = now()`); `logEvent`.
+- Consumes: Phase 0's `stripe_events(id text primary key, type text, processed_at timestamptz)` table and `recordStripeEvent(id, type)` query; `subscriptions` table with `stripe_subscription_id text unique` (plain nullable unique constraint — verify in `0001_init.sql`; if it is a partial index, change it in Phase 0 Task 0.3 to `unique` before this task); `logEvent`; `env("STRIPE_SECRET_KEY")`, `env("STRIPE_WEBHOOK_SECRET")`, `env("STRIPE_PRICE_ID")`.
 - Produces:
   ```ts
   // src/db/queries/stripeEvents.ts
-  export async function claimStripeEvent(id: string, type: string): Promise<boolean>; // true if newly inserted, false if already processed
+  export async function isStripeEventRecorded(id: string): Promise<boolean>;
+  export async function recordStripeEvent(id: string, type: string): Promise<void>; // AFTER successful processing only
   // src/db/queries/subscriptions.ts
-  export async function setSubscriptionStatusByStripeId(stripeSubscriptionId: string, status: "active" | "canceled" | "past_due"): Promise<void>;
-  // src/db/queries/creators.ts
-  export async function getCreatorByEmail(email: string): Promise<{ id: string; email: string } | null>;
+  export type StripeSubStatus = "active" | "canceled" | "past_due";
+  export async function upsertSubscriptionFromStripe(input: { creatorId: string; stripeCustomerId: string; stripeSubscriptionId: string; status: StripeSubStatus }): Promise<void>;
+  export async function getCreatorIdByStripeCustomer(stripeCustomerId: string): Promise<string | null>;
+  // src/db/queries/events.ts
+  export async function hasCreatorEvent(creatorId: string, name: EventName, metadata?: Record<string, unknown>): Promise<boolean>;
   // src/billing/stripe.ts
   export function verifyWebhook(rawBody: string, signature: string): Stripe.Event; // throws on bad signature
-  export type StripeDeps = { claimStripeEvent; activateSubscription; setSubscriptionStatusByStripeId; getCreatorByEmail; logEvent };
+  export type StripeDeps = {
+    isStripeEventRecorded; recordStripeEvent; upsertSubscriptionFromStripe; getCreatorIdByStripeCustomer;
+    hasCreatorEvent; logEvent; retrieveSubscription: (id: string) => Promise<Stripe.Subscription>; priceId: string;
+  };
   export async function handleStripeEvent(event: Stripe.Event, deps?: Partial<StripeDeps>): Promise<"processed" | "duplicate" | "ignored">;
   ```
+  Processing order (C4): check recorded → process (validate, upsert from Stripe's *current* status) → record event id. A throw before recording leaves the event retryable by Stripe.
 
 - [ ] **Step 1: Install stripe**
 
 Run: `pnpm add stripe`
-Expected: `stripe` added to dependencies in `package.json`.
+Expected: `stripe` in `package.json` dependencies.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -697,13 +837,28 @@ import { describe, it, expect, vi } from "vitest";
 import type Stripe from "stripe";
 import { handleStripeEvent } from "@/src/billing/stripe";
 
+const PRICE = "price_songfit_999";
+
+function subscription(over: Partial<Stripe.Subscription> = {}): Stripe.Subscription {
+  return {
+    id: "sub_1",
+    status: "active",
+    customer: "cus_1",
+    items: { data: [{ price: { id: PRICE } }] },
+    ...over,
+  } as unknown as Stripe.Subscription;
+}
+
 function deps(over: Partial<Record<string, unknown>> = {}) {
   return {
-    claimStripeEvent: vi.fn(async () => true),
-    activateSubscription: vi.fn(async () => undefined),
-    setSubscriptionStatusByStripeId: vi.fn(async () => undefined),
-    getCreatorByEmail: vi.fn(async () => ({ id: "cre-by-email", email: "a@x.com" })),
+    isStripeEventRecorded: vi.fn(async () => false),
+    recordStripeEvent: vi.fn(async () => undefined),
+    upsertSubscriptionFromStripe: vi.fn(async () => undefined),
+    getCreatorIdByStripeCustomer: vi.fn(async () => "cre-by-customer"),
+    hasCreatorEvent: vi.fn(async () => false),
     logEvent: vi.fn(async () => undefined),
+    retrieveSubscription: vi.fn(async () => subscription()),
+    priceId: PRICE,
     ...over,
   };
 }
@@ -718,55 +873,91 @@ function checkoutEvent(over: Partial<Stripe.Checkout.Session> = {}): Stripe.Even
         client_reference_id: "cre-1",
         customer: "cus_1",
         subscription: "sub_1",
-        customer_details: { email: "a@x.com" },
+        payment_status: "paid",
         ...over,
       } as Stripe.Checkout.Session,
     },
   } as unknown as Stripe.Event;
 }
 
+function subEvent(type: "customer.subscription.updated" | "customer.subscription.deleted", over: Partial<Stripe.Subscription> = {}): Stripe.Event {
+  return { id: `evt_${type}`, type, data: { object: subscription(over) } } as unknown as Stripe.Event;
+}
+
 describe("handleStripeEvent", () => {
-  it("activates the subscription and logs paid on checkout.session.completed", async () => {
+  it("checkout: validates price, upserts from the live subscription status, logs paid, then records the event", async () => {
     const d = deps();
     const r = await handleStripeEvent(checkoutEvent(), d);
     expect(r).toBe("processed");
-    expect(d.activateSubscription).toHaveBeenCalledWith({ creatorId: "cre-1", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1" });
+    expect(d.retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith({ creatorId: "cre-1", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1", status: "active" });
     expect(d.logEvent).toHaveBeenCalledWith({ name: "paid", creatorId: "cre-1", metadata: { stripeSubscriptionId: "sub_1" } });
+    const order = [d.upsertSubscriptionFromStripe, d.recordStripeEvent].map((f) => f.mock.invocationCallOrder[0]);
+    expect(order[0]).toBeLessThan(order[1]);
+    expect(d.recordStripeEvent).toHaveBeenCalledWith("evt_1", "checkout.session.completed");
   });
 
-  it("falls back to email lookup when client_reference_id is missing", async () => {
+  it("a failure during activation does NOT record the event (Stripe can retry)", async () => {
+    const d = deps({ upsertSubscriptionFromStripe: vi.fn(async () => { throw new Error("db down"); }) });
+    await expect(handleStripeEvent(checkoutEvent(), d)).rejects.toThrow("db down");
+    expect(d.recordStripeEvent).not.toHaveBeenCalled();
+  });
+
+  it("returns duplicate and does nothing when the event id is already recorded", async () => {
+    const d = deps({ isStripeEventRecorded: vi.fn(async () => true) });
+    expect(await handleStripeEvent(checkoutEvent(), d)).toBe("duplicate");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+    expect(d.recordStripeEvent).not.toHaveBeenCalled();
+  });
+
+  it("checkout with a different price id is ignored (and not activated)", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ items: { data: [{ price: { id: "price_other" } }] } } as never)) });
+    expect(await handleStripeEvent(checkoutEvent(), d)).toBe("ignored");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+  });
+
+  it("checkout missing client_reference_id is ignored — no email fallback", async () => {
     const d = deps();
-    await handleStripeEvent(checkoutEvent({ client_reference_id: null }), d);
-    expect(d.getCreatorByEmail).toHaveBeenCalledWith("a@x.com");
-    expect(d.activateSubscription).toHaveBeenCalledWith(expect.objectContaining({ creatorId: "cre-by-email" }));
+    expect(await handleStripeEvent(checkoutEvent({ client_reference_id: null }), d)).toBe("ignored");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
   });
 
-  it("returns duplicate and does nothing when the event id was already claimed", async () => {
-    const d = deps({ claimStripeEvent: vi.fn(async () => false) });
-    const r = await handleStripeEvent(checkoutEvent(), d);
-    expect(r).toBe("duplicate");
-    expect(d.activateSubscription).not.toHaveBeenCalled();
-  });
-
-  it("marks canceled on customer.subscription.deleted", async () => {
+  it("checkout not paid is ignored", async () => {
     const d = deps();
-    const ev = { id: "evt_2", type: "customer.subscription.deleted", data: { object: { id: "sub_1", status: "canceled" } } } as unknown as Stripe.Event;
-    const r = await handleStripeEvent(ev, d);
+    expect(await handleStripeEvent(checkoutEvent({ payment_status: "unpaid" }), d)).toBe("ignored");
+  });
+
+  it("subscription.updated arriving before checkout upserts from the customer mapping", async () => {
+    const d = deps();
+    const r = await handleStripeEvent(subEvent("customer.subscription.updated", { status: "past_due" }), d);
     expect(r).toBe("processed");
-    expect(d.setSubscriptionStatusByStripeId).toHaveBeenCalledWith("sub_1", "canceled");
+    expect(d.getCreatorIdByStripeCustomer).toHaveBeenCalledWith("cus_1");
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith({ creatorId: "cre-by-customer", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1", status: "past_due" });
   });
 
-  it("marks past_due on customer.subscription.updated with status past_due", async () => {
+  it("subscription.deleted marks canceled", async () => {
     const d = deps();
-    const ev = { id: "evt_3", type: "customer.subscription.updated", data: { object: { id: "sub_1", status: "past_due" } } } as unknown as Stripe.Event;
-    await handleStripeEvent(ev, d);
-    expect(d.setSubscriptionStatusByStripeId).toHaveBeenCalledWith("sub_1", "past_due");
+    await handleStripeEvent(subEvent("customer.subscription.deleted", { status: "canceled" }), d);
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ status: "canceled" }));
   });
 
-  it("ignores unknown event types", async () => {
+  it("subscription event for an unmapped customer is ignored", async () => {
+    const d = deps({ getCreatorIdByStripeCustomer: vi.fn(async () => null) });
+    expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("ignored");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+  });
+
+  it("paid is logged once per subscription id", async () => {
+    const d = deps({ hasCreatorEvent: vi.fn(async () => true) });
+    await handleStripeEvent(checkoutEvent(), d);
+    expect(d.logEvent).not.toHaveBeenCalled();
+  });
+
+  it("ignores unknown event types without recording", async () => {
     const d = deps();
-    const ev = { id: "evt_4", type: "invoice.paid", data: { object: {} } } as unknown as Stripe.Event;
+    const ev = { id: "evt_x", type: "invoice.paid", data: { object: {} } } as unknown as Stripe.Event;
     expect(await handleStripeEvent(ev, d)).toBe("ignored");
+    expect(d.recordStripeEvent).not.toHaveBeenCalled();
   });
 });
 ```
@@ -776,46 +967,91 @@ describe("handleStripeEvent", () => {
 Run: `pnpm vitest run tests/billing/stripe.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Add the queries**
+- [ ] **Step 4: Queries**
 
-`src/db/queries/stripeEvents.ts`:
+`src/db/queries/stripeEvents.ts` (Phase 0 created `recordStripeEvent`; make the file read exactly):
 
 ```ts
+import "server-only";
 import { createServiceClient } from "../client";
 
-/** Insert the event id; returns false if it was already there (duplicate delivery). */
-export async function claimStripeEvent(id: string, type: string): Promise<boolean> {
-  const db = createServiceClient();
-  const { error } = await db.from("stripe_events").insert({ id, type });
-  if (!error) return true;
-  if (error.code === "23505") return false; // unique_violation
-  throw new Error(`claimStripeEvent: ${error.message}`);
+export async function isStripeEventRecorded(id: string): Promise<boolean> {
+  const { count, error } = await createServiceClient()
+    .from("stripe_events")
+    .select("id", { count: "exact", head: true })
+    .eq("id", id);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/** Call ONLY after the event's effects are committed. A duplicate insert (race) is harmless. */
+export async function recordStripeEvent(id: string, type: string): Promise<void> {
+  const { error } = await createServiceClient()
+    .from("stripe_events")
+    .insert({ id, type, processed_at: new Date().toISOString() });
+  if (error && error.code !== "23505") throw error; // 23505 = already recorded by a concurrent delivery
 }
 ```
 
 Append to `src/db/queries/subscriptions.ts`:
 
 ```ts
-export async function setSubscriptionStatusByStripeId(
-  stripeSubscriptionId: string,
-  status: "active" | "canceled" | "past_due",
-): Promise<void> {
-  const db = createServiceClient();
-  const { error } = await db.from("subscriptions").update({ status }).eq("stripe_subscription_id", stripeSubscriptionId);
-  if (error) throw new Error(`setSubscriptionStatusByStripeId: ${error.message}`);
+export type StripeSubStatus = "active" | "canceled" | "past_due";
+
+/** Idempotent: one row per Stripe subscription id, status always taken from Stripe's current object. */
+export async function upsertSubscriptionFromStripe(input: {
+  creatorId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  status: StripeSubStatus;
+}): Promise<void> {
+  const { error } = await createServiceClient()
+    .from("subscriptions")
+    .upsert(
+      {
+        creator_id: input.creatorId,
+        stripe_customer_id: input.stripeCustomerId,
+        stripe_subscription_id: input.stripeSubscriptionId,
+        status: input.status,
+        started_at: new Date().toISOString(),
+      },
+      { onConflict: "stripe_subscription_id", ignoreDuplicates: false },
+    );
+  if (error) throw error;
+}
+
+export async function getCreatorIdByStripeCustomer(stripeCustomerId: string): Promise<string | null> {
+  const { data, error } = await createServiceClient()
+    .from("subscriptions")
+    .select("creator_id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.creator_id ?? null;
 }
 ```
 
-Append to `src/db/queries/creators.ts`:
+Append to `src/db/queries/events.ts`:
 
 ```ts
-export async function getCreatorByEmail(email: string): Promise<{ id: string; email: string } | null> {
-  const db = createServiceClient();
-  const { data, error } = await db.from("creators").select("id,email").ilike("email", email).maybeSingle();
-  if (error) throw new Error(`getCreatorByEmail: ${error.message}`);
-  return data;
+export async function hasCreatorEvent(creatorId: string, name: EventName, metadata?: Record<string, unknown>): Promise<boolean> {
+  let q = createServiceClient()
+    .from("events")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_id", creatorId)
+    .eq("name", name);
+  if (metadata) q = q.contains("metadata", metadata);
+  const { count, error } = await q;
+  if (error) throw error;
+  return (count ?? 0) > 0;
 }
 ```
+
+The `onConflict: "stripe_subscription_id"` upsert requires a plain UNIQUE constraint on that column. Confirm with:
+
+Run: `grep -n "stripe_subscription_id" supabase/migrations/0001_init.sql`
+Expected: a line containing `stripe_subscription_id text unique`. If it shows a partial index (`create unique index ... where`), change Phase 0's migration to the plain constraint and `pnpm db:push`.
 
 - [ ] **Step 5: Write the Stripe module**
 
@@ -825,9 +1061,13 @@ export async function getCreatorByEmail(email: string): Promise<{ id: string; em
 import Stripe from "stripe";
 import { env } from "@/src/shared/config";
 import { logger } from "@/src/shared/logger";
-import { claimStripeEvent as claimStripeEventDb } from "@/src/db/queries/stripeEvents";
-import { activateSubscription as activateSubscriptionDb, setSubscriptionStatusByStripeId as setStatusDb } from "@/src/db/queries/subscriptions";
-import { getCreatorByEmail as getCreatorByEmailDb } from "@/src/db/queries/creators";
+import { isStripeEventRecorded as isRecordedDb, recordStripeEvent as recordDb } from "@/src/db/queries/stripeEvents";
+import {
+  upsertSubscriptionFromStripe as upsertDb,
+  getCreatorIdByStripeCustomer as byCustomerDb,
+  type StripeSubStatus,
+} from "@/src/db/queries/subscriptions";
+import { hasCreatorEvent as hasCreatorEventDb } from "@/src/db/queries/events";
 import { logEvent as logEventDb } from "@/src/feedback/events";
 
 let client: Stripe | null = null;
@@ -841,75 +1081,102 @@ export function verifyWebhook(rawBody: string, signature: string): Stripe.Event 
 }
 
 export type StripeDeps = {
-  claimStripeEvent: typeof claimStripeEventDb;
-  activateSubscription: typeof activateSubscriptionDb;
-  setSubscriptionStatusByStripeId: typeof setStatusDb;
-  getCreatorByEmail: typeof getCreatorByEmailDb;
+  isStripeEventRecorded: typeof isRecordedDb;
+  recordStripeEvent: typeof recordDb;
+  upsertSubscriptionFromStripe: typeof upsertDb;
+  getCreatorIdByStripeCustomer: typeof byCustomerDb;
+  hasCreatorEvent: typeof hasCreatorEventDb;
   logEvent: typeof logEventDb;
+  retrieveSubscription: (id: string) => Promise<Stripe.Subscription>;
+  priceId: string;
 };
 
-const defaultDeps: StripeDeps = {
-  claimStripeEvent: claimStripeEventDb,
-  activateSubscription: activateSubscriptionDb,
-  setSubscriptionStatusByStripeId: setStatusDb,
-  getCreatorByEmail: getCreatorByEmailDb,
-  logEvent: logEventDb,
-};
+function defaultDeps(): StripeDeps {
+  return {
+    isStripeEventRecorded: isRecordedDb,
+    recordStripeEvent: recordDb,
+    upsertSubscriptionFromStripe: upsertDb,
+    getCreatorIdByStripeCustomer: byCustomerDb,
+    hasCreatorEvent: hasCreatorEventDb,
+    logEvent: logEventDb,
+    retrieveSubscription: (id) => stripe().subscriptions.retrieve(id),
+    priceId: env("STRIPE_PRICE_ID"),
+  };
+}
 
 function idOf(v: string | { id: string } | null | undefined): string | null {
   if (!v) return null;
   return typeof v === "string" ? v : v.id;
 }
 
+function toStatus(s: Stripe.Subscription.Status): StripeSubStatus {
+  if (s === "active" || s === "trialing") return "active";
+  if (s === "past_due" || s === "unpaid") return "past_due";
+  return "canceled";
+}
+
+function priceOf(sub: Stripe.Subscription): string | null {
+  return sub.items?.data?.[0]?.price?.id ?? null;
+}
+
+/**
+ * Order matters (ruling C4): duplicate check → process → record. Anything thrown
+ * before `recordStripeEvent` leaves the event unrecorded so Stripe's retry re-processes it.
+ */
 export async function handleStripeEvent(
   event: Stripe.Event,
   overrides: Partial<StripeDeps> = {},
 ): Promise<"processed" | "duplicate" | "ignored"> {
-  const deps = { ...defaultDeps, ...overrides };
+  const deps: StripeDeps = { ...defaultDeps(), ...overrides };
 
-  switch (event.type) {
-    case "checkout.session.completed": {
-      if (!(await deps.claimStripeEvent(event.id, event.type))) return "duplicate";
-      const s = event.data.object as Stripe.Checkout.Session;
-      let creatorId = s.client_reference_id ?? null;
-      if (!creatorId) {
-        const email = s.customer_details?.email ?? null;
-        const creator = email ? await deps.getCreatorByEmail(email) : null;
-        creatorId = creator?.id ?? null;
-      }
-      if (!creatorId) {
-        logger.warn("stripe: checkout without resolvable creator", { sessionId: s.id });
-        return "ignored";
-      }
-      const stripeCustomerId = idOf(s.customer) ?? "";
-      const stripeSubscriptionId = idOf(s.subscription) ?? "";
-      await deps.activateSubscription({ creatorId, stripeCustomerId, stripeSubscriptionId });
-      await deps.logEvent({ name: "paid", creatorId, metadata: { stripeSubscriptionId } });
-      return "processed";
-    }
-    case "customer.subscription.deleted":
-    case "customer.subscription.updated": {
-      if (!(await deps.claimStripeEvent(event.id, event.type))) return "duplicate";
-      const sub = event.data.object as Stripe.Subscription;
-      const status: "active" | "canceled" | "past_due" =
-        event.type === "customer.subscription.deleted" ? "canceled"
-        : sub.status === "active" || sub.status === "trialing" ? "active"
-        : sub.status === "past_due" ? "past_due"
-        : "canceled";
-      await deps.setSubscriptionStatusByStripeId(sub.id, status);
-      return "processed";
-    }
-    default:
-      logger.info("stripe: ignored event", { type: event.type });
-      return "ignored";
+  if (event.type !== "checkout.session.completed" && event.type !== "customer.subscription.updated" && event.type !== "customer.subscription.deleted") {
+    logger.info("stripe.ignored_type", { type: event.type });
+    return "ignored";
   }
+  if (await deps.isStripeEventRecorded(event.id)) return "duplicate";
+
+  if (event.type === "checkout.session.completed") {
+    const s = event.data.object as Stripe.Checkout.Session;
+    const creatorId = s.client_reference_id ?? null;
+    const stripeCustomerId = idOf(s.customer);
+    const stripeSubscriptionId = idOf(s.subscription);
+    if (!creatorId || !stripeCustomerId || !stripeSubscriptionId || s.payment_status !== "paid") {
+      logger.warn("stripe.checkout_incomplete", { sessionId: s.id, hasCreator: !!creatorId, paid: s.payment_status });
+      return "ignored";
+    }
+    const sub = await deps.retrieveSubscription(stripeSubscriptionId);
+    if (priceOf(sub) !== deps.priceId) {
+      logger.warn("stripe.wrong_price", { sessionId: s.id, price: priceOf(sub) });
+      return "ignored";
+    }
+    await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId, status: toStatus(sub.status) });
+    if (!(await deps.hasCreatorEvent(creatorId, "paid", { stripeSubscriptionId }))) {
+      await deps.logEvent({ name: "paid", creatorId, metadata: { stripeSubscriptionId } });
+    }
+    await deps.recordStripeEvent(event.id, event.type);
+    return "processed";
+  }
+
+  // customer.subscription.updated | deleted — may arrive before or after checkout.
+  const sub = event.data.object as Stripe.Subscription;
+  const stripeCustomerId = idOf(sub.customer);
+  if (!stripeCustomerId || !sub.id) return "ignored";
+  const creatorId = sub.metadata?.creator_id || (await deps.getCreatorIdByStripeCustomer(stripeCustomerId));
+  if (!creatorId) {
+    logger.warn("stripe.unmapped", { customer: stripeCustomerId, subscription: sub.id });
+    return "ignored";
+  }
+  const status = event.type === "customer.subscription.deleted" ? "canceled" : toStatus(sub.status);
+  await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId: sub.id, status });
+  await deps.recordStripeEvent(event.id, event.type);
+  return "processed";
 }
 ```
 
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/billing/stripe.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 7: Write the route**
 
@@ -931,7 +1198,7 @@ export async function POST(req: Request) {
   try {
     event = verifyWebhook(raw, signature);
   } catch (e) {
-    logger.warn("stripe: bad signature", { message: (e as Error).message });
+    logger.warn("stripe.bad_signature", { message: (e as Error).message });
     return NextResponse.json({ error: "bad signature" }, { status: 400 });
   }
 
@@ -939,24 +1206,25 @@ export async function POST(req: Request) {
     const result = await handleStripeEvent(event);
     return NextResponse.json({ received: true, result });
   } catch (e) {
-    // Return 200 so Stripe does not retry forever; the error is logged for manual follow-up.
-    logger.error("stripe: handler failed", { id: event.id, type: event.type, message: (e as Error).message });
-    return NextResponse.json({ received: true, result: "error" });
+    // 500 on purpose: the event is NOT recorded, so Stripe retries and the activation is not lost.
+    logger.error("stripe.handler_failed", { id: event.id, type: event.type, message: (e as Error).message });
+    return NextResponse.json({ error: "handler_failed" }, { status: 500 });
   }
 }
 ```
 
-- [ ] **Step 8: Dylan's Stripe setup (do once, test mode first)**
+- [ ] **Step 8: Dylan's Stripe setup (do once in test mode, repeat in live mode Wednesday evening)**
 
-- [ ] In Stripe Dashboard (test mode): Product catalog → Add product → name `Songfit`, recurring, `$9.99` monthly. Save.
-- [ ] Payment Links → New → pick the Songfit price. Options: "Collect customers' email" on (default). After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create. Copy the link into `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`.
-- [ ] Developers → API keys → copy the Secret key into `STRIPE_SECRET_KEY`.
-- [ ] Developers → Webhooks → Add endpoint → `https://thissongfits.com/api/stripe/webhook` → events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` (in Vercel). For local use the CLI secret from the next step.
-- [ ] Repeat all of the above in live mode on Wednesday evening, with live keys in Vercel.
+- [ ] Stripe Dashboard → Product catalog → Add product → name `Songfit`, recurring, `$9.99` monthly. Save. Open the price and copy its ID (`price_...`) into `STRIPE_PRICE_ID`.
+- [ ] Payment Links → New → pick the Songfit price. "Collect customers' email" on. After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create; copy the link into `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`.
+- [ ] Settings → Billing → Customer portal → Activate; allow "Cancel subscriptions". Copy the portal login link (`https://billing.stripe.com/p/login/...`) into `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`.
+- [ ] Developers → API keys → Secret key into `STRIPE_SECRET_KEY`.
+- [ ] Developers → Webhooks → Add endpoint → `https://thissongfits.com/api/stripe/webhook` → events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Signing secret into `STRIPE_WEBHOOK_SECRET` (Vercel). Locally use the CLI secret from Step 9.
+- [ ] Add all five values to Vercel env (Production + Preview) and `.env.local`.
 
 - [ ] **Step 9: Local webhook test**
 
-Install the Stripe CLI (`brew install stripe/stripe-cli/stripe` once Homebrew is available, or download from stripe.com/docs/stripe-cli) and run:
+Install the Stripe CLI (download from https://docs.stripe.com/stripe-cli; no Homebrew on this Mac), then:
 
 ```bash
 stripe login
@@ -969,29 +1237,31 @@ Copy the printed `whsec_...` into `.env.local` as `STRIPE_WEBHOOK_SECRET`, resta
 stripe trigger checkout.session.completed
 ```
 
-Expected: `pnpm dev` logs `stripe: checkout without resolvable creator` (the trigger has no `client_reference_id` and a fake email) and the response is `200 {"received":true,"result":"ignored"}`. Then do a real test checkout: open the Payment Link from `/subscribe` while signed in, pay with card `4242 4242 4242 4242`, any future date, any CVC. Expected: redirect to `/subscribe/thanks`; `subscriptions` row with `status = active` for your creator; `events` row `paid`; the upload screen now accepts a second video.
+Expected: `pnpm dev` logs `stripe.checkout_incomplete` or `stripe.wrong_price` (the trigger has no `client_reference_id` and a random price) and the response is `200 {"received":true,"result":"ignored"}`; no `subscriptions` row is written. Then a real test checkout: from `/subscribe` while signed in, pay with `4242 4242 4242 4242`, any future date, any CVC. Expected: redirect to `/subscribe/thanks` → "Activating…" → within a few seconds "You're in."; `subscriptions` row with `status = active` and your creator id; `stripe_events` row for the event; one `paid` event; a second upload is accepted. Resend the same event from the Stripe dashboard (Webhooks → event → Resend): response `{"result":"duplicate"}`, still one `paid` event.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add package.json pnpm-lock.yaml src/billing/stripe.ts app/api/stripe/webhook/route.ts src/db/queries/stripeEvents.ts src/db/queries/subscriptions.ts src/db/queries/creators.ts tests/billing/stripe.test.ts
-git commit -m "Add Stripe webhook with idempotent subscription activation"
+git add package.json pnpm-lock.yaml src/billing/stripe.ts app/api/stripe/webhook/route.ts src/db/queries/stripeEvents.ts src/db/queries/subscriptions.ts src/db/queries/events.ts tests/billing/stripe.test.ts
+git commit -m "Add Stripe webhook: validate, upsert from live status, record event last"
 ```
 
 ---
 
-### Task 4.5: Metrics SQL function and admin metrics page
+### Task 4.5: Metrics SQL function, seed fixture and admin metrics page
 
 **Files:**
-- Create: `supabase/migrations/0005_metrics.sql`
+- Create: `supabase/migrations/0004_metrics.sql`
+- Create: `supabase/seed/metrics_fixture.sql`
 - Create: `src/db/queries/metrics.ts`
 - Create: `src/shared/stats.ts`
 - Create: `app/admin/metrics/page.tsx`
 - Modify: `app/admin/layout.tsx` (add a "Metrics" nav link)
-- Test: `tests/shared/stats.test.ts`
+- Modify: `docs/DATA_MODEL.md` (document `updated_at` on submissions and the `metrics_summary()` function)
+- Test: `tests/shared/stats.test.ts`, `tests/db/metrics.integration.test.ts`
 
 **Interfaces:**
-- Consumes: `requireAdmin()`; `createServiceClient()`.
+- Consumes: `requireAdmin()`; `createServiceClient()`; `submissions.updated_at` (Phase 0).
 - Produces:
   ```ts
   // src/shared/stats.ts
@@ -1003,13 +1273,15 @@ git commit -m "Add Stripe webhook with idempotent subscription activation"
     medianUploadToReadySeconds: number | null;
     medianReadyToSelectionSeconds: number | null;
     byCategory: { category: string; ready: number; selected: number }[];
+    paidCreators: number;
+    paidEvents: number;
     returningCreators: number;
   };
   export async function getMetrics(): Promise<Metrics>;
   ```
-  SQL function `metrics_summary()` returning one jsonb; `updated_at` column + trigger on `submissions` (also used by Task 4.7).
+  SQL function `metrics_summary()` returning one jsonb, executable by `service_role` only.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing unit test**
 
 `tests/shared/stats.test.ts`:
 
@@ -1049,23 +1321,12 @@ Expected: PASS, 3 tests.
 
 - [ ] **Step 5: Write the migration**
 
-`supabase/migrations/0005_metrics.sql`:
+`supabase/migrations/0004_metrics.sql`:
 
 ```sql
--- updated_at on submissions (used by the double-run guard and timing)
-alter table submissions add column updated_at timestamptz not null default now();
-
-create or replace function set_updated_at() returns trigger language plpgsql as $$
-begin
-  new.updated_at = now();
-  return new;
-end $$;
-
-create trigger submissions_set_updated_at
-  before update on submissions
-  for each row execute function set_updated_at();
-
--- One-shot metrics summary. Service role only.
+-- One-shot metrics summary for the admin page. Service role only.
+-- Funnel counts DISTINCT submissions and DISTINCT creators per milestone.
+-- Category breakdown aggregates submissions first (no event-join multiplication).
 create or replace function metrics_summary() returns jsonb
 language sql security definer set search_path = public as $$
 with
@@ -1096,12 +1357,20 @@ ready_to_select as (
   where e.name = 'recommendation_selected' and s.recommended_at is not null
   group by s.id, s.recommended_at
 ),
+selected_submissions as (
+  select distinct submission_id from events where name = 'recommendation_selected'
+),
 by_category as (
   select coalesce(s.content_category, 'unknown') as category,
     count(*) filter (where s.status = 'ready')::int as ready,
-    count(distinct e.submission_id) filter (where e.name = 'recommendation_selected')::int as selected
-  from submissions s left join events e on e.submission_id = s.id
+    count(*) filter (where ss.submission_id is not null)::int as selected
+  from submissions s left join selected_submissions ss on ss.submission_id = s.id
   group by 1
+),
+paid as (
+  select
+    (select count(distinct creator_id)::int from subscriptions where status = 'active') as paid_creators,
+    (select count(*)::int from events where name = 'paid') as paid_events
 ),
 returning_creators as (
   select count(*)::int as n from (
@@ -1114,21 +1383,40 @@ select jsonb_build_object(
   'uploadToReadySeconds', (select coalesce(jsonb_agg(secs), '[]'::jsonb) from upload_to_ready),
   'readyToSelectionSeconds', (select coalesce(jsonb_agg(secs), '[]'::jsonb) from ready_to_select),
   'byCategory', (select coalesce(jsonb_agg(jsonb_build_object('category', category, 'ready', ready, 'selected', selected) order by ready desc), '[]'::jsonb) from by_category),
+  'paidCreators', (select paid_creators from paid),
+  'paidEvents', (select paid_events from paid),
   'returningCreators', (select n from returning_creators)
 );
 $$;
 
-revoke all on function metrics_summary() from public, anon, authenticated;
+revoke execute on function metrics_summary() from public, anon, authenticated;
+grant execute on function metrics_summary() to service_role;
 ```
 
-Run: `pnpm db:reset && pnpm db:types`
-Expected: reset finishes; `src/db/types.ts` gains `updated_at` on `submissions` and a `metrics_summary` entry under `Functions`.
+Run: `pnpm db:push && pnpm db:types`
+Expected (hosted project, see Phase 0 Task 0.3): `supabase db push` applies `0004_metrics.sql`; `src/db/types.ts` gains a `metrics_summary` entry under `Functions`.
 
-- [ ] **Step 6: Write the query**
+- [ ] **Step 6: Document in the data model**
+
+In `docs/DATA_MODEL.md`, add to the `## submissions` table (if Phase 0 did not already):
+
+```markdown
+| updated_at        | timestamptz | set by trigger on every update; used by claim_submission_run() for stale takeover |
+```
+
+and a new section after `## subscriptions`:
+
+```markdown
+## metrics_summary()
+SQL function (service role only) returning one jsonb: eventCounts, funnel (distinct submissions + distinct creators per milestone), uploadToReadySeconds[], readyToSelectionSeconds[], byCategory (submissions aggregated before any event join), paidCreators (distinct creators with an active subscription), paidEvents, returningCreators (≥2 submissions). Read by `src/db/queries/metrics.ts`.
+```
+
+- [ ] **Step 7: Write the query**
 
 `src/db/queries/metrics.ts`:
 
 ```ts
+import "server-only";
 import { z } from "zod";
 import { createServiceClient } from "../client";
 import { median } from "@/src/shared/stats";
@@ -1139,6 +1427,8 @@ const Raw = z.object({
   uploadToReadySeconds: z.array(z.number()),
   readyToSelectionSeconds: z.array(z.number()),
   byCategory: z.array(z.object({ category: z.string(), ready: z.number(), selected: z.number() })),
+  paidCreators: z.number(),
+  paidEvents: z.number(),
   returningCreators: z.number(),
 });
 
@@ -1148,12 +1438,13 @@ export type Metrics = {
   medianUploadToReadySeconds: number | null;
   medianReadyToSelectionSeconds: number | null;
   byCategory: { category: string; ready: number; selected: number }[];
+  paidCreators: number;
+  paidEvents: number;
   returningCreators: number;
 };
 
 export async function getMetrics(): Promise<Metrics> {
-  const db = createServiceClient();
-  const { data, error } = await db.rpc("metrics_summary");
+  const { data, error } = await createServiceClient().rpc("metrics_summary");
   if (error) throw new Error(`metrics_summary: ${error.message}`);
   const raw = Raw.parse(data);
   return {
@@ -1162,12 +1453,119 @@ export async function getMetrics(): Promise<Metrics> {
     medianUploadToReadySeconds: median(raw.uploadToReadySeconds),
     medianReadyToSelectionSeconds: median(raw.readyToSelectionSeconds),
     byCategory: raw.byCategory,
+    paidCreators: raw.paidCreators,
+    paidEvents: raw.paidEvents,
     returningCreators: raw.returningCreators,
   };
 }
 ```
 
-- [ ] **Step 7: Write the page**
+- [ ] **Step 8: Seed fixture and integration test**
+
+`supabase/seed/metrics_fixture.sql` (test data only; ids are fixed so the test can clean up):
+
+```sql
+-- Two creators, three submissions, repeated events, one paid.
+insert into auth.users (id, email) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'fixture-a@songfit.test'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'fixture-b@songfit.test')
+on conflict (id) do nothing;
+-- the auth->creators trigger (Phase 0) mirrors these; ensure explicitly:
+insert into creators (id, email) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'fixture-a@songfit.test'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'fixture-b@songfit.test')
+on conflict (id) do nothing;
+
+insert into submissions (id, creator_id, video_path, status, content_category, created_at, recommended_at) values
+  ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001/1.mp4', 'ready', 'fashion', now() - interval '10 min', now() - interval '8 min'),
+  ('bbbbbbbb-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001/2.mp4', 'ready', 'fashion', now() - interval '6 min',  now() - interval '4 min'),
+  ('bbbbbbbb-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000002/3.mp4', 'ready', 'fitness', now() - interval '5 min',  now() - interval '3 min');
+
+insert into events (creator_id, submission_id, name, metadata, created_at) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'submission_created', null, now() - interval '10 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'recommendations_ready', null, now() - interval '8 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'recommendations_viewed', null, now() - interval '7 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'recommendations_viewed', null, now() - interval '7 min'), -- repeated view
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 'recommendation_selected', '{"rank":1}', now() - interval '6 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002', 'submission_created', null, now() - interval '6 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002', 'recommendations_ready', null, now() - interval '4 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000003', 'submission_created', null, now() - interval '5 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000003', 'recommendations_ready', null, now() - interval '3 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', null, 'paid_offer_viewed', null, now() - interval '2 min'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', null, 'paid', '{"stripeSubscriptionId":"sub_fixture"}', now() - interval '1 min');
+
+insert into subscriptions (creator_id, stripe_customer_id, stripe_subscription_id, status, started_at) values
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'cus_fixture', 'sub_fixture', 'active', now() - interval '1 min')
+on conflict (stripe_subscription_id) do nothing;
+```
+
+`tests/db/metrics.integration.test.ts` (runs only when a database is configured; it is a real check of the SQL, not a mock):
+
+```ts
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { createClient } from "@supabase/supabase-js";
+
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const enabled = Boolean(url && key && process.env.RUN_DB_TESTS === "1");
+
+const CREATORS = ["aaaaaaaa-0000-0000-0000-000000000001", "aaaaaaaa-0000-0000-0000-000000000002"];
+
+describe.skipIf(!enabled)("metrics_summary() against the fixture", () => {
+  const db = createClient(url ?? "", key ?? "");
+
+  beforeAll(async () => {
+    const sql = readFileSync("supabase/seed/metrics_fixture.sql", "utf8");
+    const { error } = await db.rpc("exec_sql", { sql }); // helper below
+    if (error) throw error;
+  });
+
+  afterAll(async () => {
+    await db.from("subscriptions").delete().in("creator_id", CREATORS);
+    await db.from("events").delete().in("creator_id", CREATORS);
+    await db.from("submissions").delete().in("creator_id", CREATORS);
+    await db.from("creators").delete().in("id", CREATORS);
+  });
+
+  it("counts distinct submissions and creators, aggregates categories once, and reports paid correctly", async () => {
+    const { data, error } = await db.rpc("metrics_summary");
+    expect(error).toBeNull();
+    const m = data as {
+      funnel: { stage: string; submissions: number; creators: number }[];
+      byCategory: { category: string; ready: number; selected: number }[];
+      paidCreators: number; paidEvents: number; returningCreators: number;
+    };
+    const stage = (s: string) => m.funnel.find((f) => f.stage === s)!;
+    expect(stage("submission_created").submissions).toBeGreaterThanOrEqual(3);
+    expect(stage("submission_created").creators).toBeGreaterThanOrEqual(2);
+    expect(stage("recommendations_ready").creators).toBeGreaterThanOrEqual(2); // creatorId is on ready events now (I7)
+    expect(stage("recommendations_viewed").submissions).toBeGreaterThanOrEqual(1); // two view rows, one submission
+    const fashion = m.byCategory.find((c) => c.category === "fashion")!;
+    expect(fashion.ready).toBeGreaterThanOrEqual(2); // not multiplied by the 5 events on submission 1
+    expect(fashion.selected).toBeGreaterThanOrEqual(1);
+    expect(m.paidCreators).toBeGreaterThanOrEqual(1);
+    expect(m.paidEvents).toBeGreaterThanOrEqual(1);
+    expect(m.returningCreators).toBeGreaterThanOrEqual(1);
+  });
+});
+```
+
+The fixture is loaded through a tiny helper function. Add to the top of `supabase/migrations/0004_metrics.sql` (service role only):
+
+```sql
+-- Test helper: run a SQL script. Service role only; never exposed to clients.
+create or replace function exec_sql(sql text) returns void
+language plpgsql security definer set search_path = public as $$
+begin execute sql; end $$;
+revoke execute on function exec_sql(text) from public, anon, authenticated;
+grant execute on function exec_sql(text) to service_role;
+```
+
+Run: `RUN_DB_TESTS=1 pnpm vitest run tests/db/metrics.integration.test.ts`
+Expected: PASS (1). Without `RUN_DB_TESTS=1` the suite reports it as skipped, so `pnpm test` stays green in CI-less local runs. (`≥` assertions keep the test valid when real data coexists with the fixture on the hosted project.)
+
+- [ ] **Step 9: Write the page**
 
 `app/admin/metrics/page.tsx`:
 
@@ -1188,8 +1586,15 @@ export default async function MetricsPage() {
     <main className="mx-auto max-w-4xl space-y-10 p-6">
       <h1 className="text-2xl font-semibold">Metrics</h1>
 
+      <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Paying creators (active)</div><div className="text-xl">{m.paidCreators}</div></div>
+        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Paid events</div><div className="text-xl">{m.paidEvents}</div></div>
+        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Median upload → ready</div><div className="text-xl">{secs(m.medianUploadToReadySeconds)}</div></div>
+        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Median ready → selection</div><div className="text-xl">{secs(m.medianReadyToSelectionSeconds)}</div></div>
+      </section>
+
       <section>
-        <h2 className="mb-2 font-medium">Funnel</h2>
+        <h2 className="mb-2 font-medium">Funnel (distinct)</h2>
         <table className="w-full text-sm">
           <thead><tr className="text-left"><th>Stage</th><th>Submissions</th><th>Creators</th></tr></thead>
           <tbody>
@@ -1198,12 +1603,6 @@ export default async function MetricsPage() {
             ))}
           </tbody>
         </table>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Median upload → ready</div><div className="text-xl">{secs(m.medianUploadToReadySeconds)}</div></div>
-        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Median ready → selection</div><div className="text-xl">{secs(m.medianReadyToSelectionSeconds)}</div></div>
-        <div className="rounded border p-4"><div className="text-xs text-neutral-500">Returning creators (≥2 uploads)</div><div className="text-xl">{m.returningCreators}</div></div>
       </section>
 
       <section>
@@ -1222,7 +1621,11 @@ export default async function MetricsPage() {
       </section>
 
       <section>
-        <h2 className="mb-2 font-medium">All events</h2>
+        <p className="text-sm">Returning creators (≥2 uploads): <strong>{m.returningCreators}</strong></p>
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-medium">All events (raw counts)</h2>
         <table className="w-full text-sm">
           <tbody>
             {m.eventCounts.map((e) => (
@@ -1242,238 +1645,54 @@ In `app/admin/layout.tsx` add a nav link next to the existing "Queue" link:
 <a href="/admin/metrics" className="underline">Metrics</a>
 ```
 
-- [ ] **Step 8: Verify**
+- [ ] **Step 10: Verify**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: pass.
+Expected: pass (integration test skipped unless `RUN_DB_TESTS=1`).
 
-Open `/admin/metrics` signed in as the admin. Expected: funnel rows in order `submission_created … paid`, medians shown in seconds, a category table, and an event count table. Signed in as a non-admin: redirected away (existing `requireAdmin` behaviour).
+Open `/admin/metrics` as the admin: the four tiles, funnel rows in order `submission_created … paid` with both distinct counts, a category table, returning creators, raw event counts. As a non-admin: redirected (existing `requireAdmin`).
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add supabase/migrations/0005_metrics.sql src/db/types.ts src/db/queries/metrics.ts src/shared/stats.ts app/admin/metrics/page.tsx app/admin/layout.tsx tests/shared/stats.test.ts
-git commit -m "Add metrics summary function and admin metrics page"
+git add supabase/migrations/0004_metrics.sql supabase/seed/metrics_fixture.sql src/db/types.ts src/db/queries/metrics.ts src/shared/stats.ts app/admin/metrics/page.tsx app/admin/layout.tsx docs/DATA_MODEL.md tests/shared/stats.test.ts tests/db/metrics.integration.test.ts
+git commit -m "Add distinct-count metrics function with fixture test and admin metrics page"
 ```
 
 ---
 
-### Task 4.6: Admin queue polish
+### Task 4.6: Hardening for launch
 
 **Files:**
-- Modify: `app/admin/page.tsx`
-- Modify: `src/db/queries/submissions.ts` (`listSubmissions` accepts an optional status filter)
-
-**Interfaces:**
-- Consumes: existing `listSubmissions()` returning rows with `id, creator_id, status, content_category, created_at, recommended_at, error` plus the Phase 3 Retry server action.
-- Produces: `listSubmissions(filter?: { status?: SubmissionStatus }): Promise<SubmissionRow[]>`; the page reads `?status=` from search params.
-
-- [ ] **Step 1: Extend the query**
-
-In `src/db/queries/submissions.ts` change `listSubmissions` to:
-
-```ts
-export async function listSubmissions(filter: { status?: SubmissionStatus } = {}) {
-  const db = createServiceClient();
-  let q = db
-    .from("submissions")
-    .select("id,creator_id,status,content_category,created_at,recommended_at,error,creators(email)")
-    .order("created_at", { ascending: false })
-    .limit(200);
-  if (filter.status) q = q.eq("status", filter.status);
-  const { data, error } = await q;
-  if (error) throw new Error(`listSubmissions: ${error.message}`);
-  return data;
-}
-```
-
-(`SubmissionStatus` imported from `@/src/shared/types`.)
-
-- [ ] **Step 2: Update the page**
-
-`app/admin/page.tsx`:
-
-```tsx
-import Link from "next/link";
-import { requireAdmin } from "@/src/auth/session";
-import { listSubmissions } from "@/src/db/queries/submissions";
-import { SubmissionStatus } from "@/src/shared/types";
-import { retrySubmission } from "./submissions/[id]/actions"; // Phase 2 server action, takes FormData with `id`
-
-export const dynamic = "force-dynamic";
-
-const STATUSES = SubmissionStatus.options;
-
-export default async function AdminQueue({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  await requireAdmin();
-  const { status } = await searchParams;
-  const parsed = SubmissionStatus.safeParse(status);
-  const rows = await listSubmissions(parsed.success ? { status: parsed.data } : {});
-
-  return (
-    <main className="mx-auto max-w-5xl p-6">
-      <h1 className="text-2xl font-semibold">Submissions</h1>
-      <nav className="my-3 flex gap-3 text-sm">
-        <Link href="/admin" className={!parsed.success ? "font-semibold underline" : "underline"}>all</Link>
-        {STATUSES.map((s) => (
-          <Link key={s} href={`/admin?status=${s}`} className={parsed.success && parsed.data === s ? "font-semibold underline" : "underline"}>{s}</Link>
-        ))}
-      </nav>
-      <table className="w-full text-sm">
-        <thead><tr className="text-left"><th>Created</th><th>Creator</th><th>Status</th><th>Category</th><th>Upload → ready</th><th></th></tr></thead>
-        <tbody>
-          {rows.map((r) => {
-            const secs = r.recommended_at ? Math.round((new Date(r.recommended_at).getTime() - new Date(r.created_at).getTime()) / 1000) : null;
-            const failed = r.status === "failed";
-            return (
-              <tr key={r.id} className={`border-t ${failed ? "bg-red-50" : ""}`}>
-                <td>{new Date(r.created_at).toLocaleString()}</td>
-                <td>{(r.creators as { email: string } | null)?.email ?? r.creator_id}</td>
-                <td>{r.status}{failed && r.error ? <div className="text-xs text-red-700">{r.error}</div> : null}</td>
-                <td>{r.content_category ?? "—"}</td>
-                <td>{secs === null ? "—" : `${secs} s`}</td>
-                <td className="flex gap-2">
-                  <Link href={`/admin/submissions/${r.id}`} className="underline">open</Link>
-                  {failed && (
-                    <form action={retrySubmission}><input type="hidden" name="id" value={r.id} /><button className="underline">retry</button></form>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </main>
-  );
-}
-```
-
-- [ ] **Step 3: Verify**
-
-Run: `pnpm typecheck`
-Expected: pass.
-Open `/admin?status=failed`: only failed rows, red background, error text and a retry button. `/admin?status=ready` shows the upload→ready seconds.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add app/admin/page.tsx src/db/queries/submissions.ts
-git commit -m "Add status filter, timing column and failed highlighting to admin queue"
-```
-
----
-
-### Task 4.7: Hardening for launch
-
-**Files:**
-- Modify: `app/api/submissions/[id]/run/route.ts` (double-run guard)
 - Modify: `app/api/upload-url/route.ts` (rate limit)
 - Modify: `src/db/queries/submissions.ts` (`countRecentSubmissions`)
-- Modify: `next.config.ts` (remote images)
+- Modify: `next.config.ts` (remote images; keep `serverExternalPackages`)
 - Modify: `app/layout.tsx` (viewport, theme-color)
+- Modify: `app/page.tsx` (retention disclosure line)
+- Modify: `app/admin/page.tsx`, `app/admin/submissions/[id]/page.tsx`, `app/admin/metrics/page.tsx`, `app/admin/submissions/[id]/actions.ts` (each calls `requireAdmin()` itself)
 - Create: `app/robots.ts`, `app/error.tsx`, `app/results/[id]/not-found.tsx`
-- Test: `tests/pipeline/runGuard.test.ts`
+- Test: `tests/db/countRecent.test.ts` is not needed — `countRecentSubmissions` is a thin query verified by typecheck and the manual check below; say so in the report.
 
-**Interfaces:**
-- Produces:
-  ```ts
-  // src/pipeline/runGuard.ts
-  export function shouldBlockRun(submission: { status: SubmissionStatus; updated_at: string }, now?: Date): boolean;
-  // src/db/queries/submissions.ts
-  export async function countRecentSubmissions(creatorId: string, withinMs: number): Promise<number>;
-  ```
+No double-run guard here: `claim_submission_run()` (Phase 0) is an atomic conditional update, used by `runSubmission` in both the submit route and the admin retry, with stale takeover after `LIMITS.inFlightStaleMinutes`.
 
-- [ ] **Step 1: Write the failing test**
-
-`tests/pipeline/runGuard.test.ts`:
-
-```ts
-import { describe, it, expect } from "vitest";
-import { shouldBlockRun } from "@/src/pipeline/runGuard";
-
-const now = new Date("2026-10-08T10:00:00Z");
-const ago = (min: number) => new Date(now.getTime() - min * 60_000).toISOString();
-
-describe("shouldBlockRun", () => {
-  it("blocks when analyzing and updated 2 minutes ago", () => {
-    expect(shouldBlockRun({ status: "analyzing", updated_at: ago(2) }, now)).toBe(true);
-  });
-  it("blocks when recommending and updated 5 minutes ago", () => {
-    expect(shouldBlockRun({ status: "recommending", updated_at: ago(5) }, now)).toBe(true);
-  });
-  it("allows when recommending but stale for 7 minutes", () => {
-    expect(shouldBlockRun({ status: "recommending", updated_at: ago(7) }, now)).toBe(false);
-  });
-  it("allows uploaded, failed and ready", () => {
-    expect(shouldBlockRun({ status: "uploaded", updated_at: ago(0) }, now)).toBe(false);
-    expect(shouldBlockRun({ status: "failed", updated_at: ago(0) }, now)).toBe(false);
-    expect(shouldBlockRun({ status: "ready", updated_at: ago(0) }, now)).toBe(false);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pnpm vitest run tests/pipeline/runGuard.test.ts`
-Expected: FAIL — module not found.
-
-- [ ] **Step 3: Write the guard**
-
-`src/pipeline/runGuard.ts`:
-
-```ts
-import type { SubmissionStatus } from "@/src/shared/types";
-
-const IN_FLIGHT: SubmissionStatus[] = ["analyzing", "recommending"];
-const STALE_MS = 6 * 60_000;
-
-export function shouldBlockRun(
-  submission: { status: SubmissionStatus; updated_at: string },
-  now: Date = new Date(),
-): boolean {
-  if (!IN_FLIGHT.includes(submission.status)) return false;
-  return now.getTime() - new Date(submission.updated_at).getTime() < STALE_MS;
-}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pnpm vitest run tests/pipeline/runGuard.test.ts`
-Expected: PASS, 4 tests.
-
-- [ ] **Step 5: Apply the guard in the run route**
-
-In `app/api/submissions/[id]/run/route.ts`, after the existing auth/ownership checks and `const submission = await getSubmission(id)`, add before calling `runSubmission`:
-
-```ts
-import { shouldBlockRun } from "@/src/pipeline/runGuard";
-// ...
-if (shouldBlockRun(submission)) {
-  return NextResponse.json({ error: "already_running" }, { status: 409 });
-}
-```
-
-`getSubmission` must select `updated_at`; if its `select` lists columns explicitly, add `updated_at` to it.
-
-- [ ] **Step 6: Rate limit upload URLs**
+- [ ] **Step 1: Rate-limit upload authorizations**
 
 Append to `src/db/queries/submissions.ts`:
 
 ```ts
 export async function countRecentSubmissions(creatorId: string, withinMs: number): Promise<number> {
-  const db = createServiceClient();
   const since = new Date(Date.now() - withinMs).toISOString();
-  const { count, error } = await db
+  const { count, error } = await createServiceClient()
     .from("submissions")
     .select("id", { count: "exact", head: true })
     .eq("creator_id", creatorId)
     .gte("created_at", since);
-  if (error) throw new Error(`countRecentSubmissions: ${error.message}`);
+  if (error) throw error;
   return count ?? 0;
 }
 ```
 
-In `app/api/upload-url/route.ts`, after the creator is resolved and before the `canSubmit` check, add:
+In `app/api/upload-url/route.ts`, after the creator is resolved and before the `canSubmit` UX check (Phase 1 Task 1.2), add:
 
 ```ts
 import { countRecentSubmissions } from "@/src/db/queries/submissions";
@@ -1483,14 +1702,20 @@ if ((await countRecentSubmissions(creator.id, 60_000)) >= 5) {
 }
 ```
 
-- [ ] **Step 7: Config and chrome**
+(Entitlement itself is enforced atomically by `create_submission()` in `POST /api/submissions`; this limit only stops upload-URL spam.)
 
-`next.config.ts` — ensure it contains:
+- [ ] **Step 2: Config and chrome**
+
+`next.config.ts` — the file must contain BOTH the Phase 0 externals and the image hosts:
 
 ```ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+  outputFileTracingIncludes: {
+    "/api/submissions/**": ["./node_modules/ffmpeg-static/ffmpeg", "./node_modules/ffprobe-static/bin/**"],
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "e-cdns-images.dzcdn.net" },
@@ -1503,7 +1728,9 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-`app/layout.tsx` — add the exports (keep the existing `metadata` title/description):
+(If Phase 0's `next.config.ts` has different externals/tracing keys, keep Phase 0's values and only ADD `images`. Never drop the ffmpeg settings.)
+
+`app/layout.tsx` — add (keep the existing `metadata`):
 
 ```tsx
 import type { Viewport } from "next";
@@ -1524,7 +1751,7 @@ export default function robots(): MetadataRoute.Robots {
 }
 ```
 
-`app/error.tsx`:
+`app/error.tsx` (generic copy; never shows the error message):
 
 ```tsx
 "use client";
@@ -1552,96 +1779,108 @@ export default function NotFound() {
 }
 ```
 
-In `app/results/[id]/page.tsx`, where the submission is loaded, call `notFound()` from `next/navigation` when it is null or belongs to another creator (if Phase 3 returned a plain message instead).
+In `app/results/[id]/page.tsx`, where the submission is loaded, call `notFound()` from `next/navigation` when it is null or belongs to another creator (replace any plain message Phase 3 rendered).
 
-- [ ] **Step 8: Verify**
+- [ ] **Step 3: Retention disclosure (M3)**
+
+In `app/page.tsx`, under the upload form, add:
+
+```tsx
+<p className="mt-6 text-center text-xs text-neutral-500">
+  Your video is stored by Songfit and analyzed with third-party AI services to find your songs. Email hello@thissongfits.com to have it deleted.
+</p>
+```
+
+- [ ] **Step 4: Admin gate on every admin entry (M3)**
+
+Confirm each of `app/admin/page.tsx`, `app/admin/submissions/[id]/page.tsx`, `app/admin/metrics/page.tsx` starts its default export with `await requireAdmin();`, and that `app/admin/submissions/[id]/actions.ts` calls `await requireAdmin();` as the first line of `retrySubmission`. Add it wherever missing. The layout's gate stays, but no page or action depends on it.
+
+Run: `grep -L "requireAdmin" app/admin/page.tsx app/admin/submissions/\[id\]/page.tsx app/admin/metrics/page.tsx app/admin/submissions/\[id\]/actions.ts`
+Expected: no output (every file contains the call).
+
+- [ ] **Step 5: No raw errors to creators**
+
+Run: `grep -rn "error.message\|String(e)\|String(err)" app/api app/results app/page.tsx components | grep -v logger`
+Expected: no output. Any match that reaches a `NextResponse.json` body or JSX must be replaced with a fixed string (`"something_went_wrong"`) and the detail moved into a `logger.*` call.
+
+- [ ] **Step 6: Verify**
 
 Run: `pnpm typecheck && pnpm test && pnpm build`
-Expected: all pass; build completes with no image-host warnings.
+Expected: all pass; build completes without image-host warnings and the ffmpeg binaries are listed in the function trace (`.next/server/app/api/submissions/...` references `ffmpeg-static`).
 
-Manual: hit `POST /api/submissions/<in-flight id>/run` twice quickly → second returns 409. Open `/results/not-a-real-id` → not-found page. `curl -s localhost:3000/robots.txt` shows `Disallow: /admin`.
+Manual: `POST /api/upload-url` six times in a minute from the console → the sixth returns 429. Open `/results/not-a-real-id` → not-found page. `curl -s localhost:3000/robots.txt` shows `Disallow: /admin`. Signed in as a non-admin, open `/admin/metrics` directly → redirected.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/pipeline/runGuard.ts app/api/submissions/[id]/run/route.ts app/api/upload-url/route.ts src/db/queries/submissions.ts next.config.ts app/layout.tsx app/robots.ts app/error.tsx app/results/[id]/not-found.tsx app/results/[id]/page.tsx tests/pipeline/runGuard.test.ts
-git commit -m "Harden pipeline run, uploads and error pages for launch"
+git add app/api/upload-url/route.ts src/db/queries/submissions.ts next.config.ts app/layout.tsx app/page.tsx app/robots.ts app/error.tsx app/results/[id]/not-found.tsx app/results/[id]/page.tsx app/admin
+git commit -m "Harden uploads, admin gating, error pages and config for launch"
 ```
 
 ---
 
-### Task 4.8: Deploy to Vercel and thissongfits.com
+### Task 4.7: Production plans, domain and smoke test
 
 **Files:**
 - Modify: `README.md` (Deploy section)
-- No code beyond the README; everything else is dashboard work.
+- Modify (only if staying on Supabase Free): `src/shared/config.ts` (`maxUploadBytes`), `components/UploadForm.tsx` copy
 
-- [ ] **Step 1: Push the repo to GitHub**
+The Vercel project and GitHub repo already exist from Phase 1 Task 1.7; this task finishes production.
 
-```bash
-gh repo create songfit --private --source=. --push
-```
-Expected: repo URL printed; `git push` succeeds.
+- [ ] **Step 1: Plans (Dylan decisions, defaults apply)**
 
-- [ ] **Step 2: Create the Vercel project**
+- [ ] **Vercel Pro** (default yes, $20/mo): Vercel → Settings → Billing → upgrade. Reason: commercial use is outside Hobby's terms, and Pro gives the 300 s function budget without relying on Fluid Compute. Confirm `maxDuration = 300` on `app/api/submissions/route.ts` (submit route, runs the pipeline) and `app/api/submissions/[id]/run/route.ts` (admin retry).
+- [ ] **Supabase Pro** (default yes, $25/mo): Supabase → Settings → Billing → Pro. Then Storage → Settings → global file size limit `150 MB`. Reason: Free caps files at 50 MB; a 3-minute 1080p Reel exceeds it.
+  - If Dylan chooses to stay on Free: set `maxUploadBytes: 50 * 1024 * 1024` in `src/shared/config.ts`, change the UploadForm size error to "Videos up to 50 MB for now", and set the Storage limit to 50 MB. Commit that change with message `Cap uploads at 50 MB (Supabase Free)`.
 
-- [ ] vercel.com → Add New → Project → import the `songfit` GitHub repo. Framework preset: Next.js (auto). Root directory: `/`. Build command default (`next build`), install command `pnpm install`.
-- [ ] Environment variables (Production and Preview), copied from `.env.example` with real values:
-  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_EMAILS`, `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`, and `INTERNAL_TOKEN` generated with:
-  ```bash
-  openssl rand -hex 32
-  ```
-- [ ] Deploy. Expected: build green, `https://songfit-<hash>.vercel.app` loads the upload screen.
-
-- [ ] **Step 3: Function duration**
-
-`app/api/submissions/[id]/run/route.ts` exports `export const maxDuration = 300;` (Phase 3). Vercel honours up to 300 s on Hobby only with Fluid Compute enabled (Project → Settings → Functions → Fluid Compute → on), and on Pro by default. Check the plan in the Vercel dashboard; if the run route 504s after 60 s in the smoke test, enable Fluid Compute or upgrade to Pro before Thursday.
-
-- [ ] **Step 4: Domain**
+- [ ] **Step 2: Domain**
 
 - [ ] Vercel → Project → Settings → Domains → add `thissongfits.com` and `www.thissongfits.com` (redirect www → apex).
-- [ ] At the registrar's DNS: add the records Vercel shows (an `A` record for the apex to Vercel's IP and a `CNAME` for `www` to `cname.vercel-dns.com`). Wait for Vercel to show "Valid Configuration".
-- [ ] Expected: `https://thissongfits.com` serves the app with a valid certificate.
+- [ ] Registrar DNS: add the records Vercel shows (`A` for the apex to Vercel's IP, `CNAME` for `www` to `cname.vercel-dns.com`). Wait for "Valid Configuration".
+- [ ] `https://thissongfits.com` serves the app with a valid certificate.
 
-- [ ] **Step 5: Auth URLs**
+- [ ] **Step 3: Auth and payment URLs**
 
-- [ ] Supabase → Authentication → URL Configuration: Site URL `https://thissongfits.com`; Redirect URLs add `https://thissongfits.com/auth/callback` and `https://*.vercel.app/auth/callback`.
-- [ ] Google Cloud Console → the OAuth client from Phase 1: Authorized JavaScript origins add `https://thissongfits.com`; the authorized redirect URI stays the Supabase callback (`https://<project>.supabase.co/auth/v1/callback`).
-- [ ] Stripe: ensure the live webhook endpoint from Task 4.4 points at `https://thissongfits.com/api/stripe/webhook`, and the live Payment Link redirects to `https://thissongfits.com/subscribe/thanks`.
+- [ ] Supabase → Authentication → URL Configuration: Site URL `https://thissongfits.com`; Redirect URLs: `https://thissongfits.com/auth/callback` and `http://localhost:3000/auth/callback` only (no `*.vercel.app` wildcard — M3).
+- [ ] Google Cloud Console → the OAuth client from Phase 1: Authorized JavaScript origins add `https://thissongfits.com`; the redirect URI remains `https://<project-ref>.supabase.co/auth/v1/callback`.
+- [ ] Vercel env: `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`; all Stripe LIVE values from Task 4.4 Step 8 (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`). Redeploy.
+- [ ] Stripe live webhook endpoint → `https://thissongfits.com/api/stripe/webhook`; live Payment Link redirects to `https://thissongfits.com/subscribe/thanks`.
 
-- [ ] **Step 6: Smoke test from a phone on cellular**
+- [ ] **Step 4: Smoke test from a phone on cellular**
 
-- [ ] Open `https://thissongfits.com` on a phone, Wi-Fi off.
-- [ ] Sign in with Google, upload a 30–60 s Reel from the camera roll, see the waiting state.
-- [ ] Results appear within ~2 minutes with artwork and playable previews.
-- [ ] "Use this" collapses the others and shows the offer.
-- [ ] Admin: `/admin` shows the submission as `ready` with timing; `/admin/metrics` shows the funnel.
+- [ ] Wi-Fi off. Open `https://thissongfits.com`. Tap "Continue with Google" (first tap), sign in, the upload form appears.
+- [ ] Upload a 60–90 s iPhone MOV from the camera roll; progress bar moves; waiting state appears.
+- [ ] Results within ~2 minutes: three real songs, sections inside the tracks, "Open in Spotify" works. (Previews only if `PREVIEWS_ENABLED`.)
+- [ ] "Use this" collapses the others; the offer appears; `/admin` shows the submission `ready` with timing; `/admin/metrics` funnel has 1 creator at each stage reached.
+- [ ] Second upload attempt as the same creator → `/subscribe`.
 
-- [ ] **Step 7: README deploy section**
+- [ ] **Step 5: README deploy section**
 
 Append to `README.md`:
 
 ```markdown
 ## Deploy
 
-Production runs on Vercel from the `main` branch at https://thissongfits.com.
+Production runs on Vercel (Pro) from the `main` branch at https://thissongfits.com.
 Env vars live in Vercel (Settings → Environment Variables); `.env.example` is the list.
-The pipeline route needs 300 s functions: Fluid Compute on Hobby, or Pro.
-Supabase Auth Site URL and Google OAuth origins must include the production domain.
-Stripe webhook: `https://thissongfits.com/api/stripe/webhook`.
+The submit route and the admin run route export `maxDuration = 300`.
+Supabase: Pro plan, Storage file limit 150 MB, Auth Site URL and redirect URLs set to the production domain.
+Google OAuth origins include the production domain. Stripe webhook: `https://thissongfits.com/api/stripe/webhook`.
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add README.md
-git commit -m "Document deployment"
+git add README.md src/shared/config.ts components/UploadForm.tsx
+git commit -m "Document production deployment"
 git push
 ```
 
+(Only include `src/shared/config.ts` and `components/UploadForm.tsx` if Step 1's 50 MB fallback was taken.)
+
 ---
 
-### Task 4.9: Launch-day runbook
+### Task 4.8: Launch-day runbook
 
 **Files:**
 - Create: `docs/RUNBOOK.md`
@@ -1656,34 +1895,43 @@ git push
 ## Watch (every hour on launch days)
 - `/admin?status=failed` — any failed submission. Read the `error` text:
   - `analyze:` prefix → ffmpeg/Whisper/Claude analysis problem. Retry once. If it fails again, open the inspector and check the video plays; a corrupt or 0-byte upload is the usual cause.
-  - `recommend:` prefix with "fewer than 3 verified" → the generator named songs Deezer can't find. Retry (the retry prompt tells the model the last list was unverifiable).
-  - `budget exceeded` → pipeline hit 280 s. Retry; it resumes from the failed stage.
-- `/admin` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless it fails.
-- Anthropic console → Usage. Expect roughly $0.20–0.40 per submission. A spike means a retry loop; check for one submission with many `pipeline_failed` events in `events`.
-- Vercel → Logs, filter `error`. 504 on `/api/submissions/*/run` means the function duration limit; see Deploy in README.
+  - `recommend:` prefix with "fewer than 3 verified" → the generator named songs Deezer can't find. Retry (the retry prompt carries exclusions and asks for better-known songs).
+  - `budget exceeded` → pipeline hit the time budget. Retry; it resumes from the failed stage.
+- A run that is lost: status stuck in `analyzing` or `recommending` for more than 6 minutes with no change. The claim allows stale takeover after `LIMITS.inFlightStaleMinutes`, so `/admin` → open → Retry simply works. If it happens more than once, check Vercel logs for the submit route being killed early (function duration or memory).
+- `/admin` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless runs fail.
+- Anthropic console → Usage. Expect roughly $0.15–0.40 per submission with Sonnet on candidates/scoring/explain and Fable on analysis. A spike means a retry loop; look for one submission with many `pipeline_failed` events.
+- Vercel → Logs, filter `error`. 504 on `/api/submissions` means the function duration limit; see Deploy in README.
+- Stripe → Developers → Webhooks → the endpoint: any event with a non-2xx response. The handler returns 500 on purpose when activation fails so Stripe retries; if retries are exhausted, open the event and press Resend. Nothing is lost: an event is recorded only after its effects are committed.
 
 ## Retry a submission
-`/admin?status=failed` → retry. It re-runs from the failed stage. Candidates and recommendations for that submission are replaced, never duplicated.
+`/admin` (failed rows are red) → Retry. It re-runs from the failed stage. Candidates and recommendations for that submission are replaced, never duplicated.
 
 ## Fix a bad recommendation by hand
 Supabase Studio → Table editor:
-1. `recommendations` → filter `submission_id` → edit `title`, `artist`, `start_seconds`, `end_seconds`, `explanation`, `artwork_url`, `preview_url`, `spotify_url` directly. Rank stays 1–3. The creator's page shows the change on next load (it fetches live).
+1. `recommendations` → filter `submission_id` → edit `title`, `artist`, `start_seconds`, `end_seconds`, `explanation`, `artwork_url`, `spotify_url` directly. Rank stays 1–3. The creator's page shows the change on next load.
 2. To swap in a different candidate: copy its row from `candidates` (same `submission_id`) into the recommendation row's fields; set `candidate_id` to that candidate's id.
 3. To build a Spotify link by hand: `https://open.spotify.com/search/<Title>%20<Artist>`.
-Log what you changed in `events` as `manual_fix` is NOT allowed (not in the list) — instead note it in this file's "Manual fixes" section below with the submission id.
+Note every manual change under "Manual fixes" below with the submission id. Do not invent event names.
+
+## Cancel or refund a subscriber
+Creators cancel themselves via "Manage or cancel" (Stripe Customer Portal). To do it for them: Stripe → Customers → the customer → subscription → Cancel. The `customer.subscription.deleted` webhook sets their row to `canceled`, which closes the paywall for them again. Refunds: Stripe → Payments → Refund.
+
+## Disable previews / toggle launch flags
+`src/shared/config.ts`: `PREVIEWS_ENABLED` (false at launch per the C8 ruling). Change, commit, push; Vercel redeploys in ~2 minutes.
 
 ## Overused songs
-Edit `src/engine/scoring/config/overused.ts`: add `{ title, artist }` entries (normalised matching is case/punctuation-insensitive). Commit and push; Vercel redeploys in ~2 minutes. Entries get a 0.3 penalty on `originality`.
+Edit `src/engine/scoring/config/overused.ts`: add `{ title, artist }` entries (normalised matching is case/punctuation-insensitive). Commit and push. Entries get the overuse penalty on `originality`.
 
 ## Reading the metrics page for the deck
 `/admin/metrics`:
-- "Funnel → submission_created, creators" = creators who submitted (target 100).
-- "Funnel → recommendations_ready, submissions" = results delivered.
+- Tile "Paying creators (active)" = creators with an active subscription right now (target 10). Cross-check Stripe → Customers.
+- "Funnel → submission_created, creators" = distinct creators who submitted (target 100).
+- "Funnel → recommendations_ready, submissions" = results delivered; "creators" = distinct creators who got a result.
 - "recommendation_selected, submissions" ÷ "recommendations_viewed, submissions" = pick rate.
-- "paid, creators" = paying creators (target 10). Cross-check against Stripe → Customers.
 - "Median upload → ready" = time to result. "Median ready → selection" = decision time.
-- "By category" = which niche picks most; use the select rate column.
+- "By category" = which niche picks most; use the select-rate column.
 - "Returning creators" = came back for a second video.
+- "All events" are raw row counts (repeat views count multiple times); use the funnel for the deck.
 
 ## Manual fixes
 (append: date, submission id, what changed, why)
@@ -1703,9 +1951,10 @@ git push
 
 All on `https://thissongfits.com` from a phone, Stripe in test mode until Wednesday evening:
 
-- [ ] Creator A (fresh Google account): upload → waiting → 3 results with previews → "Use this" on one → offer appears → "Get Songfit" → Stripe test checkout with `4242 4242 4242 4242` → lands on `/subscribe/thanks` → tap "Find my songs" → a second upload is accepted and produces results.
-- [ ] Creator B (another Google account): first upload works; second upload attempt redirects to `/subscribe` with "You've used your free Songfit."
-- [ ] Creator A rejects all three on the second result: "Want 3 different directions?" and the offer appear; `events` has `all_rejected` and `more_like_this_requested`.
-- [ ] `/admin/metrics` shows: `submission_created` creators = 2, `paid` creators = 1, non-null medians, a category row, returning creators = 1.
-- [ ] `/admin?status=failed` is empty, or every failed row has been retried to `ready`.
 - [ ] `pnpm typecheck && pnpm test && pnpm build` pass on `main`; Vercel production deployment is green.
+- [ ] Creator A (fresh Google account): sign in (first tap) → upload → waiting → 3 results → "Use this" on one → offer appears → "Get Songfit" → Stripe test checkout `4242 4242 4242 4242` → `/subscribe/thanks` shows "Activating…" then "You're in." → "Find my songs" → a second upload is accepted and produces results. Refresh the first results page: the pick is still marked.
+- [ ] Creator B (another Google account): first upload works; second upload attempt redirects to `/subscribe` with "You've used your free Songfit."; `events` has a `paid_offer_viewed` row with B's `creator_id` and null `submission_id`.
+- [ ] Creator A rejects all three on the second result: "Want 3 different directions?" and the offer appear; `events` has one `all_rejected` and one `more_like_this_requested` with A's `creator_id`.
+- [ ] Resend A's `checkout.session.completed` from the Stripe dashboard: webhook replies `duplicate`; still one `paid` event; still one active subscription.
+- [ ] `/admin/metrics`: `submission_created` creators = 2, `recommendations_ready` creators = 2, paying creators = 1, non-null medians, category rows with ready counts equal to the number of ready submissions (not inflated), returning creators = 1.
+- [ ] `/admin` has no failed rows, or every failed row has been retried to `ready`.
