@@ -10,3 +10,10 @@ out/
 supabase/.temp/
 /tmp/
 .superpowers/
+
+# supabase local state
+supabase/.branches
+
+# media scratch
+tmp/
+*.tsbuildinfo
