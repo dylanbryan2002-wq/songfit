@@ -97,17 +97,16 @@ export function SongRow(p: Props) {
               >
                 <CrossIcon />
               </button>
-              {!p.rejected && (
-                <button
-                  type="button"
-                  onClick={p.onChoose}
-                  aria-label={`Use this: ${row.title}`}
-                  aria-pressed={p.chosen}
-                  className={`${iconButton} text-white ${p.chosen ? "bg-steel" : "bg-ink"}`}
-                >
-                  <CheckIcon />
-                </button>
-              )}
+              {/* Still enabled when rejected: choosing un-rejects (reducer `choose`). Muted so it reads as secondary. */}
+              <button
+                type="button"
+                onClick={p.onChoose}
+                aria-label={`Use this: ${row.title}`}
+                aria-pressed={p.chosen}
+                className={`${iconButton} ${p.chosen ? "bg-steel text-white" : p.rejected ? "bg-ink/10 text-ink/60" : "bg-ink text-white"}`}
+              >
+                <CheckIcon />
+              </button>
             </>
           )}
         </div>
