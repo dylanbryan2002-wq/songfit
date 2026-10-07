@@ -161,104 +161,125 @@ export function SongPicker({
 
   const playingRow = rows.find((r) => r.rank === state.auditioningRank && isPlaying(r.rank)) ?? null;
   const chosenRow = rows.find((r) => r.rank === state.chosenRank) ?? null;
-  const visible = state.mode === "chosen" && chosenRow ? [chosenRow] : rows;
+  const chosenMode = state.mode === "chosen" && chosenRow !== null;
+  // Chosen mode: the chosen song moves to the top and the others collapse away (kept mounted so it animates).
+  const ordered = chosenMode ? [chosenRow, ...rows.filter((r) => r.rank !== chosenRow.rank)] : rows;
   const deezerHref = rows.find((r) => r.rank === pb.currentRank)?.deezer_url ?? null;
+  const sounding = pb.state === "playing";
 
   return (
-    <div className="flex w-full flex-col gap-3">
-      <h1 className="sr-only">Your songs</h1>
-      <div className="relative">
-        <VideoPane ref={pb.videoRef} src={videoUrl} />
-        {playingRow && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-lg bg-gradient-to-t from-black/75 to-transparent px-3 pb-3 pt-12 text-white">
-            <p className="truncate text-sm font-semibold">
-              ▶ {playingRow.title} · {playingRow.artist}
+    <div className="flex w-full flex-col gap-4">
+      <div className="flex flex-col">
+        <VideoPane
+          ref={pb.videoRef}
+          src={videoUrl}
+          overlay={
+            playingRow ? { title: playingRow.title, artist: playingRow.artist, loading: pb.state === "loading" } : null
+          }
+        />
+
+        <SongSheet hint={!chosenMode}>
+          {playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
+            <p className="px-2 pb-2 text-[13px] text-muted">
+              Only the first {formatTime(pb.loopLength)} of your video plays with this sample.
             </p>
-            <p className="text-xs text-white/80">30-second sample · not the suggested section</p>
-          </div>
-        )}
-      </div>
-      {playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
-        <p className="text-center text-xs text-muted">
-          Only the first {formatTime(pb.loopLength)} of your video plays with this sample.
-        </p>
-      )}
+          )}
+          <ul className="flex flex-col">
+            {ordered.map((row, i) => {
+              const active = state.auditioningRank === row.rank && pb.currentRank === row.rank;
+              const collapsed = chosenMode && row.rank !== chosenRow.rank;
+              const playing = isPlaying(row.rank);
+              return (
+                <li
+                  key={row.rank}
+                  inert={collapsed}
+                  className={`grid transition-[grid-template-rows,opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+                    collapsed ? "-translate-y-2 grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+                  }`}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <SongRow
+                      row={row}
+                      hasSample={!!urls[row.rank]}
+                      active={active}
+                      playing={playing}
+                      sounding={playing && sounding}
+                      progress={playing && sounding && pb.loopLength ? pb.position / pb.loopLength : null}
+                      chosen={state.chosenRank === row.rank}
+                      pick={chosenMode && state.chosenRank === row.rank}
+                      rejected={state.rejected.has(row.rank)}
+                      showActions={state.mode === "list"}
+                      divider={!chosenMode && i > 0}
+                      explanationOpen={state.explanationOpen === row.rank}
+                      note={notes[row.rank] ?? null}
+                      onPlay={() => play(row.rank)}
+                      onPause={pause}
+                      onReject={() => reject(row.rank)}
+                      onChoose={() => choose(row.rank)}
+                      onToggleExplanation={() => toggleExplanation(row.rank)}
+                    >
+                      {active && maxStart >= 0.5 && (
+                        <label className="mt-1 flex items-center gap-3 pl-[68px] pr-2 text-xs text-muted">
+                          <span className="shrink-0">Adjust sample start</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={maxStart}
+                            step={0.5}
+                            value={sampleStart}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              dispatch({ type: "sampleStart", seconds: v });
+                              pb.setSampleStart(v);
+                            }}
+                            className="h-11 min-w-0 flex-1 accent-steel"
+                          />
+                          <span className="w-8 shrink-0 text-right tabular-nums">{formatTime(sampleStart)}</span>
+                        </label>
+                      )}
+                    </SongRow>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
 
-      <SongSheet>
-        <ul className="flex flex-col gap-1">
-          {visible.map((row) => {
-            const active = state.auditioningRank === row.rank && pb.currentRank === row.rank;
-            return (
-              <SongRow
-                key={row.rank}
-                row={row}
-                hasSample={!!urls[row.rank]}
-                active={active}
-                playing={isPlaying(row.rank)}
-                chosen={state.chosenRank === row.rank}
-                rejected={state.rejected.has(row.rank)}
-                showActions={state.mode === "list"}
-                explanationOpen={state.explanationOpen === row.rank}
-                note={notes[row.rank] ?? null}
-                onPlay={() => play(row.rank)}
-                onPause={pause}
-                onReject={() => reject(row.rank)}
-                onChoose={() => choose(row.rank)}
-                onToggleExplanation={() => toggleExplanation(row.rank)}
+          {chosenMode && (
+            <>
+              <UseItPanel
+                key={chosenRow.rank}
+                row={chosenRow}
+                showTrimNote={maxStart >= 0.5}
+                onCopied={() => postEvent("title_copied", chosenRow.rank)}
+                onOpen={(destination) => postEvent("open_app", chosenRow.rank, destination)}
+                onNotFound={() => postEvent("song_not_found", chosenRow.rank)}
+              />
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "unchoose" })}
+                className="mx-auto mt-1 flex min-h-11 items-center px-4 text-sm font-semibold text-steel-dark"
               >
-                {active && maxStart >= 0.5 && (
-                  <label className="mt-1 flex items-center gap-3 pl-[68px] pr-2 text-xs text-muted">
-                    <span className="shrink-0">Adjust sample start</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={maxStart}
-                      step={0.5}
-                      value={sampleStart}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        dispatch({ type: "sampleStart", seconds: v });
-                        pb.setSampleStart(v);
-                      }}
-                      className="h-11 min-w-0 flex-1 accent-steel"
-                    />
-                    <span className="w-8 shrink-0 text-right tabular-nums">{formatTime(sampleStart)}</span>
-                  </label>
-                )}
-              </SongRow>
-            );
-          })}
-        </ul>
+                Change song
+              </button>
+            </>
+          )}
 
-        {state.mode === "chosen" && chosenRow && (
-          <>
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "unchoose" })}
-              className="ml-[68px] flex min-h-11 items-center px-2 text-sm font-semibold text-steel-dark"
+          {message && (
+            <p
+              role="status"
+              className={
+                message === SAVE_FAILED
+                  ? "mt-3 px-2 text-center text-[13px] font-medium text-red-600"
+                  : "mt-3 px-2 text-center text-sm font-medium text-ink"
+              }
             >
-              Change song
-            </button>
-            <UseItPanel
-              key={chosenRow.rank}
-              row={chosenRow}
-              showTrimNote={maxStart >= 0.5}
-              onCopied={() => postEvent("title_copied", chosenRow.rank)}
-              onOpen={(destination) => postEvent("open_app", chosenRow.rank, destination)}
-              onNotFound={() => postEvent("song_not_found", chosenRow.rank)}
-            />
-          </>
-        )}
-
-        {message && (
-          <p role="status" className="mt-3 px-2 text-center text-sm font-medium text-ink">
-            {message}
-          </p>
-        )}
-      </SongSheet>
+              {message}
+            </p>
+          )}
+        </SongSheet>
+      </div>
 
       <Attribution href={deezerHref} />
-      <p className="text-center text-xs text-muted">Sections are our best estimate. Check it against the track.</p>
     </div>
   );
 }

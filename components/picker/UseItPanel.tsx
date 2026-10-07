@@ -15,7 +15,7 @@ type Props = {
 };
 
 const action =
-  "flex min-h-12 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-colors active:scale-[0.98]";
+  "flex min-h-12 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-[transform,background-color] duration-150 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100";
 
 /** The full-track section and the ways to go use it. Never derived from the sample (C2). */
 export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: Props) {
@@ -65,13 +65,13 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
   );
 
   return (
-    <section className="mx-2 mt-3 rounded-xl bg-canvas p-4">
+    <section className="mt-3 rounded-[20px] bg-canvas p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Use it for real</h2>
       <p className="mt-1 text-ink">
-        <span className="text-2xl font-bold">
+        <span className="block text-[28px] font-bold leading-tight tracking-tight">
           Use {formatTime(row.start_seconds)}–{formatTime(row.end_seconds)}
         </span>{" "}
-        <span className="text-sm font-medium text-muted">of the full track</span>
+        <span className="block text-sm font-medium text-muted">of the full track</span>
       </p>
       {showTrimNote && <p className="mt-0.5 text-xs text-muted">(Trimming the sample does not change this.)</p>}
       <p className="mt-3 text-sm text-ink/80">
@@ -80,7 +80,7 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
           : "Open TikTok or Instagram, paste the song name into search, then use that part."}
       </p>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2.5">
         <button type="button" onClick={copy} className={`${action} flex-col bg-ink text-white`}>
           <span>{copied ? "Copied" : "Copy"}</span>
           <span className="w-full truncate text-xs font-normal text-white/70">{label}</span>
