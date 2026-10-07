@@ -58,6 +58,10 @@ describe("matching (10 fixtures)", () => {
     ["Running Up That Hill", "Running Up That Hill (A Deal With God)", false],
     ["夜に駆ける", "夜に駆ける", true],
     ["", "", false],
+    ["Song feat. X (Sped Up)", "Song", false],
+    ["Song feat. X - Live", "Song", false],
+    ["Song (Remix feat. X)", "Song", false],
+    ["Song (Remix feat. X)", "Song (Remix)", true],
   ];
   it.each(cases)("titlesMatch(%s, %s) = %s", (a, b, expected) => {
     expect(titlesMatch(a, b)).toBe(expected);
