@@ -31,7 +31,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
     const first = pool[0];
     if (!first || !usedArtists.has(normalizeArtist(first.canonical_artist))) return first;
     const alt = pool.find(
-      (c) => !usedArtists.has(normalizeArtist(c.canonical_artist)) && first.total_score - c.total_score <= ARTIST_TOLERANCE,
+      (c) => !usedArtists.has(normalizeArtist(c.canonical_artist)) && first.total_score - c.total_score <= ARTIST_TOLERANCE + 1e-9,
     );
     return alt ?? first;
   };
@@ -39,6 +39,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
   take(sorted[0]!);
   while (picks.length < 3) {
     const available = sorted.filter((c) => !usedIds.has(c.deezer_id));
+    // ALL of a candidate's directions must be unused (stricter than primary-only; deliberate).
     const fresh = available.filter((c) => c.directions.every((d) => !usedDirections.has(d)));
     const choice = preferNewArtist(fresh.length ? fresh : available);
     if (!choice) break;
