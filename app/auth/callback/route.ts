@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/src/db/client";
 import { ensureCreator } from "@/src/db/queries/creators";
+import { safeNext } from "@/src/auth/redirect";
 import { logEvent } from "@/src/feedback/events";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const nextParam = url.searchParams.get("next") ?? "/";
-  // Only allow same-origin relative paths to avoid open redirects.
-  const next = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
+  // Only allow same-origin paths to avoid open redirects.
+  const next = safeNext(url.searchParams.get("next"), url.origin);
 
   if (code) {
     const supabase = await createServerClient();
