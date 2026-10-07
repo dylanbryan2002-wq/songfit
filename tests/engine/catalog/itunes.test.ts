@@ -11,7 +11,7 @@ describe("findItunesPreview", () => {
   it("returns the matching track's id and preview when previews are enabled", async () => {
     vi.doMock("@/src/shared/config", async (orig) => ({ ...(await orig<object>()), PREVIEWS_ENABLED: true }));
     const { findItunesPreview } = await import("@/src/engine/catalog/itunes");
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
+    const fetchImpl = vi.fn(async (_url: string) => new Response(JSON.stringify(body), { status: 200 }));
     const out = await findItunesPreview("Blinding Lights", "The Weeknd", fetchImpl as unknown as typeof fetch);
     expect(out).toEqual({ itunesId: "12", previewUrl: "https://w.m4a" });
     expect(String(fetchImpl.mock.calls[0]![0])).toContain("country=US");
