@@ -15,7 +15,7 @@ export class PipelineError extends Error {
 }
 ```
 
-Deadline convention used by every stage in this phase (and by Phase 3): the runner computes `deadlineAt = started + LIMITS.pipelineBudgetMs` and passes `{ deadlineAt }` down. A stage never starts a model call or subprocess whose default timeout would overrun `deadlineAt`; it shortens the timeout to the remaining time via the `timeoutFor()` helper (Task 2.1), so the function always fails cleanly with time left to persist `failed`.
+Deadline convention used by every stage in this phase (and by Phase 3): the runner computes `deadlineAt = started + LIMITS.pipelineBudgetMs` and passes `{ deadlineAt }` down. A stage never starts a model call or subprocess whose default timeout would overrun `deadlineAt`; it shortens the timeout to the remaining time — subprocesses via `timeoutFor()` (Task 2.1), model and Whisper calls via `remainingBudget(ctx)` from `src/pipeline/budget.ts` (Task 2.2; also used by every Phase 3 model call) — so the function always fails cleanly with time left to persist `failed`.
 
 ---
 
@@ -370,11 +370,20 @@ git commit -m "Add ffmpeg media extraction with hard timeouts"
 ### Task 2.2: Whisper transcription
 
 **Files:**
+- Create: `src/pipeline/budget.ts` (shared deadline helper; consumed here, in 2.3, 2.5 and by every Phase 3 model call)
 - Create: `src/analysis/transcribe.ts`
+- Test: `tests/pipeline/budget.test.ts`
 - Test: `tests/analysis/transcribe.test.ts`
 
 **Interfaces:**
-- Consumes: `MODELS.whisper` from config; `env("OPENAI_API_KEY")`; `timeoutFor` from `src/media/extractHelpers.ts`.
+- Consumes: `MODELS.whisper`, `LIMITS.modelTimeoutMs` from config; `env("OPENAI_API_KEY")`.
+- Produces (ruling C3, deadline-aware timeouts):
+  ```ts
+  // src/pipeline/budget.ts
+  export type StageCtx = { deadlineAt: number };
+  /** min(defaultMs, time left before deadlineAt minus a 5 s persistence reserve), never below 5 s; defaultMs when no ctx */
+  export function remainingBudget(ctx: { deadlineAt?: number } | undefined, defaultMs?: number, now?: number): number;
+  ```
 - Produces:
   ```ts
   export type TranscriptSegment = { start: number; end: number; text: string };
@@ -391,6 +400,62 @@ git commit -m "Add ffmpeg media extraction with hard timeouts"
 ```bash
 pnpm add openai
 ```
+
+- [ ] **Step 2a: Write the failing test for remainingBudget**
+
+`tests/pipeline/budget.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { remainingBudget } from "../../src/pipeline/budget";
+import { LIMITS } from "../../src/shared/config";
+
+describe("remainingBudget", () => {
+  it("returns the default when there is no ctx or no deadline", () => {
+    expect(remainingBudget(undefined, 120_000, 0)).toBe(120_000);
+    expect(remainingBudget({}, 120_000, 0)).toBe(120_000);
+  });
+  it("defaults to LIMITS.modelTimeoutMs", () => {
+    expect(remainingBudget(undefined)).toBe(LIMITS.modelTimeoutMs);
+  });
+  it("caps at the time left minus the 5 s reserve", () => {
+    expect(remainingBudget({ deadlineAt: 50_000 }, 120_000, 20_000)).toBe(25_000);
+  });
+  it("never goes below 5 s", () => {
+    expect(remainingBudget({ deadlineAt: 1_000 }, 120_000, 900)).toBe(5_000);
+  });
+});
+```
+
+- [ ] **Step 2b: Implement remainingBudget**
+
+`src/pipeline/budget.ts`:
+
+```ts
+import { LIMITS } from "../shared/config";
+
+export type StageCtx = { deadlineAt: number };
+
+const PERSIST_RESERVE_MS = 5_000;
+const FLOOR_MS = 5_000;
+
+/**
+ * Timeout to give an external call so it cannot run past the pipeline deadline.
+ * Reserves 5 s at the end so the runner can still persist `failed`.
+ * Floors at 5 s so a nearly-exhausted budget fails with a real timeout error, not a zero.
+ */
+export function remainingBudget(
+  ctx: { deadlineAt?: number } | undefined,
+  defaultMs: number = LIMITS.modelTimeoutMs,
+  now: number = Date.now(),
+): number {
+  if (ctx?.deadlineAt === undefined) return defaultMs;
+  return Math.max(FLOOR_MS, Math.min(defaultMs, ctx.deadlineAt - now - PERSIST_RESERVE_MS));
+}
+```
+
+Run: `pnpm vitest run tests/pipeline/budget.test.ts`
+Expected: PASS (4 tests)
 
 - [ ] **Step 2: Write the failing test**
 
@@ -449,7 +514,7 @@ import fs from "node:fs";
 import OpenAI from "openai";
 import { MODELS, env } from "../shared/config";
 import { logger } from "../shared/logger";
-import { timeoutFor } from "../media/extractHelpers";
+import { remainingBudget } from "../pipeline/budget";
 
 export type TranscriptSegment = { start: number; end: number; text: string };
 export type Transcript = { text: string; segments: TranscriptSegment[] };
@@ -479,7 +544,7 @@ export async function transcribe(
       model: MODELS.whisper,
       response_format: "verbose_json",
     },
-    { timeout: timeoutFor(WHISPER_TIMEOUT_MS, opts.deadlineAt) },
+    { timeout: remainingBudget(opts, WHISPER_TIMEOUT_MS) },
   )) as { text?: string; segments?: { start: number; end: number; text: string }[] };
 
   const text = (result.text ?? "").trim();
@@ -500,8 +565,8 @@ Expected: PASS (3 tests)
 
 ```bash
 pnpm typecheck && pnpm test
-git add package.json pnpm-lock.yaml src/analysis/transcribe.ts tests/analysis/transcribe.test.ts
-git commit -m "Add Whisper transcription with timestamped segments"
+git add package.json pnpm-lock.yaml src/pipeline/budget.ts tests/pipeline/budget.test.ts src/analysis/transcribe.ts tests/analysis/transcribe.test.ts
+git commit -m "Add Whisper transcription with timestamped segments and the shared deadline helper"
 ```
 
 ---
@@ -513,7 +578,8 @@ git commit -m "Add Whisper transcription with timestamped segments"
 - Test: `tests/analysis/analyzeVideo.test.ts`
 
 **Interfaces:**
-- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `LIMITS.modelTimeoutMs`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `extractJson` from `src/shared/json.ts` (Phase 0); `PipelineError`; `timeoutFor`; `TranscriptSegment` from Task 2.2.
+- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `LIMITS.modelTimeoutMs`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `extractJson` from `src/shared/json.ts` (Phase 0); `PipelineError`; `remainingBudget` from `src/pipeline/budget.ts` (Task 2.2); `TranscriptSegment` from Task 2.2.
+- Ruling I1: every model call logs one `model.call` line with `{ model, ms, input_tokens, output_tokens, stop_reason }`, and a `max_tokens` stop reason is an error (output truncated), thrown before any parsing.
 - Produces:
   ```ts
   export const PROMPT_VERSION = "analyze-v2";
@@ -665,6 +731,20 @@ describe("analyzeVideo", () => {
     });
   });
 
+  it("throws PipelineError when the output was truncated at max_tokens", async () => {
+    const create = vi.fn().mockResolvedValueOnce({
+      content: [{ type: "text", text: "{\"analysis\": {" }],
+      stop_reason: "max_tokens",
+      usage: { input_tokens: 10, output_tokens: 4000 },
+    });
+    const client = { messages: { create } } as unknown as Anthropic;
+    await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
+      name: "PipelineError",
+      stage: "analyze",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it("throws PipelineError when the response is not JSON at all, twice", async () => {
     const { client } = fakeClient(["Sorry, I cannot see the video.", "Still nothing."]);
     await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
@@ -693,7 +773,7 @@ import { VideoAnalysis, MusicBrief, type AnalysisResult } from "../shared/types"
 import { PipelineError } from "../shared/errors";
 import { extractJson } from "../shared/json";
 import { logger } from "../shared/logger";
-import { timeoutFor } from "../media/extractHelpers";
+import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
 export const PROMPT_VERSION = "analyze-v2";
@@ -809,6 +889,7 @@ function buildUserContent(input: AnalyzeInput): Block[] {
 }
 
 async function callModel(client: Anthropic, content: Block[], deadlineAt?: number): Promise<string> {
+  const started = Date.now();
   const res = await client.messages.create(
     {
       model: MODELS.analysis,
@@ -816,10 +897,18 @@ async function callModel(client: Anthropic, content: Block[], deadlineAt?: numbe
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content }],
     },
-    { timeout: timeoutFor(LIMITS.modelTimeoutMs, deadlineAt) },
+    { timeout: remainingBudget({ deadlineAt }, LIMITS.modelTimeoutMs) },
   );
+  // One structured line per model call so cost and truncation are visible in logs (ruling I1).
+  logger.info("model.call", {
+    model: MODELS.analysis,
+    ms: Date.now() - started,
+    input_tokens: res.usage?.input_tokens ?? null,
+    output_tokens: res.usage?.output_tokens ?? null,
+    stop_reason: res.stop_reason ?? null,
+  });
   if (res.stop_reason === "max_tokens") {
-    logger.warn("analysis.truncated", { stop_reason: res.stop_reason });
+    throw new PipelineError("analyze", "model output truncated at max_tokens");
   }
   return res.content
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
@@ -885,7 +974,7 @@ export async function analyzeVideo(
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/analysis/analyzeVideo.test.ts`
-Expected: PASS (7 tests)
+Expected: PASS (8 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -904,11 +993,11 @@ git commit -m "Add Claude video analysis producing VideoAnalysis and MusicBrief"
 - Test: `tests/analysis/analyzeSubmission.test.ts`
 
 **Interfaces:**
-- Consumes: `getSubmission(id)`, `updateSubmission(id, patch)` from `src/db/queries/submissions.ts`; `upsertAnalysis(row)` from `src/db/queries/analyses.ts`; `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
+- Consumes: `getSubmission(id)`, `updateSubmission(id, patch)` from `src/db/queries/submissions.ts` (Phase 0, Task 0.4); `upsertAnalysis(row)` from `src/db/queries/analyses.ts` (Phase 0, Task 0.4); `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
 - Produces: `export async function analyzeSubmission(submissionId: string, ctx: { deadlineAt: number }, deps?: Partial<AnalyzeDeps>): Promise<void>;`
 - Ruling C5/I7: persists `content_category` on BOTH `video_analyses` and `submissions`; `analysis_completed` carries `creatorId`.
 
-Expected db query shapes (Phase 0):
+Expected db query shapes (Phase 0, Task 0.4 — both functions exist there; do not re-create them):
 
 ```ts
 // src/db/queries/analyses.ts — AnalysisInsert is the generated Insert type; the relevant columns:
@@ -1180,18 +1269,19 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
 **Files:**
 - Modify: `src/pipeline/run.ts` (replace the Phase 1 stub)
 - Create: `src/pipeline/stages.ts`
+- Reuse: `src/pipeline/budget.ts` (`StageCtx`, `remainingBudget`; created in Task 2.2)
 - Test: `tests/pipeline/stages.test.ts`
 - Test: `tests/pipeline/run.test.ts`
 
 **Interfaces:**
-- Consumes: `claimSubmissionRun(id)` (Phase 0: atomic conditional update that moves `uploaded | failed`, or an in-flight row whose `updated_at` is older than `LIMITS.inFlightStaleMinutes`, to `analyzing` and returns the row; returns `null` otherwise — this relies on `submissions.updated_at` from migration 0001), `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)`, `listRecommendations(submissionId)`, `analyzeSubmission(id, { deadlineAt })`, `logEvent`, `LIMITS.pipelineBudgetMs`.
+- Consumes: `claimSubmissionRun(id)` (Phase 0: atomic conditional update that moves `uploaded | failed`, or an in-flight row whose `updated_at` is older than `LIMITS.inFlightStaleMinutes`, to `analyzing` and returns the row; returns `null` otherwise — this relies on `submissions.updated_at` from migration 0001), `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)`, `listRecommendations(submissionId)`, `analyzeSubmission(id, { deadlineAt })`, `logEvent`, `LIMITS.pipelineBudgetMs`, `StageCtx` from `src/pipeline/budget.ts`, `Json` from `src/db/types.ts`.
 - Produces:
   ```ts
   // src/pipeline/stages.ts
   export type Stage = "analyze" | "recommend" | "done";
   export function nextStage(hasAnalysis: boolean, hasRecommendations: boolean): Stage;
   // src/pipeline/run.ts
-  export type StageCtx = { deadlineAt: number };
+  export type { StageCtx } from "./budget"; // { deadlineAt: number } — the ONLY context shape passed to stages
   export type RunDeps = {
     claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
     getAnalysisRow: (submissionId: string) => Promise<unknown | null>;
@@ -1204,8 +1294,8 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
   };
   export async function runSubmission(submissionId: string, overrides?: Partial<RunDeps>): Promise<void>;
   ```
-- **Contract with Phase 3 (ruling C3 — ONE runner):** this file is the only runner. Phase 3 does not rewrite it. Phase 3 changes exactly two lines: the import of `recommendSubmission` from `src/engine/recommend.ts`, and `defaultDeps.recommend`, which until then is `recommendNotImplemented` (throws `PipelineError("recommend", "not implemented")`). Everything else — claim, stage selection, deadline, failure recording — stays as written here. Admin retry (Task 2.6) and the submit route (Phase 1, via `waitUntil`) both call `runSubmission(id)`; the claim makes concurrent calls safe.
-- Behaviour: (a) claim or return; (b) stage from stored outputs, never from the status string; (c) `deadlineAt = started + LIMITS.pipelineBudgetMs`, checked before each stage and threaded into it; (d) on any error: `failed`, `error` = message (internal, admin-only), event `pipeline_failed { stage, error }` with `creatorId`; never throws; (e) the recorded stage is the one that was running.
+- **Contract with Phase 3 (ruling C3 — ONE runner):** this file is the only runner. Phase 3 does not rewrite it. Phase 3 changes exactly two lines: the import of `recommendSubmission` from `src/engine/recommend.ts`, and `defaultDeps.recommend`, which until then is `recommendNotImplemented`. The slot's shape is `(id: string, ctx: StageCtx) => Promise<void>`, so Phase 3 wires it as `recommend: (id, ctx) => recommendSubmission(id, ctx)` — `recommendSubmission(submissionId, ctx, deps?)` takes the context as its SECOND parameter and defaults its own dependency object internally (never pass `ctx` where `deps` is expected; this was Codex round-2 mismatch #1). Everything else — claim, stage selection, deadline, failure recording — stays as written here. Admin retry (Task 2.6) and the submit route (Phase 1, via `waitUntil`) both call `runSubmission(id)`; the claim makes concurrent calls safe.
+- Behaviour: (a) claim or return — the claim and the stored-output reads run INSIDE the try/catch, so a database failure there is recorded as `failed` + `pipeline_failed` like any other (ruling C3); (b) stage from stored outputs, never from the status string; (c) `deadlineAt = started + LIMITS.pipelineBudgetMs`, checked before each stage and threaded into it; every stage derives its external-call timeouts from it via `remainingBudget(ctx)`; (d) on any error: `failed`, `error` = message (internal, admin-only), event `pipeline_failed` with `metadata: { stage, error, raw }` where `raw` is `PipelineError.raw` truncated to 4000 chars or `null` (ruling C1: the raw model output is kept for admins) and `creatorId` when the claim succeeded; the metadata object is typed as `Json`; never throws; (e) the recorded stage is the one that was running. `PipelineError.message` is the bare message (the stage is the `stage` property, not a prefix) — Phase 0's `errors.ts` must match this; tests below assert bare messages.
 
 - [ ] **Step 1: Write the failing test for nextStage**
 
@@ -1340,10 +1430,39 @@ describe("runSubmission", () => {
         name: "pipeline_failed",
         submissionId: "sub-1",
         creatorId: "cre-1",
-        metadata: { stage: "analyze", error: "video too long" },
+        metadata: { stage: "analyze", error: "video too long", raw: null },
       }),
     );
     expect(d.recommend).not.toHaveBeenCalled();
+  });
+
+  it("keeps the raw model output (truncated) in pipeline_failed metadata", async () => {
+    const { d } = deps();
+    const raw = "x".repeat(5000);
+    d.analyze.mockRejectedValue(new PipelineError("analyze", "model output invalid", raw));
+    await runSubmission("sub-1", d);
+    const call = d.logEvent.mock.calls.find((c) => c[0].name === "pipeline_failed")!;
+    expect(call[0].metadata).toEqual({ stage: "analyze", error: "model output invalid", raw: "x".repeat(4000) });
+  });
+
+  it("records a failure when the claim itself throws (no creatorId known)", async () => {
+    const { d } = deps();
+    d.claimSubmissionRun.mockRejectedValue(new Error("db unreachable"));
+    await expect(runSubmission("sub-1", d)).resolves.toBeUndefined();
+    expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "db unreachable");
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "pipeline_failed", submissionId: "sub-1", creatorId: null }),
+    );
+  });
+
+  it("records a failure when reading stored outputs throws, as stage analyze", async () => {
+    const { d } = deps();
+    d.getAnalysisRow.mockRejectedValue(new Error("select failed"));
+    await runSubmission("sub-1", d);
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ stage: "analyze", error: "select failed" }) }),
+    );
+    expect(d.analyze).not.toHaveBeenCalled();
   });
 
   it("records a failure in recommend as stage recommend, even for a plain Error", async () => {
@@ -1351,7 +1470,7 @@ describe("runSubmission", () => {
     d.recommend.mockRejectedValue(new Error("deezer down"));
     await runSubmission("sub-1", d);
     expect(d.logEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: { stage: "recommend", error: "deezer down" } }),
+      expect.objectContaining({ metadata: { stage: "recommend", error: "deezer down", raw: null } }),
     );
     expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "deezer down");
   });
@@ -1397,9 +1516,11 @@ import { LIMITS } from "../shared/config";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
 import { nextStage, type Stage } from "./stages";
+import type { StageCtx } from "./budget";
 import type { SubmissionStatus } from "../shared/types";
+import type { Json } from "../db/types";
 
-export type StageCtx = { deadlineAt: number };
+export type { StageCtx } from "./budget";
 
 export type RunDeps = {
   claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
@@ -1412,10 +1533,13 @@ export type RunDeps = {
   now: () => number;
 };
 
-// Phase 3 replaces ONLY the next line's import and the `recommend:` default below.
+// Phase 3 replaces ONLY the next line's import and the `recommend:` default below, as
+//   recommend: (id, ctx) => recommendSubmission(id, ctx),
 async function recommendNotImplemented(_id: string, _ctx: StageCtx): Promise<void> {
   throw new PipelineError("recommend", "not implemented");
 }
+
+const RAW_MAX_CHARS = 4000;
 
 const defaultDeps: RunDeps = {
   claimSubmissionRun,
@@ -1441,22 +1565,29 @@ const STAGE_STATUS: Record<Exclude<Stage, "done">, SubmissionStatus> = {
 export async function runSubmission(submissionId: string, overrides: Partial<RunDeps> = {}): Promise<void> {
   const d: RunDeps = { ...defaultDeps, ...overrides };
 
-  const claimed = await d.claimSubmissionRun(submissionId);
-  if (!claimed) {
-    logger.info("run.skipped_in_flight", { submissionId });
-    return;
-  }
-
   const started = d.now();
   const ctx: StageCtx = { deadlineAt: started + LIMITS.pipelineBudgetMs };
 
-  let stage: Stage = nextStage(
-    (await d.getAnalysisRow(submissionId)) !== null,
-    (await d.listRecommendations(submissionId)).length > 0,
-  );
-  let current: Exclude<Stage, "done"> = stage === "done" ? "recommend" : stage;
+  // Until a stage is chosen, blame "analyze": it is the first thing that would have run.
+  let current: Exclude<Stage, "done"> = "analyze";
+  let creatorId: string | null = null;
 
   try {
+    // Claim and stored-output reads live inside the try so a database failure here is
+    // recorded exactly like a stage failure (ruling C3).
+    const claimed = await d.claimSubmissionRun(submissionId);
+    if (!claimed) {
+      logger.info("run.skipped_in_flight", { submissionId });
+      return;
+    }
+    creatorId = claimed.creator_id;
+
+    let stage: Stage = nextStage(
+      (await d.getAnalysisRow(submissionId)) !== null,
+      (await d.listRecommendations(submissionId)).length > 0,
+    );
+    if (stage !== "done") current = stage;
+
     while (stage !== "done") {
       current = stage;
       if (d.now() >= ctx.deadlineAt) {
@@ -1479,6 +1610,7 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
     const e = err as Error;
     const failedStage = e instanceof PipelineError ? e.stage : current;
     const message = e.message ?? String(err);
+    const raw = e instanceof PipelineError && e.raw ? e.raw.slice(0, RAW_MAX_CHARS) : null;
     logger.error("pipeline.failed", { submissionId, stage: failedStage, message });
     try {
       await d.setSubmissionStatus(submissionId, "failed", message);
@@ -1486,11 +1618,12 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
       logger.error("pipeline.failed_write", { submissionId, error: String(writeErr) });
     }
     try {
+      const metadata: Json = { stage: failedStage, error: message, raw };
       await d.logEvent({
         name: "pipeline_failed",
         submissionId,
-        creatorId: claimed.creator_id,
-        metadata: { stage: failedStage, error: message },
+        creatorId,
+        metadata,
       });
     } catch (eventErr) {
       logger.error("pipeline.failed_event", { submissionId, error: String(eventErr) });
@@ -1499,12 +1632,12 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
 }
 ```
 
-Why `current` starts as `"recommend"` when `stage === "done"`: it is never used in that case (the loop doesn't run), but TypeScript needs a value of the narrowed type; `recommend` is the more plausible stage to blame if `setSubmissionStatus("ready")` itself throws.
+Notes: `current` starts as `"analyze"` so a failure before any stage is chosen (claim or stored-output read) is blamed on the first stage that would have run. When both outputs already exist the loop doesn't run and `current` is unused unless `setSubmissionStatus("ready")` throws, in which case "analyze" is reported — acceptable, the admin sees the message. `logEvent`'s `metadata` parameter must accept `Json` (Phase 0, Task 0.5 types it as `Json | undefined`, not `Record<string, unknown>`).
 
 - [ ] **Step 8: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/pipeline`
-Expected: PASS (13 tests)
+Expected: PASS (20 tests: stages 4, budget 4, run 12)
 
 - [ ] **Step 9: Commit**
 

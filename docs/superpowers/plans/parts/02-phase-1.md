@@ -1078,9 +1078,12 @@ async function resumableUpload(file: File, objectName: string, onProgress: (pct:
       onProgress: (sent, total) => onProgress(Math.round((sent / total) * 100)),
       onSuccess: () => resolve(),
     });
-    // Resume a previous attempt of the same file if the browser kept its fingerprint.
-    upload.findPreviousUploads().then((prev) => {
-      if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
+    // Resume ONLY a previous attempt that targeted this exact object path. A retry that
+    // was issued a different path must start fresh, otherwise resumed bytes land at the
+    // old path while /api/submissions validates the new one (Codex round 2, I6).
+    upload.findPreviousUploads().then((previous) => {
+      const match = previous.find((p) => p.metadata?.objectName === objectName);
+      if (match) upload.resumeFromPreviousUpload(match);
       upload.start();
     });
   });
@@ -1137,6 +1140,10 @@ import { LIMITS } from "@/src/shared/config";
 type Creator = { id: string; email: string };
 type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
 
+/** The server-issued upload target. Held in state so a retry reuses the SAME path and
+ *  submission id; a new one is requested only when none is held or the server rejected it. */
+type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string };
+
 export function UploadForm({ creator }: { creator: Creator }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -1145,6 +1152,7 @@ export function UploadForm({ creator }: { creator: Creator }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [target, setTarget] = useState<UploadTarget | null>(null);
 
   useEffect(() => {
     if (!file) {
@@ -1158,7 +1166,25 @@ export function UploadForm({ creator }: { creator: Creator }) {
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
+    setTarget(null); // a different file gets a fresh target
     setFile(e.target.files?.[0] ?? null);
+  }
+
+  /** Reuse the held target when it matches this file's extension; otherwise ask the server for one. */
+  async function getTarget(ext: string, sizeBytes: number): Promise<UploadTarget | "paywall"> {
+    if (target && target.ext === ext) return target;
+    const urlRes = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ext, sizeBytes }),
+    });
+    if (urlRes.status === 402) return "paywall";
+    if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
+    if (!urlRes.ok) throw new Error("Upload didn't finish. Try again.");
+    const issued = (await urlRes.json()) as Omit<UploadTarget, "ext">;
+    const next: UploadTarget = { ...issued, ext };
+    setTarget(next);
+    return next;
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -1188,23 +1214,12 @@ export function UploadForm({ creator }: { creator: Creator }) {
         return;
       }
 
-      const urlRes = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ext, sizeBytes: file.size }),
-      });
-      if (urlRes.status === 402) {
+      const issued = await getTarget(ext, file.size);
+      if (issued === "paywall") {
         router.push("/subscribe");
         return;
       }
-      if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
-      if (!urlRes.ok) throw new Error("Upload didn't finish. Try again.");
-      const { submissionId, path, token, signedUrl } = (await urlRes.json()) as {
-        submissionId: string;
-        path: string;
-        token: string;
-        signedUrl: string;
-      };
+      const { submissionId, path, token, signedUrl } = issued;
 
       setPhase("uploading");
       setProgress(0);
@@ -1219,6 +1234,11 @@ export function UploadForm({ creator }: { creator: Creator }) {
       if (createRes.status === 402) {
         router.push("/subscribe");
         return;
+      }
+      if (createRes.status === 400 || createRes.status === 403) {
+        // The server rejected this target (path/size/id mismatch). Drop it so the retry gets a new one.
+        setTarget(null);
+        throw new Error("Upload didn't finish. Try again.");
       }
       if (!createRes.ok) throw new Error("Upload didn't finish. Try again.");
       const { id } = (await createRes.json()) as { id: string };
@@ -1346,7 +1366,7 @@ git commit -m "Add sign-in-first landing and resumable upload form"
 
 **Interfaces:**
 - Consumes: `getCreator()`, `isAdmin()`, `getSubmission()`, `GET /api/submissions/[id]`.
-- Produces: `<WaitingState submissionId={string} initialStatus={string} />`; `/results/[id]` renders the waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
+- Produces: `WaitingState({ submissionId: string; initialStatus: SubmissionStatus })` — exactly these two props and no others. **Phase 3 (Task 3.11) must pass exactly `submissionId` and `initialStatus`; a `status` prop does not exist.** `/results/[id]` renders the waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
 - On `failed`: polling stops and the page says "Something went wrong on our side. We're on it." The admin Retry (Phase 2) puts it back in flight; the creator can reload.
 
 - [ ] **Step 1: Add the keyframes to `app/globals.css`**
@@ -1551,6 +1571,15 @@ In `.env.local` confirm `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANO
 **Interfaces:**
 - Produces: a public Vercel URL running this branch, a verified 300 s function budget, and a submission created from an iPhone over cellular.
 
+- [ ] **Step 0: Plans and limits (Dylan approved 2026-10-06)**
+
+Done once, in the dashboards, before anything is deployed. These are not optional: without them the 60–120 MB phone upload in Step 6 fails and the 300 s pipeline function is cut off.
+
+1. **Vercel → Settings → Billing: upgrade to Pro.** Commercial subscription app; Pro gives 300 s functions by default (Fluid Compute still ON in Step 3).
+2. **Supabase → Project → Settings → Billing: upgrade to Pro.** Free caps every object at 50 MB.
+3. **Supabase → Storage → Settings → Global file size limit: 150 MB.** The `videos` bucket's own `file_size_limit` (Phase 0 migration) is capped by this global value, so the bucket setting alone is not enough.
+4. Verify: Supabase → Storage → Settings shows 150 MB; Vercel → Settings → General shows plan Pro.
+
 - [ ] **Step 1: Write the health route that proves the function budget**
 
 ```ts
@@ -1587,7 +1616,7 @@ pnpm dlx vercel link        # new project "songfit", framework Next.js, root "./
 ```
 
 In the Vercel dashboard → Project → Settings:
-- **Functions → Fluid Compute: ON** (required for 300 s on Hobby; Pro gives it by default). Codex's note stands: a commercial subscription app should be on Pro; Dylan decides by Wednesday.
+- **Functions → Fluid Compute: ON** (Pro, per Step 0, has 300 s functions by default; keep Fluid Compute on regardless).
 - **Environment Variables**: every key in `.env.example` with the production values (Supabase URL/anon/service role, Anthropic, OpenAI, `ADMIN_EMAILS`, `INTERNAL_TOKEN` = `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL` = the Vercel URL for now). Stripe keys are added in Phase 4.
 - **Git**: production branch `mvp` for now (switch to `main` when merging).
 
@@ -1597,10 +1626,14 @@ pnpm dlx vercel --prod
 
 Expected: a URL like `https://songfit-<hash>.vercel.app` (note the stable project URL `https://songfit.vercel.app` if the name is free).
 
-- [ ] **Step 4: Prove the budget on Vercel**
+- [ ] **Step 4: Prove the budget on Vercel (two runs)**
 
 Run: `curl -s -m 120 "https://<vercel-url>/api/health?sleep=65"`
-Expected: `{"ok":true,"slept":65}` after ~65 s. A 504 or an empty response before 60 s means Fluid Compute is off or the plan caps functions at 60 s; fix that before continuing.
+Expected: `{"ok":true,"slept":65}` after ~65 s. A 504 or an empty response before 60 s means Fluid Compute is off or the plan caps functions at 60 s; fix that before continuing. This only proves the function survives past 60 s.
+
+Then prove the full pipeline budget. Run ONCE (it takes about five minutes; do not repeat it casually):
+`curl -s -m 320 "https://<vercel-url>/api/health?sleep=290"`
+Expected: `{"ok":true,"slept":290}` after ~290 s. A 504 or empty response means the real `maxDuration = 300` is not honoured on this plan/config; fix that before the Phase 2 deployed media test, which depends on it.
 
 - [ ] **Step 5: Point Supabase and Google at the Vercel URL**
 
@@ -1616,7 +1649,7 @@ On an iPhone with Wi-Fi OFF:
 4. Supabase Studio: `submissions` has the row with `status = analyzing`, `video_path = <creatorId>/<uuid>.mov`; `events` has `submission_created` and `upload_completed`; Storage → `videos` has the object with the right size.
 5. Vercel → Logs: `pipeline.start` for that id, no errors.
 
-If the upload fails above 50 MB with a Storage error about file size, the Supabase project is on the Free plan (50 MB object limit). Either upgrade to Pro (Dylan's decision, ruling C7) or lower `LIMITS.maxUploadBytes` to `50 * 1024 * 1024` and the copy to "under 50 MB" until then.
+If the upload fails above 50 MB with a Storage error about file size, Step 0 was not completed (Free plan, or the global file size limit is still 50 MB). Fix Step 0 rather than lowering the limit.
 
 - [ ] **Step 7: Commit**
 

@@ -1,6 +1,6 @@
 ## Phase 0 — Foundations
 
-**Demo when done:** `pnpm dev` serves the upload screen shell with the headline; the hosted Supabase project has every table, function and bucket from `docs/DATA_MODEL.md`; `pnpm db:types` produces `src/db/types.ts`; `pnpm typecheck && pnpm test && pnpm build` pass; `pnpm smoke` reports OK for Claude, Whisper, Deezer and the database.
+**Demo when done:** `pnpm dev` serves the upload screen shell with the headline; the hosted Supabase project has every table, function and bucket from `docs/DATA_MODEL.md`; `pnpm db:types` produces `src/db/types.ts`; `pnpm typecheck && pnpm test && pnpm build` pass; `pnpm smoke` reports OK for Claude (Sonnet), Fable, Whisper, Deezer and the database.
 
 Notes for the implementer:
 - This phase was revised after the Codex review (`docs/review/02-codex-review.md`, rulings in `docs/review/03-claude-rulings.md`). Where this file and the plan header's Global Constraints disagree, the constraints win.
@@ -168,15 +168,16 @@ SUPABASE_DB_PASSWORD=the-database-password-you-set-when-creating-the-project
 
 # --- Stripe (Wednesday) ---
 STRIPE_PRICE_ID=price_...
+STRIPE_CUSTOMER_PORTAL_URL=https://billing.stripe.com/p/login/...
 ```
 
-Then verify the final file lists exactly these keys: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_PRICE_ID`, `ADMIN_EMAILS`, `INTERNAL_TOKEN`, `NEXT_PUBLIC_SITE_URL`.
+Then verify the final file lists exactly these 15 keys: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_PRICE_ID`, `STRIPE_CUSTOMER_PORTAL_URL`, `ADMIN_EMAILS`, `INTERNAL_TOKEN`, `NEXT_PUBLIC_SITE_URL`. There are no `NEXT_PUBLIC_STRIPE_*` keys: Stripe URLs are read server-side with `env()` and passed to components as props.
 
 ```bash
 grep -oE '^[A-Z_]+=' .env.example | sort
 ```
 
-Expected: 14 lines. Never read, print or edit `.env.local`.
+Expected: 15 lines. Never read, print or edit `.env.local`.
 
 - [ ] **Step 8: Merge `.gitignore`**
 
@@ -215,10 +216,10 @@ git commit -m "Scaffold Next.js app with pinned deps, Tailwind, scripts and env 
 
 **Files:**
 - Create: `src/shared/config.ts`, `src/shared/types.ts`, `src/shared/errors.ts`, `src/shared/logger.ts`, `src/shared/json.ts`, `src/shared/anthropic.ts`, `vitest.config.ts`
-- Test: `tests/shared/types.test.ts`, `tests/shared/config.test.ts`, `tests/shared/json.test.ts`, `tests/shared/anthropic.test.ts`
+- Test: `tests/shared/types.test.ts`, `tests/shared/config.test.ts`, `tests/shared/errors.test.ts`, `tests/shared/json.test.ts`, `tests/shared/anthropic.test.ts`
 
 **Interfaces:**
-- Produces: everything in the "Shared interfaces" block of the header: `VideoAnalysis`, `MusicBrief`, `AnalysisResult`, `DirectionTag`, `DIRECTION_LABEL`, `GeneratedCandidate`, `VerifiedCandidate`, `DIMENSIONS`, `Dimension`, `ComponentScore`, `ComponentScores`, `ScoredCandidate`, `Pick`, `FinalRecommendation`, `RecommendationView`, `SubmissionStatus`; `MODELS`, `LIMITS`, `CONTENT_CATEGORIES`, `PREVIEWS_ENABLED`, `FREE_RESULTS_PER_CREATOR`, `env()`, `adminEmails()`, `siteUrl()`; `PipelineError`, `PaywallError`; `logger`; `extractJson(text): unknown`, `JsonExtractError`; `ClaudeCall`, `makeClaudeCall(client, opts?)`, `callClaude`.
+- Produces: everything in the "Shared interfaces" block of the header: `VideoAnalysis`, `MusicBrief`, `AnalysisResult`, `DirectionTag`, `DIRECTION_LABEL`, `BEST_FIT_LABEL`, `GeneratedCandidate`, `VerifiedCandidate`, `DIMENSIONS`, `Dimension`, `ComponentScore`, `ComponentScores`, `ScoredCandidate`, `Pick`, `FinalRecommendation`, `RecommendationView`, `SubmissionStatus`; `MODELS`, `LIMITS`, `CONTENT_CATEGORIES`, `PREVIEWS_ENABLED`, `FREE_RESULTS_PER_CREATOR`, `env()`, `adminEmails()`, `siteUrl()`; `PipelineError`, `PaywallError`; `logger`; `extractJson(text): unknown`, `JsonExtractError`; `ClaudeCall`, `makeClaudeCall(client, opts?)`, `callClaude`.
 
 - [ ] **Step 1: Write `vitest.config.ts`**
 
@@ -254,7 +255,7 @@ export {};
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL } from "@/src/shared/types";
+import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL } from "@/src/shared/types";
 
 const validAnalysis = {
   summary: "Creator walks through NYC at night and reveals an outfit.",
@@ -354,12 +355,14 @@ describe("RecommendationView schema", () => {
 });
 
 describe("DIRECTION_LABEL", () => {
-  it("maps every direction to a creator-facing label", () => {
+  it("maps runner-up directions to creator-facing labels and reserves Best fit for rank 1", () => {
     expect(DIRECTION_LABEL).toEqual({
-      safe: "Best fit",
+      safe: "Safe bet",
       current: "More current",
       unexpected: "Unexpected",
     });
+    expect(BEST_FIT_LABEL).toBe("Best fit");
+    expect(Object.values(DIRECTION_LABEL)).not.toContain(BEST_FIT_LABEL);
   });
 });
 ```
@@ -416,6 +419,28 @@ describe("LIMITS and MODELS", () => {
 });
 ```
 
+`tests/shared/errors.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { PipelineError, isPipelineError } from "@/src/shared/errors";
+
+describe("PipelineError", () => {
+  it("keeps the plain message and exposes stage and raw as properties", () => {
+    const e = new PipelineError("analyze", "model output invalid", "{oops");
+    expect(e.message).toBe("model output invalid");
+    expect(e.stage).toBe("analyze");
+    expect(e.raw).toBe("{oops");
+    expect(String(e)).toBe("PipelineError[analyze]: model output invalid");
+  });
+
+  it("is recognised by isPipelineError", () => {
+    expect(isPipelineError(new PipelineError("recommend", "x"))).toBe(true);
+    expect(isPipelineError(new Error("x"))).toBe(false);
+  });
+});
+```
+
 `tests/shared/json.test.ts`:
 
 ```ts
@@ -452,7 +477,7 @@ describe("extractJson", () => {
   });
 
   it("throws when there is no JSON at all", () => {
-    expect(() => extractJson("")).toThrow(JsonExtractError);
+    expect(() => extractJson("")).toThrow(/no JSON value/);
     expect(() => extractJson("no braces here")).toThrow(/no JSON value/);
   });
 });
@@ -561,11 +586,13 @@ export type AnalysisResult = z.infer<typeof AnalysisResult>;
 
 export const DirectionTag = z.enum(["safe", "current", "unexpected"]);
 export type DirectionTag = z.infer<typeof DirectionTag>;
+/** Labels for ranks 2–3 by primary direction. Rank 1 is ALWAYS BEST_FIT_LABEL regardless of direction. */
 export const DIRECTION_LABEL: Record<DirectionTag, string> = {
-  safe: "Best fit",
+  safe: "Safe bet",
   current: "More current",
   unexpected: "Unexpected",
 };
+export const BEST_FIT_LABEL = "Best fit";
 
 export const GeneratedCandidate = z.object({
   title: z.string(),
@@ -736,10 +763,14 @@ export class PipelineError extends Error {
   readonly raw: string | undefined;
 
   constructor(stage: PipelineStage, message: string, raw?: string) {
-    super(`[${stage}] ${message}`);
+    super(message); // plain message; `stage` is a property so callers and tests match on text alone
     this.name = "PipelineError";
     this.stage = stage;
     this.raw = raw;
+  }
+
+  override toString(): string {
+    return `PipelineError[${this.stage}]: ${this.message}`;
   }
 }
 
@@ -810,13 +841,13 @@ export function extractJson(text: string): unknown {
   const starts = [firstObj, firstArr].filter((i) => i >= 0);
   if (starts.length === 0) throw new JsonExtractError("no JSON value found in model output", text);
 
+  // A `{` or `[` was found: from here on any failure is "invalid JSON", never "no JSON".
   const start = Math.min(...starts);
   const closer = t[start] === "{" ? "}" : "]";
   const end = t.lastIndexOf(closer);
-  if (end <= start) throw new JsonExtractError("no JSON value found in model output", text);
-
+  const slice = end > start ? t.slice(start, end + 1) : t.slice(start);
   try {
-    return JSON.parse(t.slice(start, end + 1));
+    return JSON.parse(slice);
   } catch (e) {
     throw new JsonExtractError(`invalid JSON in model output: ${(e as Error).message}`, text);
   }
@@ -896,7 +927,7 @@ export const callClaude: ClaudeCall = (args) => makeClaudeCall(defaultClient())(
 pnpm test
 ```
 
-Expected: `Test Files  4 passed`, `Tests  24 passed` (types 8, config 7, json 6, anthropic 3).
+Expected: `Test Files  5 passed`, `Tests  26 passed` (types 8, config 7, errors 2, json 6, anthropic 3).
 
 - [ ] **Step 11: Typecheck and commit**
 
@@ -945,7 +976,9 @@ In `## candidates`, replace the single `generator_reason` row with these rows (k
 | canonical_artist  | text        | nullable, provider's artist verbatim                |
 | artwork_url       | text        | nullable, from Deezer                               |
 | deezer_url        | text        | nullable, from Deezer                               |
-| preview_url       | text        | nullable, 30s Deezer preview                        |
+| preview_url       | text        | nullable, 30s preview (only when PREVIEWS_ENABLED)  |
+| preview_source    | text        | nullable, 'deezer' or 'itunes'                      |
+| itunes_id         | text        | nullable, set only when iTunes supplied the preview |
 | source            | text        | 'model' now; 'catalog' later                        |
 | segment_id        | uuid        | nullable, → song_segments ON DELETE SET NULL (later) |
 | aligned_to_moment | numeric     | nullable, video time the anchor was aligned to      |
@@ -1133,6 +1166,7 @@ create table public.candidates (
   artwork_url text,
   deezer_url text,
   preview_url text,
+  preview_source text check (preview_source in ('deezer', 'itunes')),
   source text not null default 'model' check (source in ('model', 'catalog')),
   aligned_to_moment numeric,
   component_scores jsonb,
@@ -1280,10 +1314,37 @@ begin
 end;
 $$;
 
+-- Creator feedback on one rank, in ONE statement so two concurrent taps can never
+-- leave two picks selected. p_selected=true → exclusive select of p_rank (clears the
+-- others, clears rejected on p_rank). p_rejected=true → rejected=true, selected=false
+-- on p_rank only. Returns the number of rows touched for p_rank (0 = no such rank).
+create or replace function public.set_recommendation_feedback(
+  p_submission_id uuid, p_rank int, p_selected boolean, p_rejected boolean
+) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_count int;
+begin
+  if p_selected then
+    update public.recommendations
+       set selected = (rank = p_rank),
+           rejected = case when rank = p_rank then false else rejected end
+     where submission_id = p_submission_id;
+  elsif p_rejected then
+    update public.recommendations
+       set rejected = true, selected = false
+     where submission_id = p_submission_id and rank = p_rank;
+  end if;
+  select count(*) into v_count from public.recommendations
+   where submission_id = p_submission_id and rank = p_rank;
+  return v_count;
+end $$;
+
 revoke execute on function public.create_submission(uuid, uuid, text, text) from public, anon, authenticated;
 revoke execute on function public.claim_submission_run(uuid) from public, anon, authenticated;
+revoke execute on function public.set_recommendation_feedback(uuid, int, boolean, boolean) from public, anon, authenticated;
 grant execute on function public.create_submission(uuid, uuid, text, text) to service_role;
 grant execute on function public.claim_submission_run(uuid) to service_role;
+grant execute on function public.set_recommendation_feedback(uuid, int, boolean, boolean) to service_role;
 
 -- storage ------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit)
@@ -1291,7 +1352,7 @@ values ('videos', 'videos', false, 157286400)
 on conflict (id) do nothing;
 ```
 
-Note on the bucket limit: Supabase Free caps uploads at 50 MB regardless of `file_size_limit`; the 150 MB limit only takes effect on Supabase Pro (C7 ruling, Dylan's decision 3). Until then, uploads over 50 MB fail at Storage; Task 1.4's client check uses `LIMITS.maxUploadBytes`, so lower that constant if the project stays on Free.
+Note on the bucket limit: Supabase Free caps uploads at 50 MB regardless of `file_size_limit`. Dylan approved Supabase Pro (decision 3): upgrade the project to Pro AND set the project's global upload limit to 150 MB in Dashboard → Storage → Settings → "Upload file size limit" before Task 1.7's large upload — the bucket-level limit alone is not enough. If the upgrade slips, lower `LIMITS.maxUploadBytes` to 50 MB and the upload copy with it.
 
 - [ ] **Step 4: Write `supabase/migrations/0002_catalog.sql`**
 
@@ -1432,7 +1493,10 @@ Expected: `Applying migration 0001_init.sql...`, `0002_catalog.sql...`, `0003_rl
 Write and run a throwaway check with the service client (no `psql` on this machine):
 
 ```bash
-cat > /tmp/check-schema.mjs <<'EOF'
+mkdir -p scripts
+cat > scripts/check-schema.mjs <<'EOF'
+// Throwaway schema check against the hosted project. Lives in the repo so Node
+// resolves @supabase/supabase-js from node_modules (a /tmp script cannot).
 import { createClient } from "@supabase/supabase-js";
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 for (const t of ["creators","submissions","video_analyses","candidates","recommendations","events","subscriptions","stripe_events","songs","song_segments","song_trend_signals"]) {
@@ -1444,7 +1508,7 @@ console.log("bucket videos".padEnd(20), b ? `ok public=${b.public} limit=${b.fil
 const { error: fe } = await db.rpc("claim_submission_run", { p_id: "00000000-0000-0000-0000-000000000000" });
 console.log("claim_submission_run".padEnd(20), fe ? "FAIL " + fe.message : "ok (null row)");
 EOF
-node --env-file=.env.local /tmp/check-schema.mjs
+node --env-file=.env.local scripts/check-schema.mjs
 ```
 
 Expected: every table `ok`, `bucket videos ok public=false limit=157286400`, `claim_submission_run ok (null row)`.
@@ -1481,7 +1545,7 @@ git commit -m "Add hosted Supabase migrations with paywall and run-claim functio
 - Produces:
   - `createServerClient(): Promise<SupabaseClient<Database>>`, `createServiceClient(): SupabaseClient<Database>` (in `client.ts`); `createBrowserClient(): SupabaseClient<Database>` (in `browser.ts`).
   - `ensureCreator(id, email, displayName?)`, `getCreatorByEmail(email)`, `getCreator(id)`
-  - `getSubmission(id)`, `createSubmission({ id, creatorId, videoPath, creatorIntent })` (rpc `create_submission`; throws `PaywallError` on `needs_subscription`), `claimSubmissionRun(id)` (rpc `claim_submission_run`; row or null), `setSubmissionStatus(id, status, error?)`, `setSubmissionAnalyzed(id, { durationSeconds, contentCategory })`, `markSubmissionViewed(id)`, `listSubmissions(limit?)` → `SubmissionWithCreator[]`, `listSubmissionsForCreator(creatorId)`, `countReadySubmissions(creatorId)`, `countSubmissionsForCreator(creatorId)`
+  - `getSubmission(id)`, `createSubmission({ id, creatorId, videoPath, creatorIntent })` (rpc `create_submission`; throws `PaywallError` on `needs_subscription`), `claimSubmissionRun(id)` (rpc `claim_submission_run`; row or null), `setSubmissionStatus(id, status, error?)`, `setSubmissionAnalyzed(id, { durationSeconds, contentCategory })`, `updateSubmission(id, patch)` (content_category / duration_seconds / analyzed_at / recommended_at / viewed_at), `markSubmissionViewed(id)`, `listSubmissions(limit?)` → `SubmissionWithCreator[]`, `listSubmissionsForCreator(creatorId)`, `countReadySubmissions(creatorId)`, `countSubmissionsForCreator(creatorId)`
   - `upsertAnalysis(row)`, `getAnalysisRow(submissionId)`, `getAnalysis(submissionId)` → `{ analysis, brief, row } | null`
   - `replaceCandidates(submissionId, rows: CandidateInsert[]): Promise<CandidateRow[]>`, `listCandidates(submissionId)`
   - `replaceRecommendations(submissionId, rows: RecommendationInsert[]): Promise<RecommendationRow[]>`, `listRecommendations(submissionId)`, `markRecommendationFeedback(submissionId, rank, { selected?, rejected? })`
@@ -1611,6 +1675,7 @@ import type { SubmissionStatus } from "@/src/shared/types";
 import { PaywallError } from "@/src/shared/errors";
 
 export type SubmissionRow = Database["public"]["Tables"]["submissions"]["Row"];
+export type SubmissionUpdate = Database["public"]["Tables"]["submissions"]["Update"];
 
 export async function getSubmission(id: string): Promise<SubmissionRow | null> {
   const { data, error } = await createServiceClient().from("submissions").select("*").eq("id", id).maybeSingle();
@@ -1684,6 +1749,15 @@ export async function setSubmissionAnalyzed(
       analyzed_at: new Date().toISOString(),
     })
     .eq("id", id);
+  if (error) throw error;
+}
+
+/** Narrow patch used by the analysis stage and admin tooling. */
+export async function updateSubmission(
+  id: string,
+  patch: Partial<Pick<SubmissionUpdate, "content_category" | "duration_seconds" | "analyzed_at" | "recommended_at" | "viewed_at">>,
+): Promise<void> {
+  const { error } = await createServiceClient().from("submissions").update(patch).eq("id", id);
   if (error) throw error;
 }
 
@@ -1874,36 +1948,23 @@ export async function listRecommendations(submissionId: string): Promise<Recomme
 }
 
 /**
- * Records creator feedback on one rank. Selection is exclusive: selecting a
- * rank clears `selected` on the other two first. Returns the number of rows
- * updated for the target rank (0 means the rank did not exist).
+ * Records creator feedback on one rank through the `set_recommendation_feedback`
+ * SQL function: one statement, so selection is exclusive even under concurrent
+ * taps. Returns the number of rows that exist for the target rank (0 = no such rank).
  */
 export async function markRecommendationFeedback(
   submissionId: string,
   rank: 1 | 2 | 3,
   patch: { selected?: boolean; rejected?: boolean },
 ): Promise<number> {
-  const db = createServiceClient();
-  if (patch.selected === true) {
-    const { error: clearError } = await db
-      .from("recommendations")
-      .update({ selected: false })
-      .eq("submission_id", submissionId)
-      .neq("rank", rank);
-    if (clearError) throw clearError;
-  }
-  const update: Database["public"]["Tables"]["recommendations"]["Update"] = {};
-  if (patch.selected !== undefined) update.selected = patch.selected;
-  if (patch.rejected !== undefined) update.rejected = patch.rejected;
-  if (patch.selected === true) update.rejected = false;
-  const { data, error } = await db
-    .from("recommendations")
-    .update(update)
-    .eq("submission_id", submissionId)
-    .eq("rank", rank)
-    .select("id");
+  const { data, error } = await createServiceClient().rpc("set_recommendation_feedback", {
+    p_submission_id: submissionId,
+    p_rank: rank,
+    p_selected: patch.selected === true,
+    p_rejected: patch.rejected === true,
+  });
   if (error) throw error;
-  return data.length;
+  return data ?? 0;
 }
 ```
 
@@ -2057,7 +2118,7 @@ git commit -m "Add Supabase clients and typed query functions"
 
 **Interfaces:**
 - Consumes: `insertEvent` from `src/db/queries/events.ts` (Task 0.4); `logger` from `src/shared/logger.ts`.
-- Produces: `EVENT_NAMES`, `EventName`, `isEventName(x): x is EventName`, `logEvent({ name, creatorId?, submissionId?, metadata? })`.
+- Produces: `EVENT_NAMES`, `EventName`, `isEventName(x): x is EventName`, `logEvent({ name, creatorId?, submissionId?, metadata?: Json })` (`Json` is `Database`'s JSON type from `src/db/types.ts`; callers pass plain JSON-shaped objects such as `{ rank: 1 }`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2068,7 +2129,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const insertEvent = vi.fn().mockResolvedValue(undefined);
+// vi.mock is hoisted above imports, so the mock fn must come from vi.hoisted.
+const { insertEvent } = vi.hoisted(() => ({ insertEvent: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/src/db/queries/events", () => ({ insertEvent }));
 
 import { EVENT_NAMES, isEventName, logEvent } from "@/src/feedback/events";
@@ -2131,6 +2193,7 @@ Expected: FAIL with `Cannot find module '@/src/feedback/events'`.
 
 ```ts
 import { insertEvent } from "@/src/db/queries/events";
+import type { Json } from "@/src/db/types";
 import { logger } from "@/src/shared/logger";
 
 /** Keep in sync with docs/DATA_MODEL.md → events → "Allowed event names". The test enforces it. */
@@ -2167,7 +2230,7 @@ export async function logEvent(e: {
   name: EventName;
   creatorId?: string | null;
   submissionId?: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Json; // the generated Json type, so the insert typechecks under strict mode
 }): Promise<void> {
   try {
     await insertEvent({
@@ -2188,7 +2251,7 @@ export async function logEvent(e: {
 pnpm test
 ```
 
-Expected: `Test Files  5 passed`, `Tests  28 passed`. If the DATA_MODEL comparison fails, the list in the doc and in code differ — fix the code list, not the test.
+Expected: `Test Files  6 passed`, `Tests  30 passed`. If the DATA_MODEL comparison fails, the list in the doc and in code differ — fix the code list, not the test.
 
 - [ ] **Step 5: Commit**
 
@@ -2414,7 +2477,20 @@ const checks: Check[] = [
         user: "Say: ready",
         maxTokens: 10,
       });
-      return `reply="${text.trim()}"`;
+      return `reply="${text.trim()}" (${MODELS.candidates})`;
+    },
+  },
+  {
+    name: "fable",
+    fn: async () => {
+      // Proves access to the analysis model too; Phase 2 is the first real use of it.
+      const text = await callClaude({
+        model: MODELS.analysis,
+        system: "Reply with exactly one word.",
+        user: "Say: ready",
+        maxTokens: 10,
+      });
+      return `reply="${text.trim()}" (${MODELS.analysis})`;
     },
   },
   {
@@ -2475,7 +2551,8 @@ pnpm smoke
 Expected (with all keys in `.env.local`):
 
 ```
-OK    claude     ~800 ms  reply="ready"
+OK    claude     ~800 ms  reply="ready" (claude-sonnet-5-5)
+OK    fable      ~1200 ms reply="ready" (claude-fable-5-1)
 OK    whisper    ~1500 ms transcript="" (silence, empty is fine)
 OK    deezer     ~300 ms  "Blinding Lights" duration=200s
 OK    database   ~200 ms  submissions=0
@@ -2499,7 +2576,7 @@ git commit -m "Add provider smoke test script"
 
 - [ ] `pnpm typecheck && pnpm test && pnpm build` all pass (this is the phase gate; nothing in Phase 1 starts until it does).
 - [ ] `pnpm dev` → `http://localhost:3000` shows the Songfit wordmark, headline "Find the right song for your content.", the placeholder upload form and the disclosure line, correctly at phone width.
-- [ ] `node --env-file=.env.local /tmp/check-schema.mjs` (Task 0.3 step 7) prints `ok` for all 11 tables, the `videos` bucket, and `claim_submission_run`.
+- [ ] `node --env-file=.env.local scripts/check-schema.mjs` (Task 0.3 step 7) prints `ok` for all 11 tables, the `videos` bucket, and `claim_submission_run`.
 - [ ] `src/db/types.ts` exists, is committed, and contains `create_submission`, `claim_submission_run`, `anchor_seconds`, `stripe_events`.
-- [ ] `pnpm smoke` prints four `OK` lines and exits 0 (requires Dylan's keys in `.env.local`).
-- [ ] `.env.example` lists all 14 keys; `.env.local` exists locally and is git-ignored (`git ls-files | grep -c '^.env.local$'` prints `0`).
+- [ ] `pnpm smoke` prints five `OK` lines and exits 0 (requires Dylan's keys in `.env.local`).
+- [ ] `.env.example` lists all 15 keys; `.env.local` exists locally and is git-ignored (`git ls-files | grep -c '^.env.local$'` prints `0`).

@@ -21,7 +21,7 @@ Migration numbering after Phase 0 ships 0001–0003: this phase adds only `0004_
 No migration: `recommendations.selected`, `recommendations.rejected` and `stripe_events` were created in Phase 0 (`0001_init.sql`). If `pnpm db:types` output lacks `selected` on `recommendations`, stop and fix Phase 0 Task 0.3 first.
 
 **Interfaces:**
-- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` → `{ id, creator_id, status, ... } | null`; `markRecommendationFeedback(submissionId, rank, patch)` from `src/db/queries/recommendations.ts` — returns the number of rows updated (`Promise<number>`); `insertEvent` / `createServiceClient()`; `getCreator()`.
+- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` → `{ id, creator_id, status, ... } | null`; `markRecommendationFeedback(submissionId, rank, patch)` from `src/db/queries/recommendations.ts` (Phase 0) — returns the number of rows updated (`Promise<number>`). Contract required here (ruling I10): it is ONE round trip, `rpc("set_recommendation_feedback", { p_submission_id, p_rank, p_selected, p_rejected })`, whose SQL function performs a single `update recommendations set selected = case when rank = p_rank then coalesce(p_selected, selected) else (case when p_selected then false else selected end) end, rejected = case when rank = p_rank then coalesce(p_rejected, rejected) else rejected end where submission_id = p_submission_id` and returns the count of rows whose `rank = p_rank`. Two concurrent selects can therefore never leave two rows selected. If Phase 0's query still issues a separate "clear others" statement before the update, replace it with this function (migration `0001_init.sql`, service-role execute only) before this task; `insertEvent` / `createServiceClient()`; `getCreator()`.
 - Produces:
   ```ts
   // src/db/queries/events.ts
@@ -164,7 +164,7 @@ async function assertOwned(submissionId: string, creatorId: string): Promise<voi
 
 export async function selectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void> {
   await assertOwned(submissionId, creatorId);
-  // Exclusive: the query clears `selected` on the other ranks in the same statement.
+  // Exclusive and atomic: one SQL function updates all ranks of the submission in a single statement.
   const updated = await markRecommendationFeedback(submissionId, rank, { selected: true, rejected: false });
   if (updated === 0) throw new FeedbackError(404, "no such recommendation");
   if (await hasEvent(submissionId, "recommendation_selected", { rank })) return;
@@ -258,11 +258,13 @@ git commit -m "Add owned, idempotent feedback actions and API route"
 **Files:**
 - Create: `src/feedback/resultsState.ts`
 - Create: `components/ResultsClient.tsx`
-- Modify: `app/results/[id]/page.tsx` (render `ResultsClient` instead of mapping cards directly)
+- Modify: `components/ResultsView.tsx` (Phase 3) — drop its local state, accept handlers and a `children` slot; keeps the heading and the "Sections are our best estimate" footer
+- Modify: `components/RecommendationCard.tsx` (Phase 3) — narrow `onSelect`/`onReject` to `(rank: 1 | 2 | 3) => void`
+- Modify: `app/results/[id]/page.tsx` (Phase 3) — render `ResultsClient` instead of `ResultsView` directly
 - Test: `tests/feedback/resultsState.test.ts`
 
 **Interfaces:**
-- Consumes: `RecommendationView` from `@/src/shared/types` (fields `rank, direction_label, title, artist, start_seconds, end_seconds, explanation, artwork_url, preview_url, spotify_url, selected, rejected`); `RecommendationCard` props `{ rec: RecommendationView; chosen: boolean; collapsed: boolean; onSelect: (rank) => void; onReject: (rank) => void }` (Phase 3); `Offer` from Task 4.3 (stub in Step 7 if executed first).
+- Consumes: `RecommendationView` from `@/src/shared/types` (fields `rank, direction_label, title, artist, start_seconds, end_seconds, explanation, artwork_url, preview_url, spotify_url, selected, rejected`); Phase 3's `ResultsView({ submissionId, recommendations })` and `RecommendationCard({ rec, chosen, collapsed, onSelect, onReject })`; Phase 3's results page, which has `id`, `creator` (from `getCreator()`), `sub` and `recs: RecommendationView[]` (built by `toRecommendationView`) and returns `<ResultsView submissionId={id} recommendations={recs} />`; `Offer` from Task 4.3 (stub in Step 8 if executed first); `env()` from `src/shared/config.ts`.
 - Produces:
   ```ts
   // src/feedback/resultsState.ts
@@ -271,8 +273,13 @@ git commit -m "Add owned, idempotent feedback actions and API route"
   export type ResultsAction = { type: "select"; rank: Rank } | { type: "reject"; rank: Rank };
   export function initialResultsState(recs: { rank: Rank; selected: boolean; rejected: boolean }[]): ResultsState;
   export function nextResultsState(state: ResultsState, action: ResultsAction): ResultsState;
+  // components/ResultsView.tsx (modified)
+  export function ResultsView(props: { submissionId: string; recommendations: RecommendationView[]; onSelect?: (rank: Rank) => void; onReject?: (rank: Rank) => void; children?: React.ReactNode }): JSX.Element;
+  // components/RecommendationCard.tsx (modified): onSelect/onReject are (rank: Rank) => void
+  // components/ResultsClient.tsx
+  export function ResultsClient(props: { submissionId: string; recs: RecommendationView[]; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null }): JSX.Element;
   ```
-  State is derived from the server's `selected`/`rejected` flags on load, so a refresh shows the same choice.
+  `ResultsView` is now presentational: `chosen`/`collapsed` are derived from each rec's `selected`/`rejected` flags, so whoever owns state (ResultsClient) passes recs with fresh flags. State is seeded from the server's flags on load, so a refresh shows the same choice.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -369,109 +376,200 @@ export function nextResultsState(state: ResultsState, action: ResultsAction): Re
 Run: `pnpm vitest run tests/feedback/resultsState.test.ts`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Write the client wrapper**
+- [ ] **Step 5: Make `ResultsView` presentational and narrow the card's rank type**
 
-`components/ResultsClient.tsx`:
+`components/RecommendationCard.tsx` — change only the two callback types in `Props`:
+
+```tsx
+import type { Rank } from "@/src/feedback/resultsState";
+// ...
+type Props = {
+  rec: RecommendationView;
+  chosen: boolean;
+  collapsed: boolean;
+  onSelect: (rank: Rank) => void;
+  onReject: (rank: Rank) => void;
+};
+```
+
+`rec.rank` is already typed `1 | 2 | 3` by `RecommendationView`, so `onSelect(rec.rank)` compiles unchanged.
+
+`components/ResultsView.tsx` — replace the whole file (heading and footer kept verbatim; local `useState` removed; derived from flags):
 
 ```tsx
 "use client";
-import { useReducer, useCallback } from "react";
+import type { ReactNode } from "react";
 import type { RecommendationView } from "@/src/shared/types";
-import { initialResultsState, nextResultsState, type Rank } from "@/src/feedback/resultsState";
+import type { Rank } from "@/src/feedback/resultsState";
 import { RecommendationCard } from "@/components/RecommendationCard";
-import { Offer } from "@/components/Offer";
 
-type Props = { submissionId: string; recs: RecommendationView[]; creatorEmail: string; creatorId: string };
+type Props = {
+  submissionId: string;
+  recommendations: RecommendationView[];
+  onSelect?: (rank: Rank) => void;
+  onReject?: (rank: Rank) => void;
+  children?: ReactNode; // rendered under the cards (offer, "different directions" line, errors)
+};
 
-async function post(submissionId: string, body: Record<string, unknown>) {
-  await fetch(`/api/submissions/${submissionId}/feedback`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    keepalive: true,
-  }).catch(() => undefined); // best-effort for the UI; the server is the record
-}
+const noop = () => undefined;
 
-export function ResultsClient({ submissionId, recs, creatorEmail, creatorId }: Props) {
-  const [state, dispatch] = useReducer(nextResultsState, recs, initialResultsState);
-
-  const onSelect = useCallback((rank: Rank) => {
-    dispatch({ type: "select", rank });
-    void post(submissionId, { action: "select", rank });
-  }, [submissionId]);
-
-  const onReject = useCallback((rank: Rank) => {
-    const next = nextResultsState(state, { type: "reject", rank });
-    dispatch({ type: "reject", rank });
-    void post(submissionId, { action: "reject", rank });
-    if (next.allRejected && !state.allRejected) void post(submissionId, { action: "all_rejected" });
-  }, [submissionId, state]);
-
-  const ordered = [...recs].sort((a, b) => a.rank - b.rank);
+export function ResultsView({ submissionId, recommendations, onSelect = noop, onReject = noop, children }: Props) {
+  void submissionId;
+  const chosenRank = recommendations.find((r) => r.selected)?.rank ?? null;
+  const ordered = [...recommendations].sort((a, b) => a.rank - b.rank);
 
   return (
-    <div className="flex flex-col gap-4">
-      {ordered.map((rec) => (
-        <RecommendationCard
-          key={rec.rank}
-          rec={rec}
-          onSelect={onSelect}
-          onReject={onReject}
-          chosen={state.chosen === rec.rank}
-          collapsed={state.chosen !== null && state.chosen !== rec.rank}
-        />
-      ))}
-      {state.allRejected && (
-        <p className="text-center text-lg font-medium">Want 3 different directions?</p>
-      )}
-      {state.showOffer && (
-        <Offer submissionId={submissionId} creatorEmail={creatorEmail} creatorId={creatorId} />
-      )}
-    </div>
+    <main className="mx-auto max-w-md px-4 pb-16 pt-8">
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Your Songfit</h1>
+      <p className="mt-1 text-sm text-ink/60">Three songs that fit this video. Tap one to use it.</p>
+      <div className="mt-6 flex flex-col gap-4">
+        {ordered.map((r) => (
+          <RecommendationCard
+            key={r.rank}
+            rec={r}
+            chosen={chosenRank === r.rank}
+            collapsed={chosenRank !== null && chosenRank !== r.rank}
+            onSelect={onSelect}
+            onReject={onReject}
+          />
+        ))}
+      </div>
+      {children}
+      <p className="mt-8 text-center text-xs text-ink/50">Sections are our best estimate. Check it against the track.</p>
+    </main>
   );
 }
 ```
 
-- [ ] **Step 6: Wire it into the results page**
+- [ ] **Step 6: Write the client wrapper**
 
-In `app/results/[id]/page.tsx`, replace the block where Phase 3 maps `recommendations` to three `RecommendationCard`s with:
+`components/ResultsClient.tsx` owns state, posts feedback, and reverts on failure:
 
 ```tsx
-<ResultsClient
-  submissionId={submission.id}
-  recs={recommendations}
-  creatorEmail={creator.email}
-  creatorId={creator.id}
-/>
+"use client";
+import { useCallback, useState } from "react";
+import type { RecommendationView } from "@/src/shared/types";
+import { initialResultsState, nextResultsState, type Rank, type ResultsState } from "@/src/feedback/resultsState";
+import { ResultsView } from "@/components/ResultsView";
+import { Offer } from "@/components/Offer";
+
+type Props = {
+  submissionId: string;
+  recs: RecommendationView[];
+  creatorEmail: string;
+  creatorId: string;
+  paymentLinkUrl: string;
+  portalUrl: string | null;
+};
+
+async function post(submissionId: string, body: Record<string, unknown>): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/submissions/${submissionId}/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function withFlags(recs: RecommendationView[], state: ResultsState): RecommendationView[] {
+  return recs.map((r) => ({ ...r, selected: state.chosen === r.rank, rejected: state.rejected.includes(r.rank) }));
+}
+
+export function ResultsClient({ submissionId, recs, creatorEmail, creatorId, paymentLinkUrl, portalUrl }: Props) {
+  const [state, setState] = useState<ResultsState>(() => initialResultsState(recs));
+  const [error, setError] = useState<string | null>(null);
+
+  const apply = useCallback(
+    async (action: { type: "select" | "reject"; rank: Rank }) => {
+      const prev = state;
+      const next = nextResultsState(prev, action);
+      setState(next);
+      setError(null);
+      const ok = await post(submissionId, { action: action.type, rank: action.rank });
+      if (!ok) {
+        setState(prev); // revert: the server is the record
+        setError("Couldn't save that. Try again.");
+        return;
+      }
+      if (action.type === "reject" && next.allRejected && !prev.allRejected) {
+        void post(submissionId, { action: "all_rejected" });
+      }
+    },
+    [state, submissionId],
+  );
+
+  const onSelect = useCallback((rank: Rank) => void apply({ type: "select", rank }), [apply]);
+  const onReject = useCallback((rank: Rank) => void apply({ type: "reject", rank }), [apply]);
+
+  return (
+    <ResultsView submissionId={submissionId} recommendations={withFlags(recs, state)} onSelect={onSelect} onReject={onReject}>
+      {error && <p role="alert" className="mt-4 text-center text-sm text-red-600">{error}</p>}
+      {state.allRejected && <p className="mt-6 text-center text-lg font-medium text-ink">Want 3 different directions?</p>}
+      {state.showOffer && (
+        <div className="mt-6">
+          <Offer submissionId={submissionId} creatorEmail={creatorEmail} creatorId={creatorId} paymentLinkUrl={paymentLinkUrl} portalUrl={portalUrl} />
+        </div>
+      )}
+    </ResultsView>
+  );
+}
 ```
 
-and add `import { ResultsClient } from "@/components/ResultsClient";`. The page already has `creator` from `getCreator()` and `recommendations: RecommendationView[]` built by Phase 3's `toRecommendationView` mapper (which copies `selected`/`rejected` from the rows). Remove the now-unused `RecommendationCard` import from the page.
+- [ ] **Step 7: Wire it into the results page**
 
-- [ ] **Step 7: Temporary Offer stub (only if Task 4.3 is not done yet)**
+In `app/results/[id]/page.tsx` (Phase 3), change the last line of the component from
+
+```tsx
+return <ResultsView submissionId={id} recommendations={recs} />;
+```
+
+to
+
+```tsx
+return (
+  <ResultsClient
+    submissionId={id}
+    recs={recs}
+    creatorEmail={creator.email}
+    creatorId={creator.id}
+    paymentLinkUrl={env("STRIPE_PAYMENT_LINK_URL")}
+    portalUrl={process.env.STRIPE_CUSTOMER_PORTAL_URL ?? null}
+  />
+);
+```
+
+Replace `import { ResultsView } from "@/components/ResultsView";` with `import { ResultsClient } from "@/components/ResultsClient";` and add `import { env } from "@/src/shared/config";`. `submission`, `recommendations` and `creator` are the page's existing variables (Phase 3, Task 3.11). The Stripe URLs are read on the server and passed down; there are no `NEXT_PUBLIC_STRIPE_*` variables.
+
+- [ ] **Step 8: Temporary Offer stub (only if Task 4.3 is not done yet)**
 
 `components/Offer.tsx`:
 
 ```tsx
 "use client";
-export function Offer(_: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }) {
+export function Offer(_: { submissionId: string | null; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null; headline?: string }) {
   return <div className="rounded-2xl border p-6 text-center">Offer goes here.</div>;
 }
 ```
 
 Task 4.3 replaces this file.
 
-- [ ] **Step 8: Typecheck, run, verify in the browser**
+- [ ] **Step 9: Typecheck, run, verify in the browser**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: pass.
+Expected: pass (`tsc` accepts the `Rank` callbacks end to end: card → ResultsView → ResultsClient).
 
-`pnpm dev`, open a ready `/results/<id>` at 390 px wide. Tap "Use this" on #2: #1 and #3 collapse, #2 shows "Your pick", the offer appears. Reload: #2 is still the pick (state came from the server). Tap "Use this" on #3: #3 becomes the pick, #2 collapses. Reload again, tap "Not for me" on all three: "Want 3 different directions?" and the offer appear. In Supabase Studio exactly one recommendation has `selected = true` at any time, and `events` has `recommendation_selected` ×2 (ranks 2 and 3), `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`, each with `creator_id`.
+`pnpm dev`, open a ready `/results/<id>` at 390 px wide. Heading "Your Songfit" and the "Sections are our best estimate" footer are present. Tap "Use this" on #2: #1 and #3 collapse, #2 shows "Chosen. Go make it.", the offer appears under the cards. Reload: #2 is still the pick (state came from the server). Tap "Use this" on #3: #3 becomes the pick, #2 collapses. Reload again, tap "Not for me" on all three: "Want 3 different directions?" and the offer appear. In Supabase Studio exactly one recommendation has `selected = true` at any time, and `events` has `recommendation_selected` ×2 (ranks 2 and 3), `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`, each with `creator_id`. Failure path: stop `pnpm dev`'s network (DevTools → Network → Offline), tap "Use this": the card snaps back and "Couldn't save that. Try again." appears; go online, tap again: it sticks.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/feedback/resultsState.ts components/ResultsClient.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
-git commit -m "Wire results feedback with server-derived state and exclusive selection"
+git add src/feedback/resultsState.ts components/ResultsClient.tsx components/ResultsView.tsx components/RecommendationCard.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
+git commit -m "Wire results feedback with server-derived state, exclusive selection and revert on failure"
 ```
 
 ---
@@ -486,7 +584,6 @@ git commit -m "Wire results feedback with server-derived state and exclusive sel
 - Create: `app/subscribe/page.tsx`
 - Create: `app/subscribe/thanks/page.tsx`
 - Create: `components/ThanksClient.tsx`
-- Modify: `.env.example` (add `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`)
 - Test: `tests/billing/paymentLink.test.ts`
 
 **Interfaces:**
@@ -496,11 +593,11 @@ git commit -m "Wire results feedback with server-derived state and exclusive sel
   // src/billing/paymentLink.ts
   export function buildPaymentLink(base: string, creatorEmail: string, creatorId: string): string;
   // components/Offer.tsx
-  export function Offer(props: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }): JSX.Element;
+  export function Offer(props: { submissionId: string | null; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null; headline?: string }): JSX.Element;
   // POST /api/offer-events  body { action: "offer_viewed" | "offer_clicked"; submissionId?: string } → 204 | 400 | 401
   // GET  /api/me/subscription → { status: "active" | "canceled" | "past_due" | "none" }
   ```
-  Env: `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL` (both public Stripe URLs; `NEXT_PUBLIC_` lets client components read them).
+  Env: `STRIPE_PAYMENT_LINK_URL` (required, read with `env()`) and `STRIPE_CUSTOMER_PORTAL_URL` (optional, `process.env… ?? null`) are read ONLY in server components/pages and passed to `Offer`/`ThanksClient` as props. There are no `NEXT_PUBLIC_STRIPE_*` variables; both keys already exist in `.env.example` (Phase 0).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -608,7 +705,14 @@ export async function GET() {
 import { useEffect, useRef } from "react";
 import { buildPaymentLink } from "@/src/billing/paymentLink";
 
-type Props = { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string };
+type Props = {
+  submissionId: string | null;
+  creatorEmail: string;
+  creatorId: string;
+  paymentLinkUrl: string;      // from env("STRIPE_PAYMENT_LINK_URL") on the server
+  portalUrl: string | null;    // from process.env.STRIPE_CUSTOMER_PORTAL_URL on the server
+  headline?: string;
+};
 
 function track(action: "offer_viewed" | "offer_clicked", submissionId: string | null) {
   void fetch("/api/offer-events", {
@@ -619,10 +723,9 @@ function track(action: "offer_viewed" | "offer_clicked", submissionId: string | 
   }).catch(() => undefined);
 }
 
-export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want Songfit for your next posts?" }: Props) {
-  const base = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL ?? "";
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
-  const href = base ? buildPaymentLink(base, creatorEmail, creatorId) : "#";
+export function Offer({ submissionId, creatorEmail, creatorId, paymentLinkUrl, portalUrl, headline = "Want Songfit for your next posts?" }: Props) {
+  const href = buildPaymentLink(paymentLinkUrl, creatorEmail, creatorId);
+  const portal = portalUrl ?? "";
   const viewed = useRef(false);
 
   useEffect(() => {
@@ -659,6 +762,7 @@ export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want 
 ```tsx
 import { redirect } from "next/navigation";
 import { getCreator } from "@/src/auth/session";
+import { env } from "@/src/shared/config";
 import { Offer } from "@/components/Offer";
 import { Logo } from "@/components/Logo";
 
@@ -667,12 +771,13 @@ export const dynamic = "force-dynamic";
 export default async function SubscribePage() {
   const creator = await getCreator();
   if (!creator) redirect("/"); // sign-in is the first tap on the upload screen (Phase 1)
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
+  const paymentLinkUrl = env("STRIPE_PAYMENT_LINK_URL");
+  const portal = process.env.STRIPE_CUSTOMER_PORTAL_URL ?? "";
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 py-10">
       <Logo />
       <p className="text-center text-neutral-700">You&apos;ve used your free Songfit. Subscribe to keep going.</p>
-      <Offer submissionId={null} creatorEmail={creator.email} creatorId={creator.id} headline="Songfit for every post" />
+      <Offer submissionId={null} creatorEmail={creator.email} creatorId={creator.id} paymentLinkUrl={paymentLinkUrl} portalUrl={portal || null} headline="Songfit for every post" />
       {portal && (
         <p className="text-center text-xs text-neutral-500">
           <a href={portal} className="underline">Manage or cancel</a> an existing subscription.
@@ -751,7 +856,7 @@ export const dynamic = "force-dynamic";
 export default async function ThanksPage() {
   const creator = await getCreator();
   if (!creator) redirect("/");
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
+  const portal = process.env.STRIPE_CUSTOMER_PORTAL_URL ?? ""; // server-side only
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-4 py-10 text-center">
       <Logo />
@@ -764,15 +869,10 @@ export default async function ThanksPage() {
 }
 ```
 
-- [ ] **Step 9: Env example**
+- [ ] **Step 9: Env check**
 
-Append to `.env.example` (keep the existing Stripe lines):
-
-```
-# Public Stripe URLs (safe to expose)
-NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL=https://buy.stripe.com/test_replace_me
-NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL=https://billing.stripe.com/p/login/test_replace_me
-```
+Run: `grep -n "STRIPE_PAYMENT_LINK_URL\|STRIPE_CUSTOMER_PORTAL_URL" .env.example`
+Expected: both lines present (added in Phase 0). Do not add `NEXT_PUBLIC_` variants; the URLs are read on the server. Put real values in `.env.local` (Dylan) and in Vercel.
 
 - [ ] **Step 10: Typecheck and verify**
 
@@ -784,7 +884,7 @@ Expected: pass.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add components/Offer.tsx components/ThanksClient.tsx src/billing/paymentLink.ts app/api/offer-events/route.ts app/api/me/subscription/route.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx .env.example tests/billing/paymentLink.test.ts
+git add components/Offer.tsx components/ThanksClient.tsx src/billing/paymentLink.ts app/api/offer-events/route.ts app/api/me/subscription/route.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx tests/billing/paymentLink.test.ts
 git commit -m "Add offer, creator-level offer events, and entitlement-aware subscribe pages"
 ```
 
@@ -821,7 +921,7 @@ git commit -m "Add offer, creator-level offer events, and entitlement-aware subs
   };
   export async function handleStripeEvent(event: Stripe.Event, deps?: Partial<StripeDeps>): Promise<"processed" | "duplicate" | "ignored">;
   ```
-  Processing order (C4): check recorded → process (validate, upsert from Stripe's *current* status) → record event id. A throw before recording leaves the event retryable by Stripe.
+  Processing order (C4): check recorded → process (validate, upsert from Stripe's *current* status) → record event id. A throw before recording leaves the event retryable by Stripe. For `customer.subscription.updated|deleted` the handler ALSO calls `retrieveSubscription(sub.id)` and uses the live `status` and price id, never the event snapshot — so a delayed "active" update can no longer undo a cancellation. Creator mapping for those events: existing `stripe_customer_id` row → else `subscription.metadata.creator_id` → else `stripe.unmapped`, ignored.
 
 - [ ] **Step 1: Install stripe**
 
@@ -927,24 +1027,47 @@ describe("handleStripeEvent", () => {
     expect(await handleStripeEvent(checkoutEvent({ payment_status: "unpaid" }), d)).toBe("ignored");
   });
 
-  it("subscription.updated arriving before checkout upserts from the customer mapping", async () => {
-    const d = deps();
+  it("subscription.updated arriving before checkout retrieves the live subscription and upserts from the customer mapping", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "past_due" })) });
     const r = await handleStripeEvent(subEvent("customer.subscription.updated", { status: "past_due" }), d);
     expect(r).toBe("processed");
+    expect(d.retrieveSubscription).toHaveBeenCalledWith("sub_1");
     expect(d.getCreatorIdByStripeCustomer).toHaveBeenCalledWith("cus_1");
     expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith({ creatorId: "cre-by-customer", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1", status: "past_due" });
   });
 
+  it("a delayed 'active' update after cancellation uses the LIVE status, so it cannot reactivate", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "canceled" })) });
+    await handleStripeEvent(subEvent("customer.subscription.updated", { status: "active" }), d);
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ status: "canceled" }));
+  });
+
   it("subscription.deleted marks canceled", async () => {
-    const d = deps();
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "canceled" })) });
     await handleStripeEvent(subEvent("customer.subscription.deleted", { status: "canceled" }), d);
     expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ status: "canceled" }));
   });
 
-  it("subscription event for an unmapped customer is ignored", async () => {
+  it("subscription event with a different price id is ignored", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ items: { data: [{ price: { id: "price_other" } }] } } as never)) });
+    expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("ignored");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+  });
+
+  it("subscription event maps the creator from live metadata when no customer row exists yet", async () => {
+    const d = deps({
+      getCreatorIdByStripeCustomer: vi.fn(async () => null),
+      retrieveSubscription: vi.fn(async () => subscription({ metadata: { creator_id: "cre-meta" } } as never)),
+    });
+    expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("processed");
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ creatorId: "cre-meta" }));
+  });
+
+  it("subscription event for an unmapped customer (no row, no metadata) is ignored", async () => {
     const d = deps({ getCreatorIdByStripeCustomer: vi.fn(async () => null) });
     expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("ignored");
     expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+    expect(d.recordStripeEvent).not.toHaveBeenCalled();
   });
 
   it("paid is logged once per subscription id", async () => {
@@ -1157,17 +1280,25 @@ export async function handleStripeEvent(
     return "processed";
   }
 
-  // customer.subscription.updated | deleted — may arrive before or after checkout.
-  const sub = event.data.object as Stripe.Subscription;
-  const stripeCustomerId = idOf(sub.customer);
-  if (!stripeCustomerId || !sub.id) return "ignored";
-  const creatorId = sub.metadata?.creator_id || (await deps.getCreatorIdByStripeCustomer(stripeCustomerId));
-  if (!creatorId) {
-    logger.warn("stripe.unmapped", { customer: stripeCustomerId, subscription: sub.id });
+  // customer.subscription.updated | deleted — may arrive before or after checkout, and out of order.
+  // Never trust the event snapshot: fetch the live subscription for status and price (ruling C4).
+  const snapshot = event.data.object as Stripe.Subscription;
+  if (!snapshot.id) return "ignored";
+  const live = await deps.retrieveSubscription(snapshot.id);
+  const stripeCustomerId = idOf(live.customer) ?? idOf(snapshot.customer);
+  if (!stripeCustomerId) return "ignored";
+  if (priceOf(live) !== deps.priceId) {
+    logger.warn("stripe.wrong_price", { subscription: live.id, price: priceOf(live) });
     return "ignored";
   }
-  const status = event.type === "customer.subscription.deleted" ? "canceled" : toStatus(sub.status);
-  await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId: sub.id, status });
+  const creatorId =
+    (await deps.getCreatorIdByStripeCustomer(stripeCustomerId)) ?? live.metadata?.creator_id ?? null;
+  if (!creatorId) {
+    logger.warn("stripe.unmapped", { customer: stripeCustomerId, subscription: live.id });
+    return "ignored";
+  }
+  const status = event.type === "customer.subscription.deleted" ? "canceled" : toStatus(live.status);
+  await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId: live.id, status });
   await deps.recordStripeEvent(event.id, event.type);
   return "processed";
 }
@@ -1176,7 +1307,7 @@ export async function handleStripeEvent(
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/billing/stripe.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 7: Write the route**
 
@@ -1216,8 +1347,8 @@ export async function POST(req: Request) {
 - [ ] **Step 8: Dylan's Stripe setup (do once in test mode, repeat in live mode Wednesday evening)**
 
 - [ ] Stripe Dashboard → Product catalog → Add product → name `Songfit`, recurring, `$9.99` monthly. Save. Open the price and copy its ID (`price_...`) into `STRIPE_PRICE_ID`.
-- [ ] Payment Links → New → pick the Songfit price. "Collect customers' email" on. After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create; copy the link into `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`.
-- [ ] Settings → Billing → Customer portal → Activate; allow "Cancel subscriptions". Copy the portal login link (`https://billing.stripe.com/p/login/...`) into `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`.
+- [ ] Payment Links → New → pick the Songfit price. "Collect customers' email" on. After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create; copy the link into `STRIPE_PAYMENT_LINK_URL`.
+- [ ] Settings → Billing → Customer portal → Activate; allow "Cancel subscriptions". Copy the portal login link (`https://billing.stripe.com/p/login/...`) into `STRIPE_CUSTOMER_PORTAL_URL`.
 - [ ] Developers → API keys → Secret key into `STRIPE_SECRET_KEY`.
 - [ ] Developers → Webhooks → Add endpoint → `https://thissongfits.com/api/stripe/webhook` → events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Signing secret into `STRIPE_WEBHOOK_SECRET` (Vercel). Locally use the CLI secret from Step 9.
 - [ ] Add all five values to Vercel env (Production + Preview) and `.env.local`.
@@ -1306,11 +1437,16 @@ Expected: FAIL — module not found.
 `src/shared/stats.ts`:
 
 ```ts
+/** Median of a list; null for empty input. Written for `noUncheckedIndexedAccess`. */
 export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
+  const n = values.length;
+  if (n === 0) return null;
   const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  const mid = Math.floor(n / 2);
+  const hi = s[mid] ?? 0;
+  if (n % 2 === 1) return hi;
+  const lo = s[mid - 1] ?? hi;
+  return (lo + hi) / 2;
 }
 ```
 
@@ -1321,9 +1457,16 @@ Expected: PASS, 3 tests.
 
 - [ ] **Step 5: Write the migration**
 
-`supabase/migrations/0004_metrics.sql`:
+`supabase/migrations/0004_metrics.sql` (the `exec_sql` test helper is defined FIRST, in this same migration, so it exists before the fixture test in Step 8 runs):
 
 ```sql
+-- Test helper: run a SQL script. Service role only; never exposed to clients.
+create or replace function exec_sql(sql text) returns void
+language plpgsql security definer set search_path = public as $$
+begin execute sql; end $$;
+revoke execute on function exec_sql(text) from public, anon, authenticated;
+grant execute on function exec_sql(text) to service_role;
+
 -- One-shot metrics summary for the admin page. Service role only.
 -- Funnel counts DISTINCT submissions and DISTINCT creators per milestone.
 -- Category breakdown aggregates submissions first (no event-join multiplication).
@@ -1394,7 +1537,7 @@ grant execute on function metrics_summary() to service_role;
 ```
 
 Run: `pnpm db:push && pnpm db:types`
-Expected (hosted project, see Phase 0 Task 0.3): `supabase db push` applies `0004_metrics.sql`; `src/db/types.ts` gains a `metrics_summary` entry under `Functions`.
+Expected (hosted project, see Phase 0 Task 0.3): `supabase db push` applies `0004_metrics.sql`; `src/db/types.ts` gains `metrics_summary` and `exec_sql` entries under `Functions`. Order matters: migration (with helper) → push → types → Step 8's test.
 
 - [ ] **Step 6: Document in the data model**
 
@@ -1499,25 +1642,39 @@ insert into subscriptions (creator_id, stripe_customer_id, stripe_subscription_i
 on conflict (stripe_subscription_id) do nothing;
 ```
 
-`tests/db/metrics.integration.test.ts` (runs only when a database is configured; it is a real check of the SQL, not a mock):
+`tests/db/metrics.integration.test.ts` (runs only when a database is configured; it is a real check of the SQL, not a mock). It snapshots the summary BEFORE seeding and asserts the EXACT delta the fixture must produce, so the check is exact even when real rows coexist on the hosted project, and any event-join multiplication fails it:
 
 ```ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const enabled = Boolean(url && key && process.env.RUN_DB_TESTS === "1");
+type Summary = {
+  funnel: { stage: string; submissions: number; creators: number }[];
+  byCategory: { category: string; ready: number; selected: number }[];
+  paidCreators: number;
+  paidEvents: number;
+  returningCreators: number;
+};
 
+const enabled = !!process.env.RUN_DB_TESTS && !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 const CREATORS = ["aaaaaaaa-0000-0000-0000-000000000001", "aaaaaaaa-0000-0000-0000-000000000002"];
 
-describe.skipIf(!enabled)("metrics_summary() against the fixture", () => {
-  const db = createClient(url ?? "", key ?? "");
+const stageOf = (m: Summary, s: string) => m.funnel.find((f) => f.stage === s) ?? { stage: s, submissions: 0, creators: 0 };
+const catOf = (m: Summary, c: string) => m.byCategory.find((x) => x.category === c) ?? { category: c, ready: 0, selected: 0 };
+
+describe.skipIf(!enabled)("metrics_summary() against the fixture (exact deltas)", () => {
+  let db: SupabaseClient;
+  let before: Summary;
 
   beforeAll(async () => {
+    // Constructed only when enabled, so a missing env never throws at collection time.
+    db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    const snap = await db.rpc("metrics_summary");
+    if (snap.error) throw snap.error;
+    before = snap.data as Summary;
     const sql = readFileSync("supabase/seed/metrics_fixture.sql", "utf8");
-    const { error } = await db.rpc("exec_sql", { sql }); // helper below
+    const { error } = await db.rpc("exec_sql", { sql }); // defined in 0004_metrics.sql, already pushed in Step 5
     if (error) throw error;
   });
 
@@ -1528,42 +1685,35 @@ describe.skipIf(!enabled)("metrics_summary() against the fixture", () => {
     await db.from("creators").delete().in("id", CREATORS);
   });
 
-  it("counts distinct submissions and creators, aggregates categories once, and reports paid correctly", async () => {
+  it("adds exactly the fixture's distinct submissions/creators, one category row per submission, and one paid creator", async () => {
     const { data, error } = await db.rpc("metrics_summary");
     expect(error).toBeNull();
-    const m = data as {
-      funnel: { stage: string; submissions: number; creators: number }[];
-      byCategory: { category: string; ready: number; selected: number }[];
-      paidCreators: number; paidEvents: number; returningCreators: number;
-    };
-    const stage = (s: string) => m.funnel.find((f) => f.stage === s)!;
-    expect(stage("submission_created").submissions).toBeGreaterThanOrEqual(3);
-    expect(stage("submission_created").creators).toBeGreaterThanOrEqual(2);
-    expect(stage("recommendations_ready").creators).toBeGreaterThanOrEqual(2); // creatorId is on ready events now (I7)
-    expect(stage("recommendations_viewed").submissions).toBeGreaterThanOrEqual(1); // two view rows, one submission
-    const fashion = m.byCategory.find((c) => c.category === "fashion")!;
-    expect(fashion.ready).toBeGreaterThanOrEqual(2); // not multiplied by the 5 events on submission 1
-    expect(fashion.selected).toBeGreaterThanOrEqual(1);
-    expect(m.paidCreators).toBeGreaterThanOrEqual(1);
-    expect(m.paidEvents).toBeGreaterThanOrEqual(1);
-    expect(m.returningCreators).toBeGreaterThanOrEqual(1);
+    const after = data as Summary;
+    const d = (s: string, k: "submissions" | "creators") => stageOf(after, s)[k] - stageOf(before, s)[k];
+
+    expect(d("submission_created", "submissions")).toBe(3);
+    expect(d("submission_created", "creators")).toBe(2);
+    expect(d("recommendations_ready", "submissions")).toBe(3);
+    expect(d("recommendations_ready", "creators")).toBe(2);      // creatorId is on ready events (I7)
+    expect(d("recommendations_viewed", "submissions")).toBe(1);  // two view rows, ONE submission
+    expect(d("recommendation_selected", "submissions")).toBe(1);
+    expect(d("paid_offer_viewed", "creators")).toBe(1);          // null submission_id, creator-level event
+    expect(d("paid", "creators")).toBe(1);
+
+    const fashion = catOf(after, "fashion").ready - catOf(before, "fashion").ready;
+    expect(fashion).toBe(2);                                     // NOT multiplied by the 5 events on submission 1
+    expect(catOf(after, "fashion").selected - catOf(before, "fashion").selected).toBe(1);
+    expect(catOf(after, "fitness").ready - catOf(before, "fitness").ready).toBe(1);
+
+    expect(after.paidCreators - before.paidCreators).toBe(1);
+    expect(after.paidEvents - before.paidEvents).toBe(1);
+    expect(after.returningCreators - before.returningCreators).toBe(1); // creator A has 2 submissions
   });
 });
 ```
 
-The fixture is loaded through a tiny helper function. Add to the top of `supabase/migrations/0004_metrics.sql` (service role only):
-
-```sql
--- Test helper: run a SQL script. Service role only; never exposed to clients.
-create or replace function exec_sql(sql text) returns void
-language plpgsql security definer set search_path = public as $$
-begin execute sql; end $$;
-revoke execute on function exec_sql(text) from public, anon, authenticated;
-grant execute on function exec_sql(text) to service_role;
-```
-
 Run: `RUN_DB_TESTS=1 pnpm vitest run tests/db/metrics.integration.test.ts`
-Expected: PASS (1). Without `RUN_DB_TESTS=1` the suite reports it as skipped, so `pnpm test` stays green in CI-less local runs. (`≥` assertions keep the test valid when real data coexists with the fixture on the hosted project.)
+Expected: PASS (1). Without `RUN_DB_TESTS=1` the suite is reported as skipped and no client is constructed, so `pnpm test` stays green without a database.
 
 - [ ] **Step 9: Write the page**
 
@@ -1648,7 +1798,7 @@ In `app/admin/layout.tsx` add a nav link next to the existing "Queue" link:
 - [ ] **Step 10: Verify**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: pass (integration test skipped unless `RUN_DB_TESTS=1`).
+Expected: pass (integration test skipped unless `RUN_DB_TESTS=1`); `median` compiles under `noUncheckedIndexedAccess`.
 
 Open `/admin/metrics` as the admin: the four tiles, funnel rows in order `submission_created … paid` with both distinct counts, a category table, returning creators, raw event counts. As a non-admin: redirected (existing `requireAdmin`).
 
@@ -1819,34 +1969,27 @@ git commit -m "Harden uploads, admin gating, error pages and config for launch"
 
 ---
 
-### Task 4.7: Production plans, domain and smoke test
+### Task 4.7: Domain, production URLs and smoke test
 
 **Files:**
 - Modify: `README.md` (Deploy section)
-- Modify (only if staying on Supabase Free): `src/shared/config.ts` (`maxUploadBytes`), `components/UploadForm.tsx` copy
 
-The Vercel project and GitHub repo already exist from Phase 1 Task 1.7; this task finishes production.
+The Vercel project, GitHub repo, Vercel Pro and Supabase Pro plans, the 150 MB Storage limit and the first deployed phone test are all done in Phase 1 Task 1.7 (Dylan approved the paid plans on 2026-10-06). This task only finishes the production domain and URLs. Confirm `maxDuration = 300` is exported by `app/api/submissions/route.ts` (submit route, runs the pipeline) and `app/api/submissions/[id]/run/route.ts` (admin retry).
 
-- [ ] **Step 1: Plans (Dylan decisions, defaults apply)**
-
-- [ ] **Vercel Pro** (default yes, $20/mo): Vercel → Settings → Billing → upgrade. Reason: commercial use is outside Hobby's terms, and Pro gives the 300 s function budget without relying on Fluid Compute. Confirm `maxDuration = 300` on `app/api/submissions/route.ts` (submit route, runs the pipeline) and `app/api/submissions/[id]/run/route.ts` (admin retry).
-- [ ] **Supabase Pro** (default yes, $25/mo): Supabase → Settings → Billing → Pro. Then Storage → Settings → global file size limit `150 MB`. Reason: Free caps files at 50 MB; a 3-minute 1080p Reel exceeds it.
-  - If Dylan chooses to stay on Free: set `maxUploadBytes: 50 * 1024 * 1024` in `src/shared/config.ts`, change the UploadForm size error to "Videos up to 50 MB for now", and set the Storage limit to 50 MB. Commit that change with message `Cap uploads at 50 MB (Supabase Free)`.
-
-- [ ] **Step 2: Domain**
+- [ ] **Step 1: Domain**
 
 - [ ] Vercel → Project → Settings → Domains → add `thissongfits.com` and `www.thissongfits.com` (redirect www → apex).
 - [ ] Registrar DNS: add the records Vercel shows (`A` for the apex to Vercel's IP, `CNAME` for `www` to `cname.vercel-dns.com`). Wait for "Valid Configuration".
 - [ ] `https://thissongfits.com` serves the app with a valid certificate.
 
-- [ ] **Step 3: Auth and payment URLs**
+- [ ] **Step 2: Auth and payment URLs**
 
 - [ ] Supabase → Authentication → URL Configuration: Site URL `https://thissongfits.com`; Redirect URLs: `https://thissongfits.com/auth/callback` and `http://localhost:3000/auth/callback` only (no `*.vercel.app` wildcard — M3).
 - [ ] Google Cloud Console → the OAuth client from Phase 1: Authorized JavaScript origins add `https://thissongfits.com`; the redirect URI remains `https://<project-ref>.supabase.co/auth/v1/callback`.
-- [ ] Vercel env: `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`; all Stripe LIVE values from Task 4.4 Step 8 (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`). Redeploy.
+- [ ] Vercel env: `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`; all Stripe LIVE values from Task 4.4 Step 8 (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_CUSTOMER_PORTAL_URL`). Redeploy.
 - [ ] Stripe live webhook endpoint → `https://thissongfits.com/api/stripe/webhook`; live Payment Link redirects to `https://thissongfits.com/subscribe/thanks`.
 
-- [ ] **Step 4: Smoke test from a phone on cellular**
+- [ ] **Step 3: Smoke test from a phone on cellular**
 
 - [ ] Wi-Fi off. Open `https://thissongfits.com`. Tap "Continue with Google" (first tap), sign in, the upload form appears.
 - [ ] Upload a 60–90 s iPhone MOV from the camera roll; progress bar moves; waiting state appears.
@@ -1854,7 +1997,7 @@ The Vercel project and GitHub repo already exist from Phase 1 Task 1.7; this tas
 - [ ] "Use this" collapses the others; the offer appears; `/admin` shows the submission `ready` with timing; `/admin/metrics` funnel has 1 creator at each stage reached.
 - [ ] Second upload attempt as the same creator → `/subscribe`.
 
-- [ ] **Step 5: README deploy section**
+- [ ] **Step 4: README deploy section**
 
 Append to `README.md`:
 
@@ -1864,19 +2007,17 @@ Append to `README.md`:
 Production runs on Vercel (Pro) from the `main` branch at https://thissongfits.com.
 Env vars live in Vercel (Settings → Environment Variables); `.env.example` is the list.
 The submit route and the admin run route export `maxDuration = 300`.
-Supabase: Pro plan, Storage file limit 150 MB, Auth Site URL and redirect URLs set to the production domain.
+Supabase: Pro plan and the 150 MB Storage file limit were set in Phase 1 (Task 1.7); Auth Site URL and redirect URLs point at the production domain.
 Google OAuth origins include the production domain. Stripe webhook: `https://thissongfits.com/api/stripe/webhook`.
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add README.md src/shared/config.ts components/UploadForm.tsx
+git add README.md
 git commit -m "Document production deployment"
 git push
 ```
-
-(Only include `src/shared/config.ts` and `components/UploadForm.tsx` if Step 1's 50 MB fallback was taken.)
 
 ---
 

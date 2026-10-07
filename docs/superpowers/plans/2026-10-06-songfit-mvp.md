@@ -302,7 +302,7 @@ export async function requireAdmin(): Promise<{ id: string; email: string }>; //
 ---
 ## Phase 0 — Foundations
 
-**Demo when done:** `pnpm dev` serves the upload screen shell with the headline; the hosted Supabase project has every table, function and bucket from `docs/DATA_MODEL.md`; `pnpm db:types` produces `src/db/types.ts`; `pnpm typecheck && pnpm test && pnpm build` pass; `pnpm smoke` reports OK for Claude, Whisper, Deezer and the database.
+**Demo when done:** `pnpm dev` serves the upload screen shell with the headline; the hosted Supabase project has every table, function and bucket from `docs/DATA_MODEL.md`; `pnpm db:types` produces `src/db/types.ts`; `pnpm typecheck && pnpm test && pnpm build` pass; `pnpm smoke` reports OK for Claude (Sonnet), Fable, Whisper, Deezer and the database.
 
 Notes for the implementer:
 - This phase was revised after the Codex review (`docs/review/02-codex-review.md`, rulings in `docs/review/03-claude-rulings.md`). Where this file and the plan header's Global Constraints disagree, the constraints win.
@@ -470,15 +470,16 @@ SUPABASE_DB_PASSWORD=the-database-password-you-set-when-creating-the-project
 
 # --- Stripe (Wednesday) ---
 STRIPE_PRICE_ID=price_...
+STRIPE_CUSTOMER_PORTAL_URL=https://billing.stripe.com/p/login/...
 ```
 
-Then verify the final file lists exactly these keys: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_PRICE_ID`, `ADMIN_EMAILS`, `INTERNAL_TOKEN`, `NEXT_PUBLIC_SITE_URL`.
+Then verify the final file lists exactly these 15 keys: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_PRICE_ID`, `STRIPE_CUSTOMER_PORTAL_URL`, `ADMIN_EMAILS`, `INTERNAL_TOKEN`, `NEXT_PUBLIC_SITE_URL`. There are no `NEXT_PUBLIC_STRIPE_*` keys: Stripe URLs are read server-side with `env()` and passed to components as props.
 
 ```bash
 grep -oE '^[A-Z_]+=' .env.example | sort
 ```
 
-Expected: 14 lines. Never read, print or edit `.env.local`.
+Expected: 15 lines. Never read, print or edit `.env.local`.
 
 - [ ] **Step 8: Merge `.gitignore`**
 
@@ -517,10 +518,10 @@ git commit -m "Scaffold Next.js app with pinned deps, Tailwind, scripts and env 
 
 **Files:**
 - Create: `src/shared/config.ts`, `src/shared/types.ts`, `src/shared/errors.ts`, `src/shared/logger.ts`, `src/shared/json.ts`, `src/shared/anthropic.ts`, `vitest.config.ts`
-- Test: `tests/shared/types.test.ts`, `tests/shared/config.test.ts`, `tests/shared/json.test.ts`, `tests/shared/anthropic.test.ts`
+- Test: `tests/shared/types.test.ts`, `tests/shared/config.test.ts`, `tests/shared/errors.test.ts`, `tests/shared/json.test.ts`, `tests/shared/anthropic.test.ts`
 
 **Interfaces:**
-- Produces: everything in the "Shared interfaces" block of the header: `VideoAnalysis`, `MusicBrief`, `AnalysisResult`, `DirectionTag`, `DIRECTION_LABEL`, `GeneratedCandidate`, `VerifiedCandidate`, `DIMENSIONS`, `Dimension`, `ComponentScore`, `ComponentScores`, `ScoredCandidate`, `Pick`, `FinalRecommendation`, `RecommendationView`, `SubmissionStatus`; `MODELS`, `LIMITS`, `CONTENT_CATEGORIES`, `PREVIEWS_ENABLED`, `FREE_RESULTS_PER_CREATOR`, `env()`, `adminEmails()`, `siteUrl()`; `PipelineError`, `PaywallError`; `logger`; `extractJson(text): unknown`, `JsonExtractError`; `ClaudeCall`, `makeClaudeCall(client, opts?)`, `callClaude`.
+- Produces: everything in the "Shared interfaces" block of the header: `VideoAnalysis`, `MusicBrief`, `AnalysisResult`, `DirectionTag`, `DIRECTION_LABEL`, `BEST_FIT_LABEL`, `GeneratedCandidate`, `VerifiedCandidate`, `DIMENSIONS`, `Dimension`, `ComponentScore`, `ComponentScores`, `ScoredCandidate`, `Pick`, `FinalRecommendation`, `RecommendationView`, `SubmissionStatus`; `MODELS`, `LIMITS`, `CONTENT_CATEGORIES`, `PREVIEWS_ENABLED`, `FREE_RESULTS_PER_CREATOR`, `env()`, `adminEmails()`, `siteUrl()`; `PipelineError`, `PaywallError`; `logger`; `extractJson(text): unknown`, `JsonExtractError`; `ClaudeCall`, `makeClaudeCall(client, opts?)`, `callClaude`.
 
 - [ ] **Step 1: Write `vitest.config.ts`**
 
@@ -556,7 +557,7 @@ export {};
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL } from "@/src/shared/types";
+import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL } from "@/src/shared/types";
 
 const validAnalysis = {
   summary: "Creator walks through NYC at night and reveals an outfit.",
@@ -656,12 +657,14 @@ describe("RecommendationView schema", () => {
 });
 
 describe("DIRECTION_LABEL", () => {
-  it("maps every direction to a creator-facing label", () => {
+  it("maps runner-up directions to creator-facing labels and reserves Best fit for rank 1", () => {
     expect(DIRECTION_LABEL).toEqual({
-      safe: "Best fit",
+      safe: "Safe bet",
       current: "More current",
       unexpected: "Unexpected",
     });
+    expect(BEST_FIT_LABEL).toBe("Best fit");
+    expect(Object.values(DIRECTION_LABEL)).not.toContain(BEST_FIT_LABEL);
   });
 });
 ```
@@ -718,6 +721,28 @@ describe("LIMITS and MODELS", () => {
 });
 ```
 
+`tests/shared/errors.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { PipelineError, isPipelineError } from "@/src/shared/errors";
+
+describe("PipelineError", () => {
+  it("keeps the plain message and exposes stage and raw as properties", () => {
+    const e = new PipelineError("analyze", "model output invalid", "{oops");
+    expect(e.message).toBe("model output invalid");
+    expect(e.stage).toBe("analyze");
+    expect(e.raw).toBe("{oops");
+    expect(String(e)).toBe("PipelineError[analyze]: model output invalid");
+  });
+
+  it("is recognised by isPipelineError", () => {
+    expect(isPipelineError(new PipelineError("recommend", "x"))).toBe(true);
+    expect(isPipelineError(new Error("x"))).toBe(false);
+  });
+});
+```
+
 `tests/shared/json.test.ts`:
 
 ```ts
@@ -754,7 +779,7 @@ describe("extractJson", () => {
   });
 
   it("throws when there is no JSON at all", () => {
-    expect(() => extractJson("")).toThrow(JsonExtractError);
+    expect(() => extractJson("")).toThrow(/no JSON value/);
     expect(() => extractJson("no braces here")).toThrow(/no JSON value/);
   });
 });
@@ -863,11 +888,13 @@ export type AnalysisResult = z.infer<typeof AnalysisResult>;
 
 export const DirectionTag = z.enum(["safe", "current", "unexpected"]);
 export type DirectionTag = z.infer<typeof DirectionTag>;
+/** Labels for ranks 2–3 by primary direction. Rank 1 is ALWAYS BEST_FIT_LABEL regardless of direction. */
 export const DIRECTION_LABEL: Record<DirectionTag, string> = {
-  safe: "Best fit",
+  safe: "Safe bet",
   current: "More current",
   unexpected: "Unexpected",
 };
+export const BEST_FIT_LABEL = "Best fit";
 
 export const GeneratedCandidate = z.object({
   title: z.string(),
@@ -1038,10 +1065,14 @@ export class PipelineError extends Error {
   readonly raw: string | undefined;
 
   constructor(stage: PipelineStage, message: string, raw?: string) {
-    super(`[${stage}] ${message}`);
+    super(message); // plain message; `stage` is a property so callers and tests match on text alone
     this.name = "PipelineError";
     this.stage = stage;
     this.raw = raw;
+  }
+
+  override toString(): string {
+    return `PipelineError[${this.stage}]: ${this.message}`;
   }
 }
 
@@ -1112,13 +1143,13 @@ export function extractJson(text: string): unknown {
   const starts = [firstObj, firstArr].filter((i) => i >= 0);
   if (starts.length === 0) throw new JsonExtractError("no JSON value found in model output", text);
 
+  // A `{` or `[` was found: from here on any failure is "invalid JSON", never "no JSON".
   const start = Math.min(...starts);
   const closer = t[start] === "{" ? "}" : "]";
   const end = t.lastIndexOf(closer);
-  if (end <= start) throw new JsonExtractError("no JSON value found in model output", text);
-
+  const slice = end > start ? t.slice(start, end + 1) : t.slice(start);
   try {
-    return JSON.parse(t.slice(start, end + 1));
+    return JSON.parse(slice);
   } catch (e) {
     throw new JsonExtractError(`invalid JSON in model output: ${(e as Error).message}`, text);
   }
@@ -1198,7 +1229,7 @@ export const callClaude: ClaudeCall = (args) => makeClaudeCall(defaultClient())(
 pnpm test
 ```
 
-Expected: `Test Files  4 passed`, `Tests  24 passed` (types 8, config 7, json 6, anthropic 3).
+Expected: `Test Files  5 passed`, `Tests  26 passed` (types 8, config 7, errors 2, json 6, anthropic 3).
 
 - [ ] **Step 11: Typecheck and commit**
 
@@ -1247,7 +1278,9 @@ In `## candidates`, replace the single `generator_reason` row with these rows (k
 | canonical_artist  | text        | nullable, provider's artist verbatim                |
 | artwork_url       | text        | nullable, from Deezer                               |
 | deezer_url        | text        | nullable, from Deezer                               |
-| preview_url       | text        | nullable, 30s Deezer preview                        |
+| preview_url       | text        | nullable, 30s preview (only when PREVIEWS_ENABLED)  |
+| preview_source    | text        | nullable, 'deezer' or 'itunes'                      |
+| itunes_id         | text        | nullable, set only when iTunes supplied the preview |
 | source            | text        | 'model' now; 'catalog' later                        |
 | segment_id        | uuid        | nullable, → song_segments ON DELETE SET NULL (later) |
 | aligned_to_moment | numeric     | nullable, video time the anchor was aligned to      |
@@ -1435,6 +1468,7 @@ create table public.candidates (
   artwork_url text,
   deezer_url text,
   preview_url text,
+  preview_source text check (preview_source in ('deezer', 'itunes')),
   source text not null default 'model' check (source in ('model', 'catalog')),
   aligned_to_moment numeric,
   component_scores jsonb,
@@ -1582,10 +1616,37 @@ begin
 end;
 $$;
 
+-- Creator feedback on one rank, in ONE statement so two concurrent taps can never
+-- leave two picks selected. p_selected=true → exclusive select of p_rank (clears the
+-- others, clears rejected on p_rank). p_rejected=true → rejected=true, selected=false
+-- on p_rank only. Returns the number of rows touched for p_rank (0 = no such rank).
+create or replace function public.set_recommendation_feedback(
+  p_submission_id uuid, p_rank int, p_selected boolean, p_rejected boolean
+) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_count int;
+begin
+  if p_selected then
+    update public.recommendations
+       set selected = (rank = p_rank),
+           rejected = case when rank = p_rank then false else rejected end
+     where submission_id = p_submission_id;
+  elsif p_rejected then
+    update public.recommendations
+       set rejected = true, selected = false
+     where submission_id = p_submission_id and rank = p_rank;
+  end if;
+  select count(*) into v_count from public.recommendations
+   where submission_id = p_submission_id and rank = p_rank;
+  return v_count;
+end $$;
+
 revoke execute on function public.create_submission(uuid, uuid, text, text) from public, anon, authenticated;
 revoke execute on function public.claim_submission_run(uuid) from public, anon, authenticated;
+revoke execute on function public.set_recommendation_feedback(uuid, int, boolean, boolean) from public, anon, authenticated;
 grant execute on function public.create_submission(uuid, uuid, text, text) to service_role;
 grant execute on function public.claim_submission_run(uuid) to service_role;
+grant execute on function public.set_recommendation_feedback(uuid, int, boolean, boolean) to service_role;
 
 -- storage ------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit)
@@ -1593,7 +1654,7 @@ values ('videos', 'videos', false, 157286400)
 on conflict (id) do nothing;
 ```
 
-Note on the bucket limit: Supabase Free caps uploads at 50 MB regardless of `file_size_limit`; the 150 MB limit only takes effect on Supabase Pro (C7 ruling, Dylan's decision 3). Until then, uploads over 50 MB fail at Storage; Task 1.4's client check uses `LIMITS.maxUploadBytes`, so lower that constant if the project stays on Free.
+Note on the bucket limit: Supabase Free caps uploads at 50 MB regardless of `file_size_limit`. Dylan approved Supabase Pro (decision 3): upgrade the project to Pro AND set the project's global upload limit to 150 MB in Dashboard → Storage → Settings → "Upload file size limit" before Task 1.7's large upload — the bucket-level limit alone is not enough. If the upgrade slips, lower `LIMITS.maxUploadBytes` to 50 MB and the upload copy with it.
 
 - [ ] **Step 4: Write `supabase/migrations/0002_catalog.sql`**
 
@@ -1734,7 +1795,10 @@ Expected: `Applying migration 0001_init.sql...`, `0002_catalog.sql...`, `0003_rl
 Write and run a throwaway check with the service client (no `psql` on this machine):
 
 ```bash
-cat > /tmp/check-schema.mjs <<'EOF'
+mkdir -p scripts
+cat > scripts/check-schema.mjs <<'EOF'
+// Throwaway schema check against the hosted project. Lives in the repo so Node
+// resolves @supabase/supabase-js from node_modules (a /tmp script cannot).
 import { createClient } from "@supabase/supabase-js";
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 for (const t of ["creators","submissions","video_analyses","candidates","recommendations","events","subscriptions","stripe_events","songs","song_segments","song_trend_signals"]) {
@@ -1746,7 +1810,7 @@ console.log("bucket videos".padEnd(20), b ? `ok public=${b.public} limit=${b.fil
 const { error: fe } = await db.rpc("claim_submission_run", { p_id: "00000000-0000-0000-0000-000000000000" });
 console.log("claim_submission_run".padEnd(20), fe ? "FAIL " + fe.message : "ok (null row)");
 EOF
-node --env-file=.env.local /tmp/check-schema.mjs
+node --env-file=.env.local scripts/check-schema.mjs
 ```
 
 Expected: every table `ok`, `bucket videos ok public=false limit=157286400`, `claim_submission_run ok (null row)`.
@@ -1783,7 +1847,7 @@ git commit -m "Add hosted Supabase migrations with paywall and run-claim functio
 - Produces:
   - `createServerClient(): Promise<SupabaseClient<Database>>`, `createServiceClient(): SupabaseClient<Database>` (in `client.ts`); `createBrowserClient(): SupabaseClient<Database>` (in `browser.ts`).
   - `ensureCreator(id, email, displayName?)`, `getCreatorByEmail(email)`, `getCreator(id)`
-  - `getSubmission(id)`, `createSubmission({ id, creatorId, videoPath, creatorIntent })` (rpc `create_submission`; throws `PaywallError` on `needs_subscription`), `claimSubmissionRun(id)` (rpc `claim_submission_run`; row or null), `setSubmissionStatus(id, status, error?)`, `setSubmissionAnalyzed(id, { durationSeconds, contentCategory })`, `markSubmissionViewed(id)`, `listSubmissions(limit?)` → `SubmissionWithCreator[]`, `listSubmissionsForCreator(creatorId)`, `countReadySubmissions(creatorId)`, `countSubmissionsForCreator(creatorId)`
+  - `getSubmission(id)`, `createSubmission({ id, creatorId, videoPath, creatorIntent })` (rpc `create_submission`; throws `PaywallError` on `needs_subscription`), `claimSubmissionRun(id)` (rpc `claim_submission_run`; row or null), `setSubmissionStatus(id, status, error?)`, `setSubmissionAnalyzed(id, { durationSeconds, contentCategory })`, `updateSubmission(id, patch)` (content_category / duration_seconds / analyzed_at / recommended_at / viewed_at), `markSubmissionViewed(id)`, `listSubmissions(limit?)` → `SubmissionWithCreator[]`, `listSubmissionsForCreator(creatorId)`, `countReadySubmissions(creatorId)`, `countSubmissionsForCreator(creatorId)`
   - `upsertAnalysis(row)`, `getAnalysisRow(submissionId)`, `getAnalysis(submissionId)` → `{ analysis, brief, row } | null`
   - `replaceCandidates(submissionId, rows: CandidateInsert[]): Promise<CandidateRow[]>`, `listCandidates(submissionId)`
   - `replaceRecommendations(submissionId, rows: RecommendationInsert[]): Promise<RecommendationRow[]>`, `listRecommendations(submissionId)`, `markRecommendationFeedback(submissionId, rank, { selected?, rejected? })`
@@ -1913,6 +1977,7 @@ import type { SubmissionStatus } from "@/src/shared/types";
 import { PaywallError } from "@/src/shared/errors";
 
 export type SubmissionRow = Database["public"]["Tables"]["submissions"]["Row"];
+export type SubmissionUpdate = Database["public"]["Tables"]["submissions"]["Update"];
 
 export async function getSubmission(id: string): Promise<SubmissionRow | null> {
   const { data, error } = await createServiceClient().from("submissions").select("*").eq("id", id).maybeSingle();
@@ -1986,6 +2051,15 @@ export async function setSubmissionAnalyzed(
       analyzed_at: new Date().toISOString(),
     })
     .eq("id", id);
+  if (error) throw error;
+}
+
+/** Narrow patch used by the analysis stage and admin tooling. */
+export async function updateSubmission(
+  id: string,
+  patch: Partial<Pick<SubmissionUpdate, "content_category" | "duration_seconds" | "analyzed_at" | "recommended_at" | "viewed_at">>,
+): Promise<void> {
+  const { error } = await createServiceClient().from("submissions").update(patch).eq("id", id);
   if (error) throw error;
 }
 
@@ -2176,36 +2250,23 @@ export async function listRecommendations(submissionId: string): Promise<Recomme
 }
 
 /**
- * Records creator feedback on one rank. Selection is exclusive: selecting a
- * rank clears `selected` on the other two first. Returns the number of rows
- * updated for the target rank (0 means the rank did not exist).
+ * Records creator feedback on one rank through the `set_recommendation_feedback`
+ * SQL function: one statement, so selection is exclusive even under concurrent
+ * taps. Returns the number of rows that exist for the target rank (0 = no such rank).
  */
 export async function markRecommendationFeedback(
   submissionId: string,
   rank: 1 | 2 | 3,
   patch: { selected?: boolean; rejected?: boolean },
 ): Promise<number> {
-  const db = createServiceClient();
-  if (patch.selected === true) {
-    const { error: clearError } = await db
-      .from("recommendations")
-      .update({ selected: false })
-      .eq("submission_id", submissionId)
-      .neq("rank", rank);
-    if (clearError) throw clearError;
-  }
-  const update: Database["public"]["Tables"]["recommendations"]["Update"] = {};
-  if (patch.selected !== undefined) update.selected = patch.selected;
-  if (patch.rejected !== undefined) update.rejected = patch.rejected;
-  if (patch.selected === true) update.rejected = false;
-  const { data, error } = await db
-    .from("recommendations")
-    .update(update)
-    .eq("submission_id", submissionId)
-    .eq("rank", rank)
-    .select("id");
+  const { data, error } = await createServiceClient().rpc("set_recommendation_feedback", {
+    p_submission_id: submissionId,
+    p_rank: rank,
+    p_selected: patch.selected === true,
+    p_rejected: patch.rejected === true,
+  });
   if (error) throw error;
-  return data.length;
+  return data ?? 0;
 }
 ```
 
@@ -2359,7 +2420,7 @@ git commit -m "Add Supabase clients and typed query functions"
 
 **Interfaces:**
 - Consumes: `insertEvent` from `src/db/queries/events.ts` (Task 0.4); `logger` from `src/shared/logger.ts`.
-- Produces: `EVENT_NAMES`, `EventName`, `isEventName(x): x is EventName`, `logEvent({ name, creatorId?, submissionId?, metadata? })`.
+- Produces: `EVENT_NAMES`, `EventName`, `isEventName(x): x is EventName`, `logEvent({ name, creatorId?, submissionId?, metadata?: Json })` (`Json` is `Database`'s JSON type from `src/db/types.ts`; callers pass plain JSON-shaped objects such as `{ rank: 1 }`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2370,7 +2431,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const insertEvent = vi.fn().mockResolvedValue(undefined);
+// vi.mock is hoisted above imports, so the mock fn must come from vi.hoisted.
+const { insertEvent } = vi.hoisted(() => ({ insertEvent: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/src/db/queries/events", () => ({ insertEvent }));
 
 import { EVENT_NAMES, isEventName, logEvent } from "@/src/feedback/events";
@@ -2433,6 +2495,7 @@ Expected: FAIL with `Cannot find module '@/src/feedback/events'`.
 
 ```ts
 import { insertEvent } from "@/src/db/queries/events";
+import type { Json } from "@/src/db/types";
 import { logger } from "@/src/shared/logger";
 
 /** Keep in sync with docs/DATA_MODEL.md → events → "Allowed event names". The test enforces it. */
@@ -2469,7 +2532,7 @@ export async function logEvent(e: {
   name: EventName;
   creatorId?: string | null;
   submissionId?: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Json; // the generated Json type, so the insert typechecks under strict mode
 }): Promise<void> {
   try {
     await insertEvent({
@@ -2490,7 +2553,7 @@ export async function logEvent(e: {
 pnpm test
 ```
 
-Expected: `Test Files  5 passed`, `Tests  28 passed`. If the DATA_MODEL comparison fails, the list in the doc and in code differ — fix the code list, not the test.
+Expected: `Test Files  6 passed`, `Tests  30 passed`. If the DATA_MODEL comparison fails, the list in the doc and in code differ — fix the code list, not the test.
 
 - [ ] **Step 5: Commit**
 
@@ -2716,7 +2779,20 @@ const checks: Check[] = [
         user: "Say: ready",
         maxTokens: 10,
       });
-      return `reply="${text.trim()}"`;
+      return `reply="${text.trim()}" (${MODELS.candidates})`;
+    },
+  },
+  {
+    name: "fable",
+    fn: async () => {
+      // Proves access to the analysis model too; Phase 2 is the first real use of it.
+      const text = await callClaude({
+        model: MODELS.analysis,
+        system: "Reply with exactly one word.",
+        user: "Say: ready",
+        maxTokens: 10,
+      });
+      return `reply="${text.trim()}" (${MODELS.analysis})`;
     },
   },
   {
@@ -2777,7 +2853,8 @@ pnpm smoke
 Expected (with all keys in `.env.local`):
 
 ```
-OK    claude     ~800 ms  reply="ready"
+OK    claude     ~800 ms  reply="ready" (claude-sonnet-5-5)
+OK    fable      ~1200 ms reply="ready" (claude-fable-5-1)
 OK    whisper    ~1500 ms transcript="" (silence, empty is fine)
 OK    deezer     ~300 ms  "Blinding Lights" duration=200s
 OK    database   ~200 ms  submissions=0
@@ -2801,10 +2878,10 @@ git commit -m "Add provider smoke test script"
 
 - [ ] `pnpm typecheck && pnpm test && pnpm build` all pass (this is the phase gate; nothing in Phase 1 starts until it does).
 - [ ] `pnpm dev` → `http://localhost:3000` shows the Songfit wordmark, headline "Find the right song for your content.", the placeholder upload form and the disclosure line, correctly at phone width.
-- [ ] `node --env-file=.env.local /tmp/check-schema.mjs` (Task 0.3 step 7) prints `ok` for all 11 tables, the `videos` bucket, and `claim_submission_run`.
+- [ ] `node --env-file=.env.local scripts/check-schema.mjs` (Task 0.3 step 7) prints `ok` for all 11 tables, the `videos` bucket, and `claim_submission_run`.
 - [ ] `src/db/types.ts` exists, is committed, and contains `create_submission`, `claim_submission_run`, `anchor_seconds`, `stripe_events`.
-- [ ] `pnpm smoke` prints four `OK` lines and exits 0 (requires Dylan's keys in `.env.local`).
-- [ ] `.env.example` lists all 14 keys; `.env.local` exists locally and is git-ignored (`git ls-files | grep -c '^.env.local$'` prints `0`).
+- [ ] `pnpm smoke` prints five `OK` lines and exits 0 (requires Dylan's keys in `.env.local`).
+- [ ] `.env.example` lists all 15 keys; `.env.local` exists locally and is git-ignored (`git ls-files | grep -c '^.env.local$'` prints `0`).
 ## Phase 1 — Upload → stored submission
 
 **Demo when done:** From an iPhone on cellular, against the deployed Vercel app: sign in with Google, pick a Reel, watch it upload with a progress bar (resumable for big files), land on a waiting page that polls a real `submissions` row.
@@ -3885,9 +3962,12 @@ async function resumableUpload(file: File, objectName: string, onProgress: (pct:
       onProgress: (sent, total) => onProgress(Math.round((sent / total) * 100)),
       onSuccess: () => resolve(),
     });
-    // Resume a previous attempt of the same file if the browser kept its fingerprint.
-    upload.findPreviousUploads().then((prev) => {
-      if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
+    // Resume ONLY a previous attempt that targeted this exact object path. A retry that
+    // was issued a different path must start fresh, otherwise resumed bytes land at the
+    // old path while /api/submissions validates the new one (Codex round 2, I6).
+    upload.findPreviousUploads().then((previous) => {
+      const match = previous.find((p) => p.metadata?.objectName === objectName);
+      if (match) upload.resumeFromPreviousUpload(match);
       upload.start();
     });
   });
@@ -3944,6 +4024,10 @@ import { LIMITS } from "@/src/shared/config";
 type Creator = { id: string; email: string };
 type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
 
+/** The server-issued upload target. Held in state so a retry reuses the SAME path and
+ *  submission id; a new one is requested only when none is held or the server rejected it. */
+type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string };
+
 export function UploadForm({ creator }: { creator: Creator }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -3952,6 +4036,7 @@ export function UploadForm({ creator }: { creator: Creator }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [target, setTarget] = useState<UploadTarget | null>(null);
 
   useEffect(() => {
     if (!file) {
@@ -3965,7 +4050,25 @@ export function UploadForm({ creator }: { creator: Creator }) {
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
+    setTarget(null); // a different file gets a fresh target
     setFile(e.target.files?.[0] ?? null);
+  }
+
+  /** Reuse the held target when it matches this file's extension; otherwise ask the server for one. */
+  async function getTarget(ext: string, sizeBytes: number): Promise<UploadTarget | "paywall"> {
+    if (target && target.ext === ext) return target;
+    const urlRes = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ext, sizeBytes }),
+    });
+    if (urlRes.status === 402) return "paywall";
+    if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
+    if (!urlRes.ok) throw new Error("Upload didn't finish. Try again.");
+    const issued = (await urlRes.json()) as Omit<UploadTarget, "ext">;
+    const next: UploadTarget = { ...issued, ext };
+    setTarget(next);
+    return next;
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -3995,23 +4098,12 @@ export function UploadForm({ creator }: { creator: Creator }) {
         return;
       }
 
-      const urlRes = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ext, sizeBytes: file.size }),
-      });
-      if (urlRes.status === 402) {
+      const issued = await getTarget(ext, file.size);
+      if (issued === "paywall") {
         router.push("/subscribe");
         return;
       }
-      if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
-      if (!urlRes.ok) throw new Error("Upload didn't finish. Try again.");
-      const { submissionId, path, token, signedUrl } = (await urlRes.json()) as {
-        submissionId: string;
-        path: string;
-        token: string;
-        signedUrl: string;
-      };
+      const { submissionId, path, token, signedUrl } = issued;
 
       setPhase("uploading");
       setProgress(0);
@@ -4026,6 +4118,11 @@ export function UploadForm({ creator }: { creator: Creator }) {
       if (createRes.status === 402) {
         router.push("/subscribe");
         return;
+      }
+      if (createRes.status === 400 || createRes.status === 403) {
+        // The server rejected this target (path/size/id mismatch). Drop it so the retry gets a new one.
+        setTarget(null);
+        throw new Error("Upload didn't finish. Try again.");
       }
       if (!createRes.ok) throw new Error("Upload didn't finish. Try again.");
       const { id } = (await createRes.json()) as { id: string };
@@ -4153,7 +4250,7 @@ git commit -m "Add sign-in-first landing and resumable upload form"
 
 **Interfaces:**
 - Consumes: `getCreator()`, `isAdmin()`, `getSubmission()`, `GET /api/submissions/[id]`.
-- Produces: `<WaitingState submissionId={string} initialStatus={string} />`; `/results/[id]` renders the waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
+- Produces: `WaitingState({ submissionId: string; initialStatus: SubmissionStatus })` — exactly these two props and no others. **Phase 3 (Task 3.11) must pass exactly `submissionId` and `initialStatus`; a `status` prop does not exist.** `/results/[id]` renders the waiting state until `status === "ready"`, then a placeholder (Phase 3 replaces the placeholder with the results list).
 - On `failed`: polling stops and the page says "Something went wrong on our side. We're on it." The admin Retry (Phase 2) puts it back in flight; the creator can reload.
 
 - [ ] **Step 1: Add the keyframes to `app/globals.css`**
@@ -4358,6 +4455,15 @@ In `.env.local` confirm `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANO
 **Interfaces:**
 - Produces: a public Vercel URL running this branch, a verified 300 s function budget, and a submission created from an iPhone over cellular.
 
+- [ ] **Step 0: Plans and limits (Dylan approved 2026-10-06)**
+
+Done once, in the dashboards, before anything is deployed. These are not optional: without them the 60–120 MB phone upload in Step 6 fails and the 300 s pipeline function is cut off.
+
+1. **Vercel → Settings → Billing: upgrade to Pro.** Commercial subscription app; Pro gives 300 s functions by default (Fluid Compute still ON in Step 3).
+2. **Supabase → Project → Settings → Billing: upgrade to Pro.** Free caps every object at 50 MB.
+3. **Supabase → Storage → Settings → Global file size limit: 150 MB.** The `videos` bucket's own `file_size_limit` (Phase 0 migration) is capped by this global value, so the bucket setting alone is not enough.
+4. Verify: Supabase → Storage → Settings shows 150 MB; Vercel → Settings → General shows plan Pro.
+
 - [ ] **Step 1: Write the health route that proves the function budget**
 
 ```ts
@@ -4394,7 +4500,7 @@ pnpm dlx vercel link        # new project "songfit", framework Next.js, root "./
 ```
 
 In the Vercel dashboard → Project → Settings:
-- **Functions → Fluid Compute: ON** (required for 300 s on Hobby; Pro gives it by default). Codex's note stands: a commercial subscription app should be on Pro; Dylan decides by Wednesday.
+- **Functions → Fluid Compute: ON** (Pro, per Step 0, has 300 s functions by default; keep Fluid Compute on regardless).
 - **Environment Variables**: every key in `.env.example` with the production values (Supabase URL/anon/service role, Anthropic, OpenAI, `ADMIN_EMAILS`, `INTERNAL_TOKEN` = `openssl rand -hex 32`, `NEXT_PUBLIC_SITE_URL` = the Vercel URL for now). Stripe keys are added in Phase 4.
 - **Git**: production branch `mvp` for now (switch to `main` when merging).
 
@@ -4404,10 +4510,14 @@ pnpm dlx vercel --prod
 
 Expected: a URL like `https://songfit-<hash>.vercel.app` (note the stable project URL `https://songfit.vercel.app` if the name is free).
 
-- [ ] **Step 4: Prove the budget on Vercel**
+- [ ] **Step 4: Prove the budget on Vercel (two runs)**
 
 Run: `curl -s -m 120 "https://<vercel-url>/api/health?sleep=65"`
-Expected: `{"ok":true,"slept":65}` after ~65 s. A 504 or an empty response before 60 s means Fluid Compute is off or the plan caps functions at 60 s; fix that before continuing.
+Expected: `{"ok":true,"slept":65}` after ~65 s. A 504 or an empty response before 60 s means Fluid Compute is off or the plan caps functions at 60 s; fix that before continuing. This only proves the function survives past 60 s.
+
+Then prove the full pipeline budget. Run ONCE (it takes about five minutes; do not repeat it casually):
+`curl -s -m 320 "https://<vercel-url>/api/health?sleep=290"`
+Expected: `{"ok":true,"slept":290}` after ~290 s. A 504 or empty response means the real `maxDuration = 300` is not honoured on this plan/config; fix that before the Phase 2 deployed media test, which depends on it.
 
 - [ ] **Step 5: Point Supabase and Google at the Vercel URL**
 
@@ -4423,7 +4533,7 @@ On an iPhone with Wi-Fi OFF:
 4. Supabase Studio: `submissions` has the row with `status = analyzing`, `video_path = <creatorId>/<uuid>.mov`; `events` has `submission_created` and `upload_completed`; Storage → `videos` has the object with the right size.
 5. Vercel → Logs: `pipeline.start` for that id, no errors.
 
-If the upload fails above 50 MB with a Storage error about file size, the Supabase project is on the Free plan (50 MB object limit). Either upgrade to Pro (Dylan's decision, ruling C7) or lower `LIMITS.maxUploadBytes` to `50 * 1024 * 1024` and the copy to "under 50 MB" until then.
+If the upload fails above 50 MB with a Storage error about file size, Step 0 was not completed (Free plan, or the global file size limit is still 50 MB). Fix Step 0 rather than lowering the limit.
 
 - [ ] **Step 7: Commit**
 
@@ -4464,7 +4574,7 @@ export class PipelineError extends Error {
 }
 ```
 
-Deadline convention used by every stage in this phase (and by Phase 3): the runner computes `deadlineAt = started + LIMITS.pipelineBudgetMs` and passes `{ deadlineAt }` down. A stage never starts a model call or subprocess whose default timeout would overrun `deadlineAt`; it shortens the timeout to the remaining time via the `timeoutFor()` helper (Task 2.1), so the function always fails cleanly with time left to persist `failed`.
+Deadline convention used by every stage in this phase (and by Phase 3): the runner computes `deadlineAt = started + LIMITS.pipelineBudgetMs` and passes `{ deadlineAt }` down. A stage never starts a model call or subprocess whose default timeout would overrun `deadlineAt`; it shortens the timeout to the remaining time — subprocesses via `timeoutFor()` (Task 2.1), model and Whisper calls via `remainingBudget(ctx)` from `src/pipeline/budget.ts` (Task 2.2; also used by every Phase 3 model call) — so the function always fails cleanly with time left to persist `failed`.
 
 ---
 
@@ -4819,11 +4929,20 @@ git commit -m "Add ffmpeg media extraction with hard timeouts"
 ### Task 2.2: Whisper transcription
 
 **Files:**
+- Create: `src/pipeline/budget.ts` (shared deadline helper; consumed here, in 2.3, 2.5 and by every Phase 3 model call)
 - Create: `src/analysis/transcribe.ts`
+- Test: `tests/pipeline/budget.test.ts`
 - Test: `tests/analysis/transcribe.test.ts`
 
 **Interfaces:**
-- Consumes: `MODELS.whisper` from config; `env("OPENAI_API_KEY")`; `timeoutFor` from `src/media/extractHelpers.ts`.
+- Consumes: `MODELS.whisper`, `LIMITS.modelTimeoutMs` from config; `env("OPENAI_API_KEY")`.
+- Produces (ruling C3, deadline-aware timeouts):
+  ```ts
+  // src/pipeline/budget.ts
+  export type StageCtx = { deadlineAt: number };
+  /** min(defaultMs, time left before deadlineAt minus a 5 s persistence reserve), never below 5 s; defaultMs when no ctx */
+  export function remainingBudget(ctx: { deadlineAt?: number } | undefined, defaultMs?: number, now?: number): number;
+  ```
 - Produces:
   ```ts
   export type TranscriptSegment = { start: number; end: number; text: string };
@@ -4840,6 +4959,62 @@ git commit -m "Add ffmpeg media extraction with hard timeouts"
 ```bash
 pnpm add openai
 ```
+
+- [ ] **Step 2a: Write the failing test for remainingBudget**
+
+`tests/pipeline/budget.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { remainingBudget } from "../../src/pipeline/budget";
+import { LIMITS } from "../../src/shared/config";
+
+describe("remainingBudget", () => {
+  it("returns the default when there is no ctx or no deadline", () => {
+    expect(remainingBudget(undefined, 120_000, 0)).toBe(120_000);
+    expect(remainingBudget({}, 120_000, 0)).toBe(120_000);
+  });
+  it("defaults to LIMITS.modelTimeoutMs", () => {
+    expect(remainingBudget(undefined)).toBe(LIMITS.modelTimeoutMs);
+  });
+  it("caps at the time left minus the 5 s reserve", () => {
+    expect(remainingBudget({ deadlineAt: 50_000 }, 120_000, 20_000)).toBe(25_000);
+  });
+  it("never goes below 5 s", () => {
+    expect(remainingBudget({ deadlineAt: 1_000 }, 120_000, 900)).toBe(5_000);
+  });
+});
+```
+
+- [ ] **Step 2b: Implement remainingBudget**
+
+`src/pipeline/budget.ts`:
+
+```ts
+import { LIMITS } from "../shared/config";
+
+export type StageCtx = { deadlineAt: number };
+
+const PERSIST_RESERVE_MS = 5_000;
+const FLOOR_MS = 5_000;
+
+/**
+ * Timeout to give an external call so it cannot run past the pipeline deadline.
+ * Reserves 5 s at the end so the runner can still persist `failed`.
+ * Floors at 5 s so a nearly-exhausted budget fails with a real timeout error, not a zero.
+ */
+export function remainingBudget(
+  ctx: { deadlineAt?: number } | undefined,
+  defaultMs: number = LIMITS.modelTimeoutMs,
+  now: number = Date.now(),
+): number {
+  if (ctx?.deadlineAt === undefined) return defaultMs;
+  return Math.max(FLOOR_MS, Math.min(defaultMs, ctx.deadlineAt - now - PERSIST_RESERVE_MS));
+}
+```
+
+Run: `pnpm vitest run tests/pipeline/budget.test.ts`
+Expected: PASS (4 tests)
 
 - [ ] **Step 2: Write the failing test**
 
@@ -4898,7 +5073,7 @@ import fs from "node:fs";
 import OpenAI from "openai";
 import { MODELS, env } from "../shared/config";
 import { logger } from "../shared/logger";
-import { timeoutFor } from "../media/extractHelpers";
+import { remainingBudget } from "../pipeline/budget";
 
 export type TranscriptSegment = { start: number; end: number; text: string };
 export type Transcript = { text: string; segments: TranscriptSegment[] };
@@ -4928,7 +5103,7 @@ export async function transcribe(
       model: MODELS.whisper,
       response_format: "verbose_json",
     },
-    { timeout: timeoutFor(WHISPER_TIMEOUT_MS, opts.deadlineAt) },
+    { timeout: remainingBudget(opts, WHISPER_TIMEOUT_MS) },
   )) as { text?: string; segments?: { start: number; end: number; text: string }[] };
 
   const text = (result.text ?? "").trim();
@@ -4949,8 +5124,8 @@ Expected: PASS (3 tests)
 
 ```bash
 pnpm typecheck && pnpm test
-git add package.json pnpm-lock.yaml src/analysis/transcribe.ts tests/analysis/transcribe.test.ts
-git commit -m "Add Whisper transcription with timestamped segments"
+git add package.json pnpm-lock.yaml src/pipeline/budget.ts tests/pipeline/budget.test.ts src/analysis/transcribe.ts tests/analysis/transcribe.test.ts
+git commit -m "Add Whisper transcription with timestamped segments and the shared deadline helper"
 ```
 
 ---
@@ -4962,7 +5137,8 @@ git commit -m "Add Whisper transcription with timestamped segments"
 - Test: `tests/analysis/analyzeVideo.test.ts`
 
 **Interfaces:**
-- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `LIMITS.modelTimeoutMs`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `extractJson` from `src/shared/json.ts` (Phase 0); `PipelineError`; `timeoutFor`; `TranscriptSegment` from Task 2.2.
+- Consumes: `VideoAnalysis`, `MusicBrief`, `AnalysisResult` from `src/shared/types.ts`; `MODELS.analysis`, `LIMITS.modelTimeoutMs`, `CONTENT_CATEGORIES`, `env("ANTHROPIC_API_KEY")`; `extractJson` from `src/shared/json.ts` (Phase 0); `PipelineError`; `remainingBudget` from `src/pipeline/budget.ts` (Task 2.2); `TranscriptSegment` from Task 2.2.
+- Ruling I1: every model call logs one `model.call` line with `{ model, ms, input_tokens, output_tokens, stop_reason }`, and a `max_tokens` stop reason is an error (output truncated), thrown before any parsing.
 - Produces:
   ```ts
   export const PROMPT_VERSION = "analyze-v2";
@@ -5114,6 +5290,20 @@ describe("analyzeVideo", () => {
     });
   });
 
+  it("throws PipelineError when the output was truncated at max_tokens", async () => {
+    const create = vi.fn().mockResolvedValueOnce({
+      content: [{ type: "text", text: "{\"analysis\": {" }],
+      stop_reason: "max_tokens",
+      usage: { input_tokens: 10, output_tokens: 4000 },
+    });
+    const client = { messages: { create } } as unknown as Anthropic;
+    await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
+      name: "PipelineError",
+      stage: "analyze",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it("throws PipelineError when the response is not JSON at all, twice", async () => {
     const { client } = fakeClient(["Sorry, I cannot see the video.", "Still nothing."]);
     await expect(analyzeVideo(input, { client })).rejects.toMatchObject({
@@ -5142,7 +5332,7 @@ import { VideoAnalysis, MusicBrief, type AnalysisResult } from "../shared/types"
 import { PipelineError } from "../shared/errors";
 import { extractJson } from "../shared/json";
 import { logger } from "../shared/logger";
-import { timeoutFor } from "../media/extractHelpers";
+import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
 export const PROMPT_VERSION = "analyze-v2";
@@ -5258,6 +5448,7 @@ function buildUserContent(input: AnalyzeInput): Block[] {
 }
 
 async function callModel(client: Anthropic, content: Block[], deadlineAt?: number): Promise<string> {
+  const started = Date.now();
   const res = await client.messages.create(
     {
       model: MODELS.analysis,
@@ -5265,10 +5456,18 @@ async function callModel(client: Anthropic, content: Block[], deadlineAt?: numbe
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content }],
     },
-    { timeout: timeoutFor(LIMITS.modelTimeoutMs, deadlineAt) },
+    { timeout: remainingBudget({ deadlineAt }, LIMITS.modelTimeoutMs) },
   );
+  // One structured line per model call so cost and truncation are visible in logs (ruling I1).
+  logger.info("model.call", {
+    model: MODELS.analysis,
+    ms: Date.now() - started,
+    input_tokens: res.usage?.input_tokens ?? null,
+    output_tokens: res.usage?.output_tokens ?? null,
+    stop_reason: res.stop_reason ?? null,
+  });
   if (res.stop_reason === "max_tokens") {
-    logger.warn("analysis.truncated", { stop_reason: res.stop_reason });
+    throw new PipelineError("analyze", "model output truncated at max_tokens");
   }
   return res.content
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
@@ -5334,7 +5533,7 @@ export async function analyzeVideo(
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/analysis/analyzeVideo.test.ts`
-Expected: PASS (7 tests)
+Expected: PASS (8 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -5353,11 +5552,11 @@ git commit -m "Add Claude video analysis producing VideoAnalysis and MusicBrief"
 - Test: `tests/analysis/analyzeSubmission.test.ts`
 
 **Interfaces:**
-- Consumes: `getSubmission(id)`, `updateSubmission(id, patch)` from `src/db/queries/submissions.ts`; `upsertAnalysis(row)` from `src/db/queries/analyses.ts`; `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
+- Consumes: `getSubmission(id)`, `updateSubmission(id, patch)` from `src/db/queries/submissions.ts` (Phase 0, Task 0.4); `upsertAnalysis(row)` from `src/db/queries/analyses.ts` (Phase 0, Task 0.4); `downloadToTmp(storagePath)` from `src/media/storage.ts`; `extractMedia`; `transcribe`; `analyzeVideo`; `logEvent`.
 - Produces: `export async function analyzeSubmission(submissionId: string, ctx: { deadlineAt: number }, deps?: Partial<AnalyzeDeps>): Promise<void>;`
 - Ruling C5/I7: persists `content_category` on BOTH `video_analyses` and `submissions`; `analysis_completed` carries `creatorId`.
 
-Expected db query shapes (Phase 0):
+Expected db query shapes (Phase 0, Task 0.4 — both functions exist there; do not re-create them):
 
 ```ts
 // src/db/queries/analyses.ts — AnalysisInsert is the generated Insert type; the relevant columns:
@@ -5629,18 +5828,19 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
 **Files:**
 - Modify: `src/pipeline/run.ts` (replace the Phase 1 stub)
 - Create: `src/pipeline/stages.ts`
+- Reuse: `src/pipeline/budget.ts` (`StageCtx`, `remainingBudget`; created in Task 2.2)
 - Test: `tests/pipeline/stages.test.ts`
 - Test: `tests/pipeline/run.test.ts`
 
 **Interfaces:**
-- Consumes: `claimSubmissionRun(id)` (Phase 0: atomic conditional update that moves `uploaded | failed`, or an in-flight row whose `updated_at` is older than `LIMITS.inFlightStaleMinutes`, to `analyzing` and returns the row; returns `null` otherwise — this relies on `submissions.updated_at` from migration 0001), `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)`, `listRecommendations(submissionId)`, `analyzeSubmission(id, { deadlineAt })`, `logEvent`, `LIMITS.pipelineBudgetMs`.
+- Consumes: `claimSubmissionRun(id)` (Phase 0: atomic conditional update that moves `uploaded | failed`, or an in-flight row whose `updated_at` is older than `LIMITS.inFlightStaleMinutes`, to `analyzing` and returns the row; returns `null` otherwise — this relies on `submissions.updated_at` from migration 0001), `setSubmissionStatus(id, status, error?)`, `getAnalysisRow(submissionId)`, `listRecommendations(submissionId)`, `analyzeSubmission(id, { deadlineAt })`, `logEvent`, `LIMITS.pipelineBudgetMs`, `StageCtx` from `src/pipeline/budget.ts`, `Json` from `src/db/types.ts`.
 - Produces:
   ```ts
   // src/pipeline/stages.ts
   export type Stage = "analyze" | "recommend" | "done";
   export function nextStage(hasAnalysis: boolean, hasRecommendations: boolean): Stage;
   // src/pipeline/run.ts
-  export type StageCtx = { deadlineAt: number };
+  export type { StageCtx } from "./budget"; // { deadlineAt: number } — the ONLY context shape passed to stages
   export type RunDeps = {
     claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
     getAnalysisRow: (submissionId: string) => Promise<unknown | null>;
@@ -5653,8 +5853,8 @@ git commit -m "Add analyzeSubmission stage with persistence and cleanup"
   };
   export async function runSubmission(submissionId: string, overrides?: Partial<RunDeps>): Promise<void>;
   ```
-- **Contract with Phase 3 (ruling C3 — ONE runner):** this file is the only runner. Phase 3 does not rewrite it. Phase 3 changes exactly two lines: the import of `recommendSubmission` from `src/engine/recommend.ts`, and `defaultDeps.recommend`, which until then is `recommendNotImplemented` (throws `PipelineError("recommend", "not implemented")`). Everything else — claim, stage selection, deadline, failure recording — stays as written here. Admin retry (Task 2.6) and the submit route (Phase 1, via `waitUntil`) both call `runSubmission(id)`; the claim makes concurrent calls safe.
-- Behaviour: (a) claim or return; (b) stage from stored outputs, never from the status string; (c) `deadlineAt = started + LIMITS.pipelineBudgetMs`, checked before each stage and threaded into it; (d) on any error: `failed`, `error` = message (internal, admin-only), event `pipeline_failed { stage, error }` with `creatorId`; never throws; (e) the recorded stage is the one that was running.
+- **Contract with Phase 3 (ruling C3 — ONE runner):** this file is the only runner. Phase 3 does not rewrite it. Phase 3 changes exactly two lines: the import of `recommendSubmission` from `src/engine/recommend.ts`, and `defaultDeps.recommend`, which until then is `recommendNotImplemented`. The slot's shape is `(id: string, ctx: StageCtx) => Promise<void>`, so Phase 3 wires it as `recommend: (id, ctx) => recommendSubmission(id, ctx)` — `recommendSubmission(submissionId, ctx, deps?)` takes the context as its SECOND parameter and defaults its own dependency object internally (never pass `ctx` where `deps` is expected; this was Codex round-2 mismatch #1). Everything else — claim, stage selection, deadline, failure recording — stays as written here. Admin retry (Task 2.6) and the submit route (Phase 1, via `waitUntil`) both call `runSubmission(id)`; the claim makes concurrent calls safe.
+- Behaviour: (a) claim or return — the claim and the stored-output reads run INSIDE the try/catch, so a database failure there is recorded as `failed` + `pipeline_failed` like any other (ruling C3); (b) stage from stored outputs, never from the status string; (c) `deadlineAt = started + LIMITS.pipelineBudgetMs`, checked before each stage and threaded into it; every stage derives its external-call timeouts from it via `remainingBudget(ctx)`; (d) on any error: `failed`, `error` = message (internal, admin-only), event `pipeline_failed` with `metadata: { stage, error, raw }` where `raw` is `PipelineError.raw` truncated to 4000 chars or `null` (ruling C1: the raw model output is kept for admins) and `creatorId` when the claim succeeded; the metadata object is typed as `Json`; never throws; (e) the recorded stage is the one that was running. `PipelineError.message` is the bare message (the stage is the `stage` property, not a prefix) — Phase 0's `errors.ts` must match this; tests below assert bare messages.
 
 - [ ] **Step 1: Write the failing test for nextStage**
 
@@ -5789,10 +5989,39 @@ describe("runSubmission", () => {
         name: "pipeline_failed",
         submissionId: "sub-1",
         creatorId: "cre-1",
-        metadata: { stage: "analyze", error: "video too long" },
+        metadata: { stage: "analyze", error: "video too long", raw: null },
       }),
     );
     expect(d.recommend).not.toHaveBeenCalled();
+  });
+
+  it("keeps the raw model output (truncated) in pipeline_failed metadata", async () => {
+    const { d } = deps();
+    const raw = "x".repeat(5000);
+    d.analyze.mockRejectedValue(new PipelineError("analyze", "model output invalid", raw));
+    await runSubmission("sub-1", d);
+    const call = d.logEvent.mock.calls.find((c) => c[0].name === "pipeline_failed")!;
+    expect(call[0].metadata).toEqual({ stage: "analyze", error: "model output invalid", raw: "x".repeat(4000) });
+  });
+
+  it("records a failure when the claim itself throws (no creatorId known)", async () => {
+    const { d } = deps();
+    d.claimSubmissionRun.mockRejectedValue(new Error("db unreachable"));
+    await expect(runSubmission("sub-1", d)).resolves.toBeUndefined();
+    expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "db unreachable");
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "pipeline_failed", submissionId: "sub-1", creatorId: null }),
+    );
+  });
+
+  it("records a failure when reading stored outputs throws, as stage analyze", async () => {
+    const { d } = deps();
+    d.getAnalysisRow.mockRejectedValue(new Error("select failed"));
+    await runSubmission("sub-1", d);
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ stage: "analyze", error: "select failed" }) }),
+    );
+    expect(d.analyze).not.toHaveBeenCalled();
   });
 
   it("records a failure in recommend as stage recommend, even for a plain Error", async () => {
@@ -5800,7 +6029,7 @@ describe("runSubmission", () => {
     d.recommend.mockRejectedValue(new Error("deezer down"));
     await runSubmission("sub-1", d);
     expect(d.logEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: { stage: "recommend", error: "deezer down" } }),
+      expect.objectContaining({ metadata: { stage: "recommend", error: "deezer down", raw: null } }),
     );
     expect(d.setSubmissionStatus).toHaveBeenLastCalledWith("sub-1", "failed", "deezer down");
   });
@@ -5846,9 +6075,11 @@ import { LIMITS } from "../shared/config";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
 import { nextStage, type Stage } from "./stages";
+import type { StageCtx } from "./budget";
 import type { SubmissionStatus } from "../shared/types";
+import type { Json } from "../db/types";
 
-export type StageCtx = { deadlineAt: number };
+export type { StageCtx } from "./budget";
 
 export type RunDeps = {
   claimSubmissionRun: (id: string) => Promise<{ id: string; creator_id: string } | null>;
@@ -5861,10 +6092,13 @@ export type RunDeps = {
   now: () => number;
 };
 
-// Phase 3 replaces ONLY the next line's import and the `recommend:` default below.
+// Phase 3 replaces ONLY the next line's import and the `recommend:` default below, as
+//   recommend: (id, ctx) => recommendSubmission(id, ctx),
 async function recommendNotImplemented(_id: string, _ctx: StageCtx): Promise<void> {
   throw new PipelineError("recommend", "not implemented");
 }
+
+const RAW_MAX_CHARS = 4000;
 
 const defaultDeps: RunDeps = {
   claimSubmissionRun,
@@ -5890,22 +6124,29 @@ const STAGE_STATUS: Record<Exclude<Stage, "done">, SubmissionStatus> = {
 export async function runSubmission(submissionId: string, overrides: Partial<RunDeps> = {}): Promise<void> {
   const d: RunDeps = { ...defaultDeps, ...overrides };
 
-  const claimed = await d.claimSubmissionRun(submissionId);
-  if (!claimed) {
-    logger.info("run.skipped_in_flight", { submissionId });
-    return;
-  }
-
   const started = d.now();
   const ctx: StageCtx = { deadlineAt: started + LIMITS.pipelineBudgetMs };
 
-  let stage: Stage = nextStage(
-    (await d.getAnalysisRow(submissionId)) !== null,
-    (await d.listRecommendations(submissionId)).length > 0,
-  );
-  let current: Exclude<Stage, "done"> = stage === "done" ? "recommend" : stage;
+  // Until a stage is chosen, blame "analyze": it is the first thing that would have run.
+  let current: Exclude<Stage, "done"> = "analyze";
+  let creatorId: string | null = null;
 
   try {
+    // Claim and stored-output reads live inside the try so a database failure here is
+    // recorded exactly like a stage failure (ruling C3).
+    const claimed = await d.claimSubmissionRun(submissionId);
+    if (!claimed) {
+      logger.info("run.skipped_in_flight", { submissionId });
+      return;
+    }
+    creatorId = claimed.creator_id;
+
+    let stage: Stage = nextStage(
+      (await d.getAnalysisRow(submissionId)) !== null,
+      (await d.listRecommendations(submissionId)).length > 0,
+    );
+    if (stage !== "done") current = stage;
+
     while (stage !== "done") {
       current = stage;
       if (d.now() >= ctx.deadlineAt) {
@@ -5928,6 +6169,7 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
     const e = err as Error;
     const failedStage = e instanceof PipelineError ? e.stage : current;
     const message = e.message ?? String(err);
+    const raw = e instanceof PipelineError && e.raw ? e.raw.slice(0, RAW_MAX_CHARS) : null;
     logger.error("pipeline.failed", { submissionId, stage: failedStage, message });
     try {
       await d.setSubmissionStatus(submissionId, "failed", message);
@@ -5935,11 +6177,12 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
       logger.error("pipeline.failed_write", { submissionId, error: String(writeErr) });
     }
     try {
+      const metadata: Json = { stage: failedStage, error: message, raw };
       await d.logEvent({
         name: "pipeline_failed",
         submissionId,
-        creatorId: claimed.creator_id,
-        metadata: { stage: failedStage, error: message },
+        creatorId,
+        metadata,
       });
     } catch (eventErr) {
       logger.error("pipeline.failed_event", { submissionId, error: String(eventErr) });
@@ -5948,12 +6191,12 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
 }
 ```
 
-Why `current` starts as `"recommend"` when `stage === "done"`: it is never used in that case (the loop doesn't run), but TypeScript needs a value of the narrowed type; `recommend` is the more plausible stage to blame if `setSubmissionStatus("ready")` itself throws.
+Notes: `current` starts as `"analyze"` so a failure before any stage is chosen (claim or stored-output read) is blamed on the first stage that would have run. When both outputs already exist the loop doesn't run and `current` is unused unless `setSubmissionStatus("ready")` throws, in which case "analyze" is reported — acceptable, the admin sees the message. `logEvent`'s `metadata` parameter must accept `Json` (Phase 0, Task 0.5 types it as `Json | undefined`, not `Record<string, unknown>`).
 
 - [ ] **Step 8: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/pipeline`
-Expected: PASS (13 tests)
+Expected: PASS (20 tests: stages 4, budget 4, run 12)
 
 - [ ] **Step 9: Commit**
 
@@ -6403,7 +6646,7 @@ Conventions for every task in this phase:
   export function normalizeTitle(s: string): string;       // folded, featuring stripped, version words kept
   export function versionTags(title: string): Set<string>; // {"live","remix","acoustic","sped up","slowed","instrumental","karaoke","cover","demo","radio edit","remaster","extended","version"}
   export function normalizeArtist(s: string): string;      // primary artist, featuring stripped; never split on "and"/"&"
-  export function normalizeKey(title: string, artist: string): string; // `${normalizeTitle}|${normalizeArtist}` (version words removed from title part)
+  export function normalizeKey(title: string, artist: string): string; // `${title sans version words}|${artist}|${version tags}` — version tags INCLUDED so live/remix/sped-up never dedupe with the studio recording (remaster/radio edit ignored: same take)
   export function titlesMatch(a: string, b: string): boolean;  // EQUALITY after removing version words, AND same version tags (ignoring remaster/radio edit)
   export function artistsMatch(a: string, b: string): boolean;
   ```
@@ -6485,8 +6728,14 @@ describe("matching (10 fixtures)", () => {
     expect(artistsMatch("Florence + The Machine", "Florence + the Machine")).toBe(true);
     expect(artistsMatch("宇多田ヒカル", "宇多田ヒカル")).toBe(true);
   });
-  it("normalizeKey drops version words so dedupe treats edits as one song", () => {
+  it("normalizeKey merges remaster/radio edit with the original (same recording)", () => {
     expect(normalizeKey("Blinding Lights - Remastered", "The Weeknd")).toBe("blinding lights|the weeknd");
+    expect(normalizeKey("Blinding Lights", "The Weeknd")).toBe("blinding lights|the weeknd");
+  });
+  it("normalizeKey keeps real version tags so variants never dedupe together", () => {
+    expect(normalizeKey("Stay (Sped Up)", "The Kid LAROI")).toBe("stay|the kid laroi|sped up");
+    expect(normalizeKey("Stay", "The Kid LAROI")).toBe("stay|the kid laroi");
+    expect(normalizeKey("Stay (Live)", "The Kid LAROI")).not.toBe(normalizeKey("Stay", "The Kid LAROI"));
   });
 });
 ```
@@ -6511,7 +6760,11 @@ const VERSION_WORDS = [
 const SAME_RECORDING = new Set(["remaster", "radio edit"]); // same take, different master/cut
 
 const FEAT_PAREN_RE = /\s*[(\[][^)\]]*\b(?:feat\.?|ft\.?|featuring|with)\b[^)\]]*[)\]]/gi;
-const FEAT_TAIL_RE = /\s+\b(?:feat\.?|ft\.?|featuring)\b\s+.*$/i;
+// No `\b` after the optional dot: "feat." is followed by a space, and there is no word boundary
+// between "." and " " — that is why the earlier version failed to strip "Drake feat. Rihanna".
+const FEAT_TAIL_TITLE_RE = /\s*\b(?:feat\.?|ft\.?|featuring)\s+.*$/i;
+// Artists additionally treat "with" as a credit ("Drake with Rihanna"); titles must not ("Stay With Me").
+const FEAT_TAIL_ARTIST_RE = /\s*\b(?:feat\.?|ft\.?|featuring|with)\s+.*$/i;
 
 /** Lowercase, fold combining marks, keep letters/digits of any script, collapse the rest to spaces. */
 function fold(s: string): string {
@@ -6524,7 +6777,7 @@ function fold(s: string): string {
 }
 
 export function normalizeTitle(s: string): string {
-  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_RE, ""));
+  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_TITLE_RE, ""));
 }
 
 export function versionTags(title: string): Set<string> {
@@ -6543,17 +6796,20 @@ function stripVersionWords(normalized: string): string {
 }
 
 export function normalizeArtist(s: string): string {
-  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_RE, ""));
-}
-
-export function normalizeKey(title: string, artist: string): string {
-  return `${stripVersionWords(normalizeTitle(title))}|${normalizeArtist(artist)}`;
+  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_ARTIST_RE, ""));
 }
 
 function comparableTags(title: string): Set<string> {
   const tags = versionTags(title);
   for (const t of SAME_RECORDING) tags.delete(t);
   return tags;
+}
+
+/** Dedupe key. Version tags are part of the identity (I3): a live or sped-up take is a different recording. */
+export function normalizeKey(title: string, artist: string): string {
+  const tags = [...comparableTags(title)].sort().join(",");
+  const base = `${stripVersionWords(normalizeTitle(title))}|${normalizeArtist(artist)}`;
+  return tags ? `${base}|${tags}` : base;
 }
 
 export function titlesMatch(a: string, b: string): boolean {
@@ -6577,7 +6833,7 @@ export function artistsMatch(a: string, b: string): boolean {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/normalize.test.ts`
-Expected: PASS, 21 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -6599,14 +6855,14 @@ git commit -m "Add conservative title and artist normalisation for song matching
 - Produces:
   ```ts
   export const PROMPT_VERSION = "candidates-v2";
-  export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall };
+  export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; timeoutMs?: number }; // timeoutMs comes from the orchestrator's remaining budget
   export function buildCandidatePrompt(direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts?: { note?: string; exclude?: string[] }): string;
   export function parseCandidateList(text: string, direction: DirectionTag): { ok: true; items: GeneratedCandidate[] } | { ok: false; error: string };
   export function mergeCandidates(lists: GeneratedCandidate[][]): GeneratedCandidate[]; // dedupe by normalizeKey, union of directions
   export async function generateCandidates(brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts): Promise<GeneratedCandidate[]>;
   ```
 
-Rulings: C1 (whole-list validation, one retry, then fail), I4 (`exclude` for regeneration), I9 (`directions` keeps every membership; `anchor_seconds` and `section_is_vocal` are explicit fields).
+Rulings: C1 (whole-list validation — a direction must return at least `candidatesPerDirection − 5` items, one retry, then fail), I4 (`exclude` for regeneration), I9 (`directions` keeps every membership; `anchor_seconds` and `section_is_vocal` are explicit fields), C3 (`timeoutMs` threaded from the pipeline budget).
 
 - [ ] **Step 1: Write the shared fixtures**
 
@@ -6670,6 +6926,8 @@ const item = (title: string, artist = "X") => ({
   title, artist, proposed_start: 10, proposed_end: 25, anchor_seconds: 12, section_is_vocal: true,
   section_reason: "s", fit_reason: "f",
 });
+// A direction must return at least LIMITS.candidatesPerDirection − 5 (= 20) items to be accepted.
+const many = (prefix: string, n = 20, artist = "X") => Array.from({ length: n }, (_, i) => item(`${prefix} ${i}`, artist));
 
 describe("mergeCandidates", () => {
   it("dedupes by normalised key and unions directions in first-seen order", () => {
@@ -6686,13 +6944,19 @@ describe("mergeCandidates", () => {
 
 describe("parseCandidateList", () => {
   it("accepts a fenced array and stamps the direction", () => {
-    const r = parseCandidateList("```json\n" + JSON.stringify([item("A")]) + "\n```", "unexpected");
+    const r = parseCandidateList("```json\n" + JSON.stringify(many("A")) + "\n```", "unexpected");
     expect(r.ok && r.items[0]!.directions).toEqual(["unexpected"]);
+    expect(r.ok && r.items).toHaveLength(20);
   });
   it("rejects the whole list when any item is malformed", () => {
-    const r = parseCandidateList(JSON.stringify([item("A"), { title: "Bad", artist: "C" }]), "safe");
+    const r = parseCandidateList(JSON.stringify([...many("A", 19), { title: "Bad", artist: "C" }]), "safe");
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/proposed_start|anchor_seconds|section_is_vocal/);
+  });
+  it("rejects a list that is too short", () => {
+    const r = parseCandidateList(JSON.stringify(many("A", 5)), "safe");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/at least 20/);
   });
   it("rejects prose", () => {
     expect(parseCandidateList("sorry, no", "safe").ok).toBe(false);
@@ -6703,16 +6967,16 @@ describe("generateCandidates", () => {
   it("makes three calls and merges results", async () => {
     const call = vi.fn(async ({ user }: { user: string }) => {
       const dir = user.includes("DIRECTION: safe") ? "safe" : user.includes("DIRECTION: current") ? "current" : "unexpected";
-      return JSON.stringify([item(`${dir} song`), item("Shared Song", "Y")]);
+      return JSON.stringify([...many(`${dir} song`, 19), item("Shared Song", "Y")]);
     });
     const out = await generateCandidates(brief, analysis, { call });
     expect(call).toHaveBeenCalledTimes(3);
-    expect(out.map((c) => c.title).sort()).toEqual(["Shared Song", "current song", "safe song", "unexpected song"]);
+    expect(out).toHaveLength(3 * 19 + 1); // "Shared Song" merged into one entry
     expect(out.find((c) => c.title === "Shared Song")!.directions).toEqual(["safe", "current", "unexpected"]);
   });
   it("retries a direction once with the validation error, then fails", async () => {
     const call = vi.fn(async ({ user }: { user: string }) =>
-      user.includes("DIRECTION: safe") ? JSON.stringify([{ title: "Bad" }]) : JSON.stringify([item("ok")]));
+      user.includes("DIRECTION: safe") ? JSON.stringify([{ title: "Bad" }]) : JSON.stringify(many("ok")));
     await expect(generateCandidates(brief, analysis, { call })).rejects.toThrow(/candidate output invalid/);
     const safeCalls = call.mock.calls.filter((c) => (c[0] as { user: string }).user.includes("DIRECTION: safe"));
     expect(safeCalls).toHaveLength(2);
@@ -6748,7 +7012,7 @@ import { normalizeKey } from "@/src/engine/catalog/normalize";
 
 export const PROMPT_VERSION = "candidates-v2";
 
-export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall };
+export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; timeoutMs?: number };
 
 const SYSTEM = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
 You know mainstream, independent and viral music across decades, and you know which songs
@@ -6815,7 +7079,10 @@ Return ONLY a JSON array, no prose, each item exactly:
 }
 
 const Item = GeneratedCandidate.omit({ directions: true });
-const ItemList = z.array(Item).min(1);
+// C1: a direction that comes back with far fewer songs than asked is treated as invalid output
+// (the model truncated or refused), retried once, then fails the stage. Never silently accept a short list.
+const MIN_PER_DIRECTION = LIMITS.candidatesPerDirection - 5;
+const ItemList = z.array(Item).min(MIN_PER_DIRECTION, { message: `Array must contain at least ${MIN_PER_DIRECTION} element(s)` });
 
 export function parseCandidateList(
   text: string, direction: DirectionTag,
@@ -6851,8 +7118,9 @@ async function generateDirection(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts: GenerateOpts, call: ClaudeCall,
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
+  const timeoutMs = opts.timeoutMs ?? LIMITS.modelTimeoutMs;
   const started = Date.now();
-  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs });
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
     logger.info("candidates.direction", { direction, ms: Date.now() - started, items: r1.items.length });
@@ -6860,7 +7128,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs: LIMITS.modelTimeoutMs });
+  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) return r2.items;
   throw new PipelineError("recommend", `candidate output invalid (${direction}): ${r2.error.slice(0, 200)}`, second);
@@ -6880,7 +7148,7 @@ export async function generateCandidates(
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/candidates/generateCandidates.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -6949,6 +7217,13 @@ describe("deezerGet", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
     await expect(deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch, async () => {}))
       .rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("searchDeezer", () => {
+  it("treats an error-shaped 200 body (Deezer quota) as a ProviderError, never as no results", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(json({ error: { type: "Exception", message: "Quota limit exceeded", code: 4 } }));
+    await expect(searchDeezer("A", "B", fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
   });
 });
 
@@ -7049,11 +7324,18 @@ export async function deezerGet(
   throw last ?? new ProviderError("deezer: unknown failure");
 }
 
+const DeezerErrorSchema = z.object({ error: z.object({ message: z.string().optional(), code: z.number().optional() }) });
+
 async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]> {
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
   const body = await deezerLimit(() => deezerGet(url, fetchImpl));
   const parsed = DeezerSearchSchema.safeParse(body);
-  return parsed.success ? parsed.data.data : [];
+  if (parsed.success) return parsed.data.data;
+  // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
+  // not "no such song": it must never be reported as an empty result.
+  const err = DeezerErrorSchema.safeParse(body);
+  if (err.success) throw new ProviderError(`deezer error ${err.data.error.code ?? ""}: ${err.data.error.message ?? "unknown"}`.trim(), err.data.error.code);
+  throw new ProviderError("deezer: unexpected response shape");
 }
 
 export async function searchDeezer(title: string, artist: string, fetchImpl: typeof fetch = fetch): Promise<DeezerTrack[]> {
@@ -7081,7 +7363,7 @@ export async function findDeezerMatch(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/deezer.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -7216,11 +7498,13 @@ git commit -m "Add iTunes preview lookup gated by PREVIEWS_ENABLED"
 - Consumes: `GeneratedCandidate`, `VerifiedCandidate`; `findDeezerMatch`, `ProviderError`, `DeezerTrack` (Task 3.3); `PREVIEWS_ENABLED`.
 - Produces:
   ```ts
-  export function validateSection(start: number, end: number, anchor: number, duration: number): { start: number; end: number } | null;
-  export async function verifyCandidates(cands: GeneratedCandidate[], deps?: { find?: typeof findDeezerMatch }): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }>; // throws ProviderError when ≥30% of lookups hit the provider
+  export function validateSection(start: number, end: number, anchor: number, duration: number): { start: number; end: number } | null; // null for tracks shorter than sectionMin + 2
+  export async function verifyCandidates(cands: GeneratedCandidate[], deps?: { find?: typeof findDeezerMatch }): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
+  // unverified = Deezer answered and nothing acceptable matched (a real "no"). lookupFailed = the provider failed twice for that
+  // candidate (NOT a "no"; dropped and logged; does not feed regeneration). Throws ProviderError when ≥30% of lookups still fail after retry.
   ```
 
-Rulings C6 (no clamp-and-pretend: an anchor past the track end means the model is wrong about the song, drop it), I3 (dedupe by `deezer_id`), I4/I5 (outage ≠ no match).
+Rulings C6 (no clamp-and-pretend: an anchor past the track end means the model is wrong about the song, drop it; tracks too short for a section are dropped), I3 (dedupe by `deezer_id`), I9 (duplicates merge their `directions`), I4/I5 (outage ≠ no match: provider failures are retried once, then dropped as `lookupFailed`, never reported as unverified).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7245,6 +7529,10 @@ describe("validateSection", () => {
     expect(validateSection(180, 195, 199, 200)).toBeNull();
     expect(validateSection(180, 195, 250, 200)).toBeNull();
   });
+  it("drops a track too short to hold a section", () => {
+    expect(validateSection(0, 10, 3, 12)).toBeNull(); // 12 s < sectionMin (12) + 2
+    expect(validateSection(0, 12, 3, 14)).toEqual({ start: 0, end: 12 });
+  });
 });
 
 const hit = (over: Partial<DeezerTrack> = {}): DeezerTrack => ({
@@ -7253,16 +7541,18 @@ const hit = (over: Partial<DeezerTrack> = {}): DeezerTrack => ({
 });
 
 describe("verifyCandidates", () => {
-  it("splits verified/unverified, attaches canonical fields, dedupes by deezer id", async () => {
+  it("splits verified/unverified, attaches canonical fields, dedupes by deezer id and merges directions", async () => {
     const find = vi.fn(async (c: { title: string }) => (c.title.startsWith("Found") ? hit() : null));
-    const { verified, unverified } = await verifyCandidates(
-      [gen({ title: "Found" }), gen({ title: "Found - Remastered" }), gen({ title: "Missing" })], { find },
+    const { verified, unverified, lookupFailed } = await verifyCandidates(
+      [gen({ title: "Found", directions: ["safe"] }), gen({ title: "Found - Remastered", directions: ["current"] }), gen({ title: "Missing" })], { find },
     );
     expect(unverified.map((c) => c.title)).toEqual(["Missing"]);
+    expect(lookupFailed).toEqual([]);
     expect(verified).toHaveLength(1);
     expect(verified[0]).toMatchObject({
       deezer_id: "7", canonical_title: "Found", canonical_artist: "The Weeknd", duration_seconds: 200,
       artwork_url: "b.jpg", deezer_url: "https://d/7", preview_url: null, proposed_start: 43, proposed_end: 58,
+      directions: ["safe", "current"],
     });
   });
   it("drops a verified song whose section is impossible for the real track", async () => {
@@ -7271,21 +7561,34 @@ describe("verifyCandidates", () => {
     expect(verified).toHaveLength(0);
     expect(unverified).toHaveLength(1);
   });
-  it("throws when the provider is failing for 30% or more of lookups", async () => {
+  it("throws when the provider is still failing for 30% or more of lookups after the retry", async () => {
     const find = vi.fn(async (c: { title: string }) => {
       if (c.title === "A") throw new ProviderError("deezer 503", 503);
       return hit();
     });
     await expect(verifyCandidates([gen({ title: "A" }), gen({ title: "B" }), gen({ title: "C" })], { find }))
       .rejects.toBeInstanceOf(ProviderError);
+    expect(find.mock.calls.filter((c) => (c[0] as { title: string }).title === "A")).toHaveLength(2); // retried once
   });
-  it("tolerates a single provider failure among many", async () => {
+  it("retries a transient provider failure and keeps the candidate when the retry succeeds", async () => {
+    let aCalls = 0;
+    const find = vi.fn(async (c: { title: string }) => {
+      if (c.title === "A" && aCalls++ === 0) throw new ProviderError("deezer 503", 503);
+      return hit({ id: Number(c.title.charCodeAt(0)) });
+    });
+    const { verified, lookupFailed } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
+    expect(verified).toHaveLength(4);
+    expect(lookupFailed).toEqual([]);
+  });
+  it("drops a persistently failing lookup as lookupFailed, not unverified", async () => {
     const find = vi.fn(async (c: { title: string }) => {
       if (c.title === "A") throw new ProviderError("deezer 503", 503);
       return hit({ id: Number(c.title.charCodeAt(0)) });
     });
-    const { verified } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
+    const { verified, unverified, lookupFailed } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
     expect(verified).toHaveLength(3);
+    expect(unverified).toEqual([]);
+    expect(lookupFailed.map((c) => c.title)).toEqual(["A"]);
   });
 });
 ```
@@ -7300,8 +7603,8 @@ Expected: FAIL, module not found.
 ```ts
 // src/engine/catalog/verifyCandidates.ts
 import type { GeneratedCandidate, VerifiedCandidate } from "@/src/shared/types";
-import { PREVIEWS_ENABLED } from "@/src/shared/config";
-import { findDeezerMatch, ProviderError } from "@/src/engine/catalog/deezer";
+import { LIMITS, PREVIEWS_ENABLED } from "@/src/shared/config";
+import { findDeezerMatch, ProviderError, type DeezerTrack } from "@/src/engine/catalog/deezer";
 import { logger } from "@/src/shared/logger";
 
 const OUTAGE_RATIO = 0.3;
@@ -7309,58 +7612,76 @@ const OUTAGE_RATIO = 0.3;
 /**
  * A section is valid only if it fits the real track. We never move an anchor: if the model's
  * musical moment cannot exist in this recording, the candidate is wrong, not the arithmetic.
+ * A track shorter than sectionMin + 2 s cannot hold a section at all (C6).
  */
 export function validateSection(
   start: number, end: number, anchor: number, duration: number,
 ): { start: number; end: number } | null {
-  if (duration <= 0) return null;
+  if (duration < LIMITS.sectionMin + 2) return null;
   if (anchor >= duration - 2) return null;
   if (end > duration + 1) return null;
   return { start: Math.max(0, start), end: Math.min(end, duration) };
 }
 
+type Lookup = { ok: true; hit: DeezerTrack | null } | { ok: false; error: unknown };
+
+async function lookup(find: typeof findDeezerMatch, c: GeneratedCandidate): Promise<Lookup> {
+  try {
+    return { ok: true, hit: await find(c) };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 export async function verifyCandidates(
   cands: GeneratedCandidate[],
   deps: { find?: typeof findDeezerMatch } = {},
-): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }> {
+): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }> {
   const find = deps.find ?? findDeezerMatch;
   const verified: VerifiedCandidate[] = [];
   const unverified: GeneratedCandidate[] = [];
-  const seenIds = new Set<string>();
-  let providerErrors = 0;
+  const lookupFailed: GeneratedCandidate[] = [];
+  const byId = new Map<string, VerifiedCandidate>();
   let lastProviderError: ProviderError | null = null;
 
-  // Concurrency is bounded inside deezer.ts (deezerLimit); allSettled keeps one failure from hiding the rest.
-  const results = await Promise.allSettled(cands.map((c) => find(c)));
+  // Concurrency is bounded inside deezer.ts (deezerLimit). One failure never hides the rest.
+  const results = await Promise.all(cands.map((c) => lookup(find, c)));
+
+  // I4/I5: a provider failure is not a "no". Retry those once, sequentially, after the batch.
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]!;
+    if (!r.ok && r.error instanceof ProviderError) results[i] = await lookup(find, cands[i]!);
+  }
 
   results.forEach((r, i) => {
     const c = cands[i]!;
-    if (r.status === "rejected") {
-      if (r.reason instanceof ProviderError) {
-        providerErrors++;
-        lastProviderError = r.reason;
-      } else {
-        logger.warn("verifyCandidates.lookup_error", { title: c.title, err: String(r.reason) });
-      }
-      unverified.push(c);
+    if (!r.ok) {
+      if (r.error instanceof ProviderError) lastProviderError = r.error;
+      logger.warn("verifyCandidates.lookup_failed", { title: c.title, artist: c.artist, err: String(r.error) });
+      lookupFailed.push(c);
       return;
     }
-    const hit = r.value;
+    const hit = r.hit;
     if (!hit) {
       unverified.push(c);
       return;
     }
     const id = String(hit.id);
-    if (seenIds.has(id)) return; // same recording proposed twice under different spellings
+    const existing = byId.get(id);
+    if (existing) {
+      // Same recording proposed twice under different spellings: keep the first, merge memberships (I9).
+      for (const d of c.directions) if (!existing.directions.includes(d)) existing.directions.push(d);
+      return;
+    }
     const section = validateSection(c.proposed_start, c.proposed_end, c.anchor_seconds, hit.duration);
     if (!section) {
       logger.info("verifyCandidates.section_impossible", { title: c.title, anchor: c.anchor_seconds, duration: hit.duration });
       unverified.push(c);
       return;
     }
-    seenIds.add(id);
-    verified.push({
+    const v: VerifiedCandidate = {
       ...c,
+      directions: [...c.directions],
       proposed_start: section.start,
       proposed_end: section.end,
       deezer_id: id,
@@ -7370,21 +7691,23 @@ export async function verifyCandidates(
       artwork_url: hit.album?.cover_big ?? hit.album?.cover_medium ?? null,
       deezer_url: hit.link,
       preview_url: PREVIEWS_ENABLED ? hit.preview : null,
-    });
+    };
+    byId.set(id, v);
+    verified.push(v);
   });
 
-  if (cands.length > 0 && providerErrors / cands.length >= OUTAGE_RATIO && lastProviderError) {
-    throw lastProviderError;
+  if (cands.length > 0 && lookupFailed.length / cands.length >= OUTAGE_RATIO && lastProviderError) {
+    throw lastProviderError; // outage: let the runner fail the stage instead of regenerating songs
   }
-  logger.info("verifyCandidates", { total: cands.length, verified: verified.length, providerErrors });
-  return { verified, unverified };
+  logger.info("verifyCandidates", { total: cands.length, verified: verified.length, unverified: unverified.length, lookupFailed: lookupFailed.length });
+  return { verified, unverified, lookupFailed };
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/verifyCandidates.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -7411,7 +7734,7 @@ git commit -m "Verify candidates against Deezer, drop impossible sections, dedup
   // modelScores.ts
   export const PROMPT_VERSION = "scoring-v2";
   export function parseScores(text: string, count: number): { ok: true; scores: Record<ModelDimension, ComponentScore>[] } | { ok: false; error: string };
-  export async function modelScores(analysis, brief, cands: VerifiedCandidate[], deps?: { call?: ClaudeCall }): Promise<Record<ModelDimension, ComponentScore>[]>; // aligned with cands; throws PipelineError
+  export async function modelScores(analysis, brief, cands: VerifiedCandidate[], deps?: { call?: ClaudeCall; timeoutMs?: number }): Promise<Record<ModelDimension, ComponentScore>[]>; // aligned with cands; throws PipelineError
   // dialogue.ts
   export function dialogueScore(analysis: VideoAnalysis, cand: VerifiedCandidate): ComponentScore;
   // overuse.ts
@@ -7420,7 +7743,7 @@ git commit -m "Verify candidates against Deezer, drop impossible sections, dedup
   export const WEIGHTS: Record<Dimension, number>;
   export function combine(scores: ComponentScores): number;
   // scoreCandidates.ts
-  export async function scoreCandidates(analysis, brief, cands: VerifiedCandidate[], deps?: { scores?: typeof modelScores }): Promise<ScoredCandidate[]>; // sorted desc by total_score
+  export async function scoreCandidates(analysis, brief, cands: VerifiedCandidate[], deps?: { scores?: typeof modelScores; timeoutMs?: number }): Promise<ScoredCandidate[]>; // sorted desc by total_score; timeoutMs from the orchestrator's remaining budget
   ```
 
 Rulings C1 (every candidate must be scored or the stage fails), I1 (Sonnet, short reasons, right-sized `max_tokens`), I9 (dialogue rule uses the explicit `section_is_vocal` flag, not prose).
@@ -7701,13 +8024,14 @@ export function parseScores(
 
 export async function modelScores(
   analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[],
-  deps: { call?: ClaudeCall } = {},
+  deps: { call?: ClaudeCall; timeoutMs?: number } = {},
 ): Promise<Record<ModelDimension, ComponentScore>[]> {
   const call = deps.call ?? callClaude;
+  const timeoutMs = deps.timeoutMs ?? LIMITS.modelTimeoutMs;
   const user = buildScoringPrompt(analysis, brief, cands);
   const maxTokens = Math.min(16000, 500 + cands.length * TOKENS_PER_ITEM);
   const started = Date.now();
-  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, timeoutMs });
   const r1 = parseScores(first, cands.length);
   if (r1.ok) {
     logger.info("scoring", { ms: Date.now() - started, candidates: cands.length, chars: first.length });
@@ -7715,7 +8039,7 @@ export async function modelScores(
   }
   logger.warn("scoring.retry", { error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array with every index.`;
-  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, timeoutMs: LIMITS.modelTimeoutMs });
+  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, timeoutMs });
   const r2 = parseScores(second, cands.length);
   if (r2.ok) return r2.scores;
   throw new PipelineError("recommend", `scoring output invalid: ${r2.error.slice(0, 200)}`, second);
@@ -7732,11 +8056,11 @@ import { combine } from "@/src/engine/scoring/weights";
 
 export async function scoreCandidates(
   analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[],
-  deps: { scores?: typeof modelScores } = {},
+  deps: { scores?: typeof modelScores; timeoutMs?: number } = {},
 ): Promise<ScoredCandidate[]> {
   if (cands.length === 0) return [];
   const scores = deps.scores ?? modelScores;
-  const fromModel = await scores(analysis, brief, cands);
+  const fromModel = await scores(analysis, brief, cands, { timeoutMs: deps.timeoutMs });
   const scored: ScoredCandidate[] = cands.map((c, i) => {
     const component_scores: ComponentScores = {
       ...fromModel[i]!,
@@ -7775,15 +8099,14 @@ git commit -m "Add strict candidate scoring: batched model dimensions, dialogue 
 - Test: `tests/engine/diversify/diversify.test.ts`
 
 **Interfaces:**
-- Consumes: `ScoredCandidate`, `Pick`, `DirectionTag`, `DIRECTION_LABEL`; `normalizeArtist`; `PipelineError`.
+- Consumes: `ScoredCandidate`, `Pick`, `DirectionTag`, `DIRECTION_LABEL`, `BEST_FIT_LABEL` (all from `src/shared/types`, Phase 0); `normalizeArtist`; `PipelineError`.
 - Produces:
   ```ts
   export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTag; // first membership
-  export const RUNNER_UP_LABEL: Record<DirectionTag, string>; // safe: "Safe bet", current: "More current", unexpected: "Unexpected"
   export function diversify(scored: ScoredCandidate[]): Pick[]; // length 3, ranks 1–3
   ```
 
-Ruling I9: overall rank and generation direction are different things. Rank 1 is the top total and is labeled "Best fit" whatever its direction. Ranks 2–3 are labeled by their primary direction (`RUNNER_UP_LABEL`, which equals the header's `DIRECTION_LABEL`: safe → "Safe bet"; rank 1 uses `BEST_FIT_LABEL`).
+Ruling I9: overall rank and generation direction are different things. Rank 1 is the top total and is labeled `BEST_FIT_LABEL` ("Best fit") whatever its direction. Ranks 2–3 are labeled by their primary direction via the shared `DIRECTION_LABEL` (safe → "Safe bet", current → "More current", unexpected → "Unexpected"). There is exactly one label map in the codebase.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7848,17 +8171,11 @@ Expected: FAIL, module not found.
 
 ```ts
 // src/engine/diversify/diversify.ts
-import { DirectionTag, type Pick, type ScoredCandidate } from "@/src/shared/types";
+import { DirectionTag, DIRECTION_LABEL, BEST_FIT_LABEL, type Pick, type ScoredCandidate } from "@/src/shared/types";
 import { PipelineError } from "@/src/shared/errors";
 import { normalizeArtist } from "@/src/engine/catalog/normalize";
 
 const ARTIST_TOLERANCE = 0.1;
-
-export const RUNNER_UP_LABEL: Record<DirectionTag, string> = {
-  safe: "Safe bet",
-  current: "More current",
-  unexpected: "Unexpected",
-};
 
 export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTag {
   return c.directions[0] ?? "safe";
@@ -7901,7 +8218,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
   return picks.map((c, i) => ({
     ...c,
     rank: (i + 1) as 1 | 2 | 3,
-    direction_label: i === 0 ? "Best fit" : RUNNER_UP_LABEL[primaryDirection(c)],
+    direction_label: i === 0 ? BEST_FIT_LABEL : DIRECTION_LABEL[primaryDirection(c)],
     start_seconds: c.proposed_start,
     end_seconds: c.proposed_end,
     aligned_to_moment: null,
@@ -8000,7 +8317,11 @@ describe("selectSections", () => {
     expect(out[1]).toMatchObject({ start_seconds: 0, end_seconds: 15, aligned_to_moment: null });
     // rank 3: window first fitted to 20 s (20–40), then aligned: 22 − 7.8 = 14.2
     expect(out[2]).toMatchObject({ start_seconds: 14.2, end_seconds: 34.2, aligned_to_moment: 7.8 });
-    expect(out.map((p) => p.end_seconds - p.start_seconds)).toEqual([15, 15, 20]);
+    // Lengths are compared with toBeCloseTo: 34.2 − 14.2 is 20.000000000000004 in IEEE 754.
+    const lengths = out.map((p) => p.end_seconds - p.start_seconds);
+    expect(lengths[0]).toBeCloseTo(15, 5);
+    expect(lengths[1]).toBeCloseTo(15, 5);
+    expect(lengths[2]).toBeCloseTo(20, 5);
   });
 });
 ```
@@ -8095,7 +8416,7 @@ git commit -m "Add section selection with feasible-only anchor alignment"
   export const PROMPT_VERSION = "explain-v2";
   export function spotifySearchUrl(title: string, artist: string): string;
   export function parseExplanations(text: string, ranks: number[]): { ok: true; byRank: Map<number, string> } | { ok: false; error: string };
-  export async function explainPicks(picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { call?: ClaudeCall; itunes?: typeof findItunesPreview }): Promise<FinalRecommendation[]>;
+  export async function explainPicks(picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { call?: ClaudeCall; itunes?: typeof findItunesPreview; timeoutMs?: number }): Promise<FinalRecommendation[]>;
   ```
 
 Rulings C1 (all three required, one retry, then fail — no fit_reason fallback), C6/I9 (mention alignment only when `aligned_to_moment` is non-null; never claim trend status or platform availability), I5 (iTunes only for a missing preview; failure never blocks).
@@ -8108,10 +8429,12 @@ import { describe, it, expect, vi } from "vitest";
 import { explainPicks, spotifySearchUrl, buildExplainPrompt } from "@/src/engine/explain/explainPicks";
 import { analysis, brief, pick } from "../fixtures";
 
+// The implementation uses the provider's canonical title/artist for Spotify and iTunes, so the
+// fixtures set title and canonical_title together.
 const three = () => [
-  pick({ rank: 1, title: "Song 1", aligned_to_moment: 7.8 }),
-  pick({ rank: 2, deezer_id: "2", title: "Song 2", direction_label: "More current" }),
-  pick({ rank: 3, deezer_id: "3", title: "Song 3", direction_label: "Unexpected", preview_url: "https://d.mp3" }),
+  pick({ rank: 1, title: "Song 1", canonical_title: "Song 1", aligned_to_moment: 7.8 }),
+  pick({ rank: 2, deezer_id: "2", title: "Song 2", canonical_title: "Song 2", direction_label: "More current" }),
+  pick({ rank: 3, deezer_id: "3", title: "Song 3", canonical_title: "Song 3", direction_label: "Unexpected", preview_url: "https://d.mp3" }),
 ];
 const ok = JSON.stringify([{ rank: 1, explanation: "One." }, { rank: 2, explanation: "Two." }, { rank: 3, explanation: "Three." }]);
 
@@ -8215,24 +8538,26 @@ export function parseExplanations(text: string, ranks: number[]): { ok: true; by
 
 export async function explainPicks(
   picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief,
-  deps: { call?: ClaudeCall; itunes?: typeof findItunesPreview } = {},
+  deps: { call?: ClaudeCall; itunes?: typeof findItunesPreview; timeoutMs?: number } = {},
 ): Promise<FinalRecommendation[]> {
   const call = deps.call ?? callClaude;
   const itunes = deps.itunes ?? findItunesPreview;
+  const timeoutMs = deps.timeoutMs ?? LIMITS.modelTimeoutMs;
   const ranks = picks.map((p) => p.rank);
   const user = buildExplainPrompt(picks, analysis, brief);
 
+  // Previews are optional (I5): the lookup runs alongside the model call and never throws (itunes.ts returns null on failure).
   const previewsP = Promise.all(picks.map((p) => (p.preview_url ? Promise.resolve(null) : itunes(p.canonical_title, p.canonical_artist))));
 
   const started = Date.now();
-  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs });
   let parsed = parseExplanations(first, ranks);
   if (!parsed.ok) {
     logger.warn("explain.retry", { error: parsed.error.slice(0, 300) });
     const second = await call({
       model: MODELS.explain, system: SYSTEM,
       user: `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${parsed.error.slice(0, 1000)}\nReturn the full corrected JSON array.`,
-      maxTokens: 1500, timeoutMs: LIMITS.modelTimeoutMs,
+      maxTokens: 1500, timeoutMs,
     });
     parsed = parseExplanations(second, ranks);
     if (!parsed.ok) throw new PipelineError("recommend", `explanation output invalid: ${parsed.error.slice(0, 200)}`, second);
@@ -8276,15 +8601,16 @@ git commit -m "Add strict Songfit-voice explanations with alignment-aware prompt
 - Test: `tests/engine/recommend.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 3.2–3.9; from Phase 0: `getSubmission(id)`, `getAnalysis(submissionId) → { analysis, brief, row } | null`, `setSubmissionStatus(id, status, error?)`, `replaceCandidates(submissionId, rows: CandidateInsert[]) → CandidateRow[]` (rows carry `id`, `deezer_id`), `replaceRecommendations(submissionId, rows: RecommendationInsert[])`, `logEvent`, `PipelineError`; from Phase 2: `runSubmission(id, deps)` whose deps include `recommend: (submissionId: string) => Promise<void>` (Phase 2 ships a stub that throws `PipelineError("recommend", "not implemented")`).
+- Consumes: Tasks 3.2–3.9; from Phase 0: `getSubmission(id)`, `getAnalysis(submissionId) → { analysis, brief, row } | null` (Task 0.4), `setSubmissionStatus(id, status, error?)`, `replaceCandidates(submissionId, rows: CandidateInsert[]) → CandidateRow[]` (rows carry `id`, `deezer_id`), `replaceRecommendations(submissionId, rows: RecommendationInsert[]) → RecommendationRow[]`, `logEvent`, `PipelineError`; `CandidateInsert` must include `artwork_url`, `deezer_url`, `preview_url`, `preview_source` (`'deezer' | 'itunes' | null`), `itunes_id`, `aligned_to_moment` — if Phase 0's `0001_init.sql` lacks `preview_source`, add `preview_source text null` to the candidates table there before this task; from Phase 2: `runSubmission(id, deps)` whose deps include `recommend: (id: string, ctx: StageCtx) => Promise<void>` (`StageCtx = { deadlineAt: number }`, exported from `src/pipeline/run.ts`; Phase 2 ships `recommendNotImplemented`), and `remainingBudget(ctx): number` from `src/pipeline/budget.ts` (`Math.max(5_000, Math.min(LIMITS.modelTimeoutMs, ctx.deadlineAt - Date.now() - 5_000))`).
 - Produces:
   ```ts
   export type RecommendDeps = { getSubmission; getAnalysis; generate; verify; score; diversify; sections; explain; replaceCandidates; replaceRecommendations; setStatus; logEvent };
   export function toCandidateInsert(submissionId: string, c: GeneratedCandidate | ScoredCandidate, verified: boolean, promptVersion: string): CandidateInsert;
-  export async function recommendSubmission(submissionId: string, deps?: RecommendDeps): Promise<void>;
+  export async function recommendSubmission(submissionId: string, ctx: StageCtx, deps?: RecommendDeps): Promise<void>;
   ```
+  Dependency injection (`deps`) and the stage context (`ctx`) are separate parameters: the runner always passes `ctx`; tests pass both.
 
-Rulings C3 (one runner; this task does not rewrite `src/pipeline/run.ts`), I4 (regeneration merges with the first attempt by `deezer_id` and excludes seen keys), I7 (`recommendations_ready` carries `creatorId`), I8 (structured provenance persisted: canonical names, anchor, directions, both reasons, `source`, explain prompt version).
+Rulings C3 (one runner; this task does not rewrite `src/pipeline/run.ts`; every model call gets a timeout derived from the remaining pipeline budget), I4 (regeneration merges with the first attempt by `deezer_id` and excludes seen keys; `lookupFailed` candidates are dropped and NOT excluded, because a provider failure says nothing about the song), I7 (`recommendations_ready` carries `creatorId`), I8 (structured provenance persisted: canonical names, anchor, directions, both reasons, `source`, artwork/urls/preview source, explain prompt version; attempt-2 tagging applies only to keys first seen in attempt 2).
 
 - [ ] **Step 1: Make `setSubmissionStatus` preserve the first `recommended_at`**
 
@@ -8320,6 +8646,7 @@ import type { GeneratedCandidate, VerifiedCandidate, FinalRecommendation } from 
 import { analysis, brief, gen, ver, scored, pick } from "./fixtures";
 
 const row = { id: "sub-1", creator_id: "cre-1", status: "recommending" } as never;
+const ctx = () => ({ deadlineAt: Date.now() + 200_000 });
 const finalsFrom = (vs: VerifiedCandidate[]): FinalRecommendation[] =>
   vs.slice(0, 3).map((v, i) => ({ ...pick({ ...v, rank: (i + 1) as 1 | 2 | 3 }), explanation: "e", spotify_url: "s", itunes_id: null }));
 
@@ -8329,7 +8656,7 @@ function makeDeps(over: Partial<RecommendDeps> = {}): RecommendDeps & { calls: s
     getSubmission: vi.fn(async () => row),
     getAnalysis: vi.fn(async () => ({ analysis, brief, row: {} as never })),
     generate: vi.fn(async () => { calls.push("generate"); return []; }),
-    verify: vi.fn(async () => { calls.push("verify"); return { verified: [], unverified: [] }; }),
+    verify: vi.fn(async () => { calls.push("verify"); return { verified: [], unverified: [], lookupFailed: [] }; }),
     score: vi.fn(async (_a, _b, vs: VerifiedCandidate[]) => { calls.push("score"); return vs.map((v) => scored(v)); }),
     diversify: vi.fn((s) => { calls.push("diversify"); return s.slice(0, 3).map((c, i) => pick({ ...c, rank: (i + 1) as 1 | 2 | 3 })); }),
     sections: vi.fn((p) => { calls.push("sections"); return p; }),
@@ -8338,7 +8665,7 @@ function makeDeps(over: Partial<RecommendDeps> = {}): RecommendDeps & { calls: s
       calls.push("replaceCandidates");
       return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id })) as never;
     }),
-    replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); }),
+    replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
     setStatus: vi.fn(async () => { calls.push("setStatus"); }),
     logEvent: vi.fn(async () => {}),
     ...over,
@@ -8352,15 +8679,19 @@ describe("recommendSubmission", () => {
     const verified = generated.slice(0, 3).map((c, i) => ver({ ...c, deezer_id: String(i + 1) }));
     const deps = makeDeps({
       generate: vi.fn(async () => generated),
-      verify: vi.fn(async () => ({ verified, unverified: [generated[3]!] })),
+      verify: vi.fn(async () => ({ verified, unverified: [generated[3]!], lookupFailed: [] })),
     });
-    await recommendSubmission("sub-1", deps);
+    await recommendSubmission("sub-1", ctx(), deps);
     expect(deps.calls.filter((c) => c !== "generate" && c !== "verify"))
       .toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
-    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { verified: boolean; directions: string[]; anchor_seconds: number; source: string }[];
+    // Every model-backed stage received a timeout derived from the remaining budget.
+    expect((deps.generate as ReturnType<typeof vi.fn>).mock.calls[0]![2]).toMatchObject({ timeoutMs: expect.any(Number) });
+    expect((deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![3]).toMatchObject({ timeoutMs: expect.any(Number) });
+    expect((deps.explain as ReturnType<typeof vi.fn>).mock.calls[0]![3]).toMatchObject({ timeoutMs: expect.any(Number) });
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { verified: boolean; directions: string[]; anchor_seconds: number; source: string; preview_source: string | null; aligned_to_moment: number | null; deezer_url: string | null }[];
     expect(rows).toHaveLength(4);
     expect(rows.filter((r) => !r.verified)).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, aligned_to_moment: null, deezer_url: "https://www.deezer.com/track/1" });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
     const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string | null; explain_prompt_version: string }[];
@@ -8368,32 +8699,36 @@ describe("recommendSubmission", () => {
     expect(recRows[0]!.explain_prompt_version).toBe("explain-v2");
   });
 
-  it("regenerates once with exclusions and merges by deezer id", async () => {
-    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" })];
+  it("regenerates once with exclusions (not lookup failures), merges by deezer id, tags only new keys #2", async () => {
+    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" }), gen({ title: "Flaky" })];
     const second = [gen({ title: "A - Remastered" }), gen({ title: "C" })]; // A again (same recording), plus C
     const generate = vi.fn(async (_b, _a, opts?: { exclude?: string[] }) => (opts?.exclude ? second : first));
     const verify = vi.fn(async (cands: GeneratedCandidate[]) => ({
-      verified: cands.filter((c) => c.title !== "Gone").map((c) => ver({ ...c, deezer_id: c.title.startsWith("A") ? "10" : c.title === "B" ? "11" : "12" })),
+      verified: cands.filter((c) => c.title !== "Gone" && c.title !== "Flaky").map((c) => ver({ ...c, deezer_id: c.title.startsWith("A") ? "10" : c.title === "B" ? "11" : "12" })),
       unverified: cands.filter((c) => c.title === "Gone"),
+      lookupFailed: cands.filter((c) => c.title === "Flaky"),
     }));
     const deps = makeDeps({ generate, verify });
-    await recommendSubmission("sub-1", deps);
+    await recommendSubmission("sub-1", ctx(), deps);
     expect(generate).toHaveBeenCalledTimes(2);
     const opts = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[]; note: string };
     expect(opts.exclude).toEqual(expect.arrayContaining(["a|the weeknd", "b|the weeknd", "gone|the weeknd"]));
+    expect(opts.exclude).not.toContain("flaky|the weeknd"); // a provider failure is not a "no"
     expect(opts.note).toMatch(/could not be found/);
     const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
-    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { prompt_version: string }[];
-    expect(rows.some((r) => r.prompt_version.endsWith("#2"))).toBe(true);
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; prompt_version: string }[];
+    expect(rows.find((r) => r.title === "A")!.prompt_version).not.toMatch(/#2/); // seen in attempt 1: keeps its original version
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toMatch(/#2/);
+    expect(rows.find((r) => r.title === "Flaky")).toBeUndefined(); // dropped and logged, never persisted as unverified
   });
 
   it("fails when still fewer than 3 distinct recordings after regeneration", async () => {
     const deps = makeDeps({
       generate: vi.fn(async () => [gen({ title: "X" })]),
-      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [] })),
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [], lookupFailed: [] })),
     });
-    await expect(recommendSubmission("sub-1", deps)).rejects.toThrow(/fewer than 3/);
+    await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/fewer than 3/);
     expect(deps.replaceCandidates).toHaveBeenCalled(); // what we saw is still persisted for the inspector
   });
 });
@@ -8425,20 +8760,22 @@ import { explainPicks, PROMPT_VERSION as EXPLAIN_VERSION } from "@/src/engine/ex
 import { getAnalysis } from "@/src/db/queries/analyses";
 import { getSubmission, setSubmissionStatus, type SubmissionRow } from "@/src/db/queries/submissions";
 import { replaceCandidates, type CandidateInsert, type CandidateRow } from "@/src/db/queries/candidates";
-import { replaceRecommendations, type RecommendationInsert } from "@/src/db/queries/recommendations";
+import { replaceRecommendations, type RecommendationInsert, type RecommendationRow } from "@/src/db/queries/recommendations";
 import { logEvent } from "@/src/feedback/events";
+import type { StageCtx } from "@/src/pipeline/run"; // type-only: no runtime cycle with run.ts
+import { remainingBudget } from "@/src/pipeline/budget";
 
 export type RecommendDeps = {
   getSubmission: (id: string) => Promise<SubmissionRow | null>;
   getAnalysis: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; row: unknown } | null>;
   generate: (brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts) => Promise<GeneratedCandidate[]>;
-  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }>;
-  score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[]) => Promise<ScoredCandidate[]>;
+  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
+  score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[], opts?: { timeoutMs?: number }) => Promise<ScoredCandidate[]>;
   diversify: (scored: ScoredCandidate[]) => Pick[];
   sections: (picks: Pick[], analysis: VideoAnalysis) => Pick[];
-  explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief) => Promise<FinalRecommendation[]>;
+  explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, opts?: { timeoutMs?: number }) => Promise<FinalRecommendation[]>;
   replaceCandidates: (submissionId: string, rows: CandidateInsert[]) => Promise<CandidateRow[]>;
-  replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<void>;
+  replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<RecommendationRow[]>;
   setStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
   logEvent: typeof logEvent;
 };
@@ -8463,7 +8800,12 @@ export function toCandidateInsert(
     canonical_title: s.canonical_title ?? null,
     canonical_artist: s.canonical_artist ?? null,
     deezer_id: s.deezer_id ?? null,
-    itunes_id: null,
+    itunes_id: null,                                   // only the final 3 ever get an iTunes lookup (Task 3.9)
+    artwork_url: s.artwork_url ?? null,
+    deezer_url: s.deezer_url ?? null,
+    preview_url: s.preview_url ?? null,
+    preview_source: s.preview_url ? "deezer" : null,   // candidate-stage previews can only come from Deezer
+    aligned_to_moment: null,                           // alignment is decided per pick in Task 3.8
     duration_seconds: s.duration_seconds ?? null,
     verified,
     proposed_start: c.proposed_start,
@@ -8506,34 +8848,48 @@ function toRecommendationInsert(submissionId: string, candidateId: string | null
 
 const distinctRecordings = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.deezer_id)).size;
 
-export async function recommendSubmission(submissionId: string, deps: RecommendDeps = defaultDeps): Promise<void> {
+export async function recommendSubmission(
+  submissionId: string, ctx: StageCtx, deps: RecommendDeps = defaultDeps,
+): Promise<void> {
   const started = Date.now();
   const sub = await deps.getSubmission(submissionId);
   if (!sub) throw new PipelineError("recommend", "submission not found");
   const stored = await deps.getAnalysis(submissionId);
   if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
   const { analysis, brief } = stored;
+  // C3: every model call is bounded by what is left of the pipeline budget, recomputed per stage.
+  const budget = () => ({ timeoutMs: remainingBudget(ctx) });
 
   // Attempt 1
-  const gen1 = await deps.generate(brief, analysis);
+  const gen1 = await deps.generate(brief, analysis, budget());
   const v1 = await deps.verify(gen1);
-  let verified = v1.verified;
-  let unverified = v1.unverified;
+  const verified = [...v1.verified];
+  let unverified = [...v1.unverified];
+  let lookupFailed = [...v1.lookupFailed];
   const versionOf = new Map<string, string>(gen1.map((c) => [normalizeKey(c.title, c.artist), CANDIDATES_VERSION]));
 
-  // Attempt 2 (I4): keep what we have, exclude everything seen, merge by recording id.
+  // Attempt 2 (I4): keep what we have, exclude everything Deezer actually answered on, merge by recording id.
+  // lookupFailed keys are NOT excluded: a provider failure says nothing about whether the song exists.
   if (distinctRecordings(verified) < 3) {
-    const exclude = gen1.map((c) => normalizeKey(c.title, c.artist));
-    logger.warn("recommend.regenerate", { submissionId, verified: distinctRecordings(verified) });
-    const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude });
-    for (const c of gen2) versionOf.set(normalizeKey(c.title, c.artist), `${CANDIDATES_VERSION}#2`);
+    const failedKeys = new Set(lookupFailed.map((c) => normalizeKey(c.title, c.artist)));
+    const exclude = gen1.map((c) => normalizeKey(c.title, c.artist)).filter((k) => !failedKeys.has(k));
+    logger.warn("recommend.regenerate", { submissionId, verified: distinctRecordings(verified), lookupFailed: lookupFailed.length });
+    const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude, ...budget() });
+    for (const c of gen2) {
+      const key = normalizeKey(c.title, c.artist);
+      if (!versionOf.has(key)) versionOf.set(key, `${CANDIDATES_VERSION}#2`); // only keys first seen in attempt 2
+    }
     const v2 = await deps.verify(gen2);
     const seen = new Set(verified.map((v) => v.deezer_id));
     for (const v of v2.verified) if (!seen.has(v.deezer_id)) { verified.push(v); seen.add(v.deezer_id); }
     unverified = [...unverified, ...v2.unverified];
+    lookupFailed = [...lookupFailed, ...v2.lookupFailed];
+  }
+  if (lookupFailed.length) {
+    logger.warn("recommend.lookup_failed_dropped", { submissionId, count: lookupFailed.length, titles: lookupFailed.map((c) => c.title) });
   }
 
-  const scored = distinctRecordings(verified) >= 3 ? await deps.score(analysis, brief, verified) : [];
+  const scored = distinctRecordings(verified) >= 3 ? await deps.score(analysis, brief, verified, budget()) : [];
   const rows: CandidateInsert[] = [
     ...scored.map((c) => toCandidateInsert(submissionId, c, true, `${versionOf.get(normalizeKey(c.title, c.artist)) ?? CANDIDATES_VERSION}+${SCORING_VERSION}`)),
     ...(scored.length ? [] : verified).map((c) => toCandidateInsert(submissionId, c, true, versionOf.get(normalizeKey(c.title, c.artist)) ?? CANDIDATES_VERSION)),
@@ -8546,7 +8902,7 @@ export async function recommendSubmission(submissionId: string, deps: RecommendD
   const idByDeezer = new Map(inserted.filter((r) => r.deezer_id).map((r) => [r.deezer_id as string, r.id]));
 
   const picks = deps.sections(deps.diversify(scored), analysis);
-  const finals = await deps.explain(picks, analysis, brief);
+  const finals = await deps.explain(picks, analysis, brief, budget());
 
   await deps.replaceRecommendations(
     submissionId,
@@ -8560,17 +8916,17 @@ export async function recommendSubmission(submissionId: string, deps: RecommendD
 }
 ```
 
-- [ ] **Step 5: Plug into the runner (one line)**
+- [ ] **Step 5: Plug into the runner (two lines)**
 
-In `src/pipeline/run.ts` (Phase 2), replace the stub import in the default deps:
+In `src/pipeline/run.ts` (Phase 2), replace the stub in the default deps. The runner's slot is `recommend: (id: string, ctx: StageCtx) => Promise<void>`; the orchestrator additionally takes `deps` as a third parameter, so the wiring is an explicit adapter, never a bare function reference:
 
 ```ts
 // before (Phase 2 stub)
-// recommend: async (id) => { throw new PipelineError("recommend", "not implemented"); },
+// recommend: recommendNotImplemented,
 // after
 import { recommendSubmission } from "@/src/engine/recommend";
 // … in defaultDeps:
-recommend: recommendSubmission,
+recommend: (id, ctx) => recommendSubmission(id, ctx),
 ```
 
 Nothing else in `run.ts` changes: status handling, the atomic claim, the time budget and `pipeline_failed` logging all stay as Phase 2 wrote them (ruling C3).
@@ -8598,17 +8954,21 @@ git commit -m "Add recommendation orchestrator with merged regeneration and plug
 - Test: `tests/shared/format.test.ts`, `tests/shared/views.test.ts`
 
 **Interfaces:**
-- Consumes: `listRecommendations` (Phase 0), `getSubmission`, `getCreator` (Phase 1), `logEvent`, `<WaitingState submissionId>` (Phase 1), `RecommendationView` (header).
+- Consumes: `listRecommendations` (Phase 0), `getSubmission`, `getCreator` (Phase 1), `logEvent`, `<WaitingState submissionId initialStatus>` (Phase 1, Task 1.5 — exactly those two props), `RecommendationView` (header).
 - Produces:
   ```ts
   export function formatTime(seconds: number): string;                                  // "0:43"
   export function toRecommendationView(row: RecommendationRow): RecommendationView;      // the ONLY mapper to the browser shape
   // GET /api/submissions/[id] → { status: SubmissionStatus; recommendations: RecommendationView[] }
-  // <RecommendationCard rec chosen collapsed onSelect onReject />
-  // <ResultsView submissionId recommendations />   (Phase 4 wires real handlers; here local state)
+  export type Rank = 1 | 2 | 3;
+  // <RecommendationCard rec chosen collapsed onSelect={(rank: Rank) => void} onReject={(rank: Rank) => void} />
+  // <ResultsView submission={{ id }} recommendations onSelect? onReject? />
+  //   Renders the "Your Songfit" heading, the three cards and the section-estimate footer. When onSelect/onReject
+  //   are omitted it keeps local state (this task). Phase 4 WRAPS ResultsView in a client component that supplies
+  //   real handlers and server-seeded state; Phase 4 must not replace ResultsView or re-implement its heading/footer.
   ```
 
-Rulings C5 (one DTO, no scores/reasons/directions to the browser), I10 (`selected`/`rejected` come from the server so refresh keeps state), C6 (footer copy).
+Rulings C5 (one DTO, no scores/reasons/directions to the browser), I10 (`selected`/`rejected` come from the server so refresh keeps state), C6 (footer copy), C8 (Dylan chose artwork-free cards: nothing renders `artwork_url`; the field stays in the DTO for a later decision).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -8745,33 +9105,44 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   const sub = await getSubmission(id);
   if (!sub || sub.creator_id !== creator.id) notFound();
 
-  if (sub.status !== "ready") return <WaitingState submissionId={id} status={sub.status} />;
+  const submission = sub;
+  if (submission.status !== "ready") return <WaitingState submissionId={id} initialStatus={submission.status} />;
 
   if (await markViewed(id)) {
     await logEvent({ name: "recommendations_viewed", creatorId: creator.id, submissionId: id });
   }
-  const recs = (await listRecommendations(id)).map(toRecommendationView);
-  return <ResultsView submissionId={id} recommendations={recs} />;
+  const recommendations = (await listRecommendations(id)).map(toRecommendationView);
+  return <ResultsView submission={{ id: submission.id }} recommendations={recommendations} />;
 }
 ```
 
-`WaitingState` gains an optional `status` prop here so a `failed` submission can render the honest failure state (ruling I10); Phase 4 Task 4.1 wires the copy. For this task pass it through; `WaitingState` may ignore it.
+`WaitingState` (Phase 1, Task 1.5) already renders the honest failure state from `initialStatus`/polling; this page passes exactly its two props and adds nothing.
 
 ```tsx
 // components/ResultsView.tsx
 "use client";
 import { useState } from "react";
-import { RecommendationCard } from "@/components/RecommendationCard";
+import { RecommendationCard, type Rank } from "@/components/RecommendationCard";
 import type { RecommendationView } from "@/src/shared/types";
 
-export function ResultsView({ submissionId, recommendations }: { submissionId: string; recommendations: RecommendationView[] }) {
-  // Phase 4 replaces local state with the feedback API; the server-provided selected/rejected flags seed it.
-  const [selected, setSelected] = useState<number | null>(recommendations.find((r) => r.selected)?.rank ?? null);
-  const [rejected, setRejected] = useState<Set<number>>(new Set(recommendations.filter((r) => r.rejected).map((r) => r.rank)));
-  void submissionId;
+export type ResultsViewProps = {
+  submission: { id: string };
+  recommendations: RecommendationView[];
+  /** Phase 4 supplies these from its client wrapper. Omitted → local state only (this task). */
+  onSelect?: (rank: Rank) => void;
+  onReject?: (rank: Rank) => void;
+};
+
+export function ResultsView({ submission, recommendations, onSelect, onReject }: ResultsViewProps) {
+  // Server-provided selected/rejected flags seed local state so a refresh keeps what the creator did.
+  const [selected, setSelected] = useState<Rank | null>(recommendations.find((r) => r.selected)?.rank ?? null);
+  const [rejected, setRejected] = useState<Set<Rank>>(new Set(recommendations.filter((r) => r.rejected).map((r) => r.rank)));
+
+  const select = (rank: Rank) => { setSelected(rank); onSelect?.(rank); };
+  const reject = (rank: Rank) => { setRejected((s) => new Set(s).add(rank)); onReject?.(rank); };
 
   return (
-    <main className="mx-auto max-w-md px-4 pb-16 pt-8">
+    <main className="mx-auto max-w-md px-4 pb-16 pt-8" data-submission-id={submission.id}>
       <h1 className="text-2xl font-semibold tracking-tight text-ink">Your Songfit</h1>
       <p className="mt-1 text-sm text-ink/60">Three songs that fit this video. Tap one to use it.</p>
       <div className="mt-6 flex flex-col gap-4">
@@ -8781,8 +9152,8 @@ export function ResultsView({ submissionId, recommendations }: { submissionId: s
             rec={{ ...r, selected: selected === r.rank, rejected: rejected.has(r.rank) }}
             chosen={selected === r.rank}
             collapsed={selected !== null && selected !== r.rank}
-            onSelect={(rank) => setSelected(rank)}
-            onReject={(rank) => setRejected((s) => new Set(s).add(rank))}
+            onSelect={select}
+            onReject={reject}
           />
         ))}
       </div>
@@ -8799,14 +9170,17 @@ import { useRef, useState } from "react";
 import { formatTime } from "@/src/shared/format";
 import type { RecommendationView } from "@/src/shared/types";
 
+export type Rank = 1 | 2 | 3;
+
 type Props = {
   rec: RecommendationView;
   chosen: boolean;
   collapsed: boolean;
-  onSelect: (rank: number) => void;
-  onReject: (rank: number) => void;
+  onSelect: (rank: Rank) => void;
+  onReject: (rank: Rank) => void;
 };
 
+// Artwork-free by decision (C8): the card never renders rec.artwork_url.
 export function RecommendationCard({ rec, chosen, collapsed, onSelect, onReject }: Props) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -8821,18 +9195,11 @@ export function RecommendationCard({ rec, chosen, collapsed, onSelect, onReject 
 
   return (
     <article className={["rounded-2xl border border-ink/10 bg-white shadow-sm transition", featured ? "p-5" : "p-4", rec.rejected ? "opacity-40" : ""].join(" ")}>
-      <div className="flex gap-4">
-        {rec.artwork_url ? (
-          <img src={rec.artwork_url} alt="" className={featured ? "h-24 w-24 rounded-xl object-cover" : "h-16 w-16 rounded-lg object-cover"} />
-        ) : (
-          <div className={featured ? "h-24 w-24 rounded-xl bg-ink/5" : "h-16 w-16 rounded-lg bg-ink/5"} />
-        )}
-        <div className="min-w-0 flex-1">
-          <span className="inline-block rounded-full bg-steel/10 px-2 py-0.5 text-xs font-medium text-steel">#{rec.rank} {rec.direction_label}</span>
-          <h2 className={featured ? "mt-1 truncate text-lg font-semibold text-ink" : "mt-1 truncate font-semibold text-ink"}>{rec.title}</h2>
-          <p className="truncate text-sm text-ink/60">{rec.artist}</p>
-          <p className="mt-2 text-base font-bold text-ink">Use {formatTime(rec.start_seconds)}–{formatTime(rec.end_seconds)}</p>
-        </div>
+      <div className="min-w-0">
+        <span className="inline-block rounded-full bg-steel/10 px-2 py-0.5 text-xs font-medium text-steel">#{rec.rank} {rec.direction_label}</span>
+        <h2 className={featured ? "mt-2 text-xl font-semibold text-ink" : "mt-2 text-lg font-semibold text-ink"}>{rec.title}</h2>
+        <p className="text-sm text-ink/60">{rec.artist}</p>
+        <p className={featured ? "mt-3 text-xl font-bold text-ink" : "mt-3 text-base font-bold text-ink"}>Use {formatTime(rec.start_seconds)}–{formatTime(rec.end_seconds)}</p>
       </div>
 
       <p className="mt-3 text-sm leading-relaxed text-ink/80">{rec.explanation}</p>
@@ -8866,7 +9233,7 @@ Tailwind tokens `ink` and `steel` come from Phase 0's `tailwind.config.ts`.
 - [ ] **Step 7: Check it renders**
 
 Run: `pnpm typecheck && pnpm dev`, open `/results/<id of a ready submission>` at a 390 px viewport.
-Expected: "Your Songfit", three cards with #1 larger, bold "Use m:ss–m:ss", no preview button (previews disabled), "Open in Spotify" opens a search in a new tab, "Use this" hides the other two, "Not for me" dims a card, the footer line is present. Refreshing does not log a second `recommendations_viewed` event. The JSON from `/api/submissions/<id>` contains no `component_scores`, `directions`, `anchor_seconds` or `deezer_id`.
+Expected: "Your Songfit", three cards with #1 larger, no artwork anywhere, bold "Use m:ss–m:ss", no preview button (previews disabled), "Open in Spotify" opens a search in a new tab, "Use this" hides the other two, "Not for me" dims a card, the footer line "Sections are our best estimate. Check it against the track." is present. Refreshing does not log a second `recommendations_viewed` event. The JSON from `/api/submissions/<id>` contains no `component_scores`, `directions`, `anchor_seconds` or `deezer_id`.
 
 - [ ] **Step 8: Commit**
 
@@ -8915,7 +9282,8 @@ export function CandidatesTable({ rows }: { rows: CandidateRow[] }) {
               <tr key={r.id} className={r.verified ? "" : "text-gray-400"}>
                 <td className="p-1">{i + 1}</td>
                 <td className="p-1" title={`${r.section_reason} / ${r.fit_reason}`}>{r.canonical_title ?? r.title} — {r.canonical_artist ?? r.artist}</td>
-                <td className="p-1">{(r.directions ?? []).join(",")}</td>
+                {/* "current" is the model's belief about recent popularity, not a measured trend (I9). */}
+                <td className="p-1">{(r.directions ?? []).map((d) => (d === "current" ? "current (unverified)" : d)).join(", ")}</td>
                 <td className="p-1">{r.verified ? "yes" : "no"}</td>
                 <td className="p-1">{formatTime(Number(r.anchor_seconds))}</td>
                 <td className="p-1">{formatTime(Number(r.proposed_start))}–{formatTime(Number(r.proposed_end))}</td>
@@ -8971,7 +9339,7 @@ const [candidates, recs] = await Promise.all([listCandidates(id), listRecommenda
 - [ ] **Step 3: Check it renders**
 
 Run: `pnpm typecheck && pnpm dev`, open `/admin/submissions/<id>` as the admin.
-Expected: "Final 3" with alignment notes where present, and a candidates table sorted by total with unverified rows greyed out; hovering a score shows its reason; hovering a song shows both reasons.
+Expected: "Final 3" with alignment notes where present, and a candidates table sorted by total with unverified rows greyed out; the `current` direction is shown as "current (unverified)"; hovering a score shows its reason; hovering a song shows both reasons.
 
 - [ ] **Step 4: Commit**
 
@@ -9016,7 +9384,7 @@ Migration numbering after Phase 0 ships 0001–0003: this phase adds only `0004_
 No migration: `recommendations.selected`, `recommendations.rejected` and `stripe_events` were created in Phase 0 (`0001_init.sql`). If `pnpm db:types` output lacks `selected` on `recommendations`, stop and fix Phase 0 Task 0.3 first.
 
 **Interfaces:**
-- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` → `{ id, creator_id, status, ... } | null`; `markRecommendationFeedback(submissionId, rank, patch)` from `src/db/queries/recommendations.ts` — returns the number of rows updated (`Promise<number>`); `insertEvent` / `createServiceClient()`; `getCreator()`.
+- Consumes: `logEvent({ name, creatorId, submissionId, metadata })` from `src/feedback/events.ts`; `getSubmission(id)` → `{ id, creator_id, status, ... } | null`; `markRecommendationFeedback(submissionId, rank, patch)` from `src/db/queries/recommendations.ts` (Phase 0) — returns the number of rows updated (`Promise<number>`). Contract required here (ruling I10): it is ONE round trip, `rpc("set_recommendation_feedback", { p_submission_id, p_rank, p_selected, p_rejected })`, whose SQL function performs a single `update recommendations set selected = case when rank = p_rank then coalesce(p_selected, selected) else (case when p_selected then false else selected end) end, rejected = case when rank = p_rank then coalesce(p_rejected, rejected) else rejected end where submission_id = p_submission_id` and returns the count of rows whose `rank = p_rank`. Two concurrent selects can therefore never leave two rows selected. If Phase 0's query still issues a separate "clear others" statement before the update, replace it with this function (migration `0001_init.sql`, service-role execute only) before this task; `insertEvent` / `createServiceClient()`; `getCreator()`.
 - Produces:
   ```ts
   // src/db/queries/events.ts
@@ -9159,7 +9527,7 @@ async function assertOwned(submissionId: string, creatorId: string): Promise<voi
 
 export async function selectRecommendation(submissionId: string, rank: Rank, creatorId: string): Promise<void> {
   await assertOwned(submissionId, creatorId);
-  // Exclusive: the query clears `selected` on the other ranks in the same statement.
+  // Exclusive and atomic: one SQL function updates all ranks of the submission in a single statement.
   const updated = await markRecommendationFeedback(submissionId, rank, { selected: true, rejected: false });
   if (updated === 0) throw new FeedbackError(404, "no such recommendation");
   if (await hasEvent(submissionId, "recommendation_selected", { rank })) return;
@@ -9253,11 +9621,13 @@ git commit -m "Add owned, idempotent feedback actions and API route"
 **Files:**
 - Create: `src/feedback/resultsState.ts`
 - Create: `components/ResultsClient.tsx`
-- Modify: `app/results/[id]/page.tsx` (render `ResultsClient` instead of mapping cards directly)
+- Modify: `components/ResultsView.tsx` (Phase 3) — drop its local state, accept handlers and a `children` slot; keeps the heading and the "Sections are our best estimate" footer
+- Modify: `components/RecommendationCard.tsx` (Phase 3) — narrow `onSelect`/`onReject` to `(rank: 1 | 2 | 3) => void`
+- Modify: `app/results/[id]/page.tsx` (Phase 3) — render `ResultsClient` instead of `ResultsView` directly
 - Test: `tests/feedback/resultsState.test.ts`
 
 **Interfaces:**
-- Consumes: `RecommendationView` from `@/src/shared/types` (fields `rank, direction_label, title, artist, start_seconds, end_seconds, explanation, artwork_url, preview_url, spotify_url, selected, rejected`); `RecommendationCard` props `{ rec: RecommendationView; chosen: boolean; collapsed: boolean; onSelect: (rank) => void; onReject: (rank) => void }` (Phase 3); `Offer` from Task 4.3 (stub in Step 7 if executed first).
+- Consumes: `RecommendationView` from `@/src/shared/types` (fields `rank, direction_label, title, artist, start_seconds, end_seconds, explanation, artwork_url, preview_url, spotify_url, selected, rejected`); Phase 3's `ResultsView({ submissionId, recommendations })` and `RecommendationCard({ rec, chosen, collapsed, onSelect, onReject })`; Phase 3's results page, which has `id`, `creator` (from `getCreator()`), `sub` and `recs: RecommendationView[]` (built by `toRecommendationView`) and returns `<ResultsView submissionId={id} recommendations={recs} />`; `Offer` from Task 4.3 (stub in Step 8 if executed first); `env()` from `src/shared/config.ts`.
 - Produces:
   ```ts
   // src/feedback/resultsState.ts
@@ -9266,8 +9636,13 @@ git commit -m "Add owned, idempotent feedback actions and API route"
   export type ResultsAction = { type: "select"; rank: Rank } | { type: "reject"; rank: Rank };
   export function initialResultsState(recs: { rank: Rank; selected: boolean; rejected: boolean }[]): ResultsState;
   export function nextResultsState(state: ResultsState, action: ResultsAction): ResultsState;
+  // components/ResultsView.tsx (modified)
+  export function ResultsView(props: { submissionId: string; recommendations: RecommendationView[]; onSelect?: (rank: Rank) => void; onReject?: (rank: Rank) => void; children?: React.ReactNode }): JSX.Element;
+  // components/RecommendationCard.tsx (modified): onSelect/onReject are (rank: Rank) => void
+  // components/ResultsClient.tsx
+  export function ResultsClient(props: { submissionId: string; recs: RecommendationView[]; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null }): JSX.Element;
   ```
-  State is derived from the server's `selected`/`rejected` flags on load, so a refresh shows the same choice.
+  `ResultsView` is now presentational: `chosen`/`collapsed` are derived from each rec's `selected`/`rejected` flags, so whoever owns state (ResultsClient) passes recs with fresh flags. State is seeded from the server's flags on load, so a refresh shows the same choice.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9364,109 +9739,200 @@ export function nextResultsState(state: ResultsState, action: ResultsAction): Re
 Run: `pnpm vitest run tests/feedback/resultsState.test.ts`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Write the client wrapper**
+- [ ] **Step 5: Make `ResultsView` presentational and narrow the card's rank type**
 
-`components/ResultsClient.tsx`:
+`components/RecommendationCard.tsx` — change only the two callback types in `Props`:
+
+```tsx
+import type { Rank } from "@/src/feedback/resultsState";
+// ...
+type Props = {
+  rec: RecommendationView;
+  chosen: boolean;
+  collapsed: boolean;
+  onSelect: (rank: Rank) => void;
+  onReject: (rank: Rank) => void;
+};
+```
+
+`rec.rank` is already typed `1 | 2 | 3` by `RecommendationView`, so `onSelect(rec.rank)` compiles unchanged.
+
+`components/ResultsView.tsx` — replace the whole file (heading and footer kept verbatim; local `useState` removed; derived from flags):
 
 ```tsx
 "use client";
-import { useReducer, useCallback } from "react";
+import type { ReactNode } from "react";
 import type { RecommendationView } from "@/src/shared/types";
-import { initialResultsState, nextResultsState, type Rank } from "@/src/feedback/resultsState";
+import type { Rank } from "@/src/feedback/resultsState";
 import { RecommendationCard } from "@/components/RecommendationCard";
-import { Offer } from "@/components/Offer";
 
-type Props = { submissionId: string; recs: RecommendationView[]; creatorEmail: string; creatorId: string };
+type Props = {
+  submissionId: string;
+  recommendations: RecommendationView[];
+  onSelect?: (rank: Rank) => void;
+  onReject?: (rank: Rank) => void;
+  children?: ReactNode; // rendered under the cards (offer, "different directions" line, errors)
+};
 
-async function post(submissionId: string, body: Record<string, unknown>) {
-  await fetch(`/api/submissions/${submissionId}/feedback`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    keepalive: true,
-  }).catch(() => undefined); // best-effort for the UI; the server is the record
-}
+const noop = () => undefined;
 
-export function ResultsClient({ submissionId, recs, creatorEmail, creatorId }: Props) {
-  const [state, dispatch] = useReducer(nextResultsState, recs, initialResultsState);
-
-  const onSelect = useCallback((rank: Rank) => {
-    dispatch({ type: "select", rank });
-    void post(submissionId, { action: "select", rank });
-  }, [submissionId]);
-
-  const onReject = useCallback((rank: Rank) => {
-    const next = nextResultsState(state, { type: "reject", rank });
-    dispatch({ type: "reject", rank });
-    void post(submissionId, { action: "reject", rank });
-    if (next.allRejected && !state.allRejected) void post(submissionId, { action: "all_rejected" });
-  }, [submissionId, state]);
-
-  const ordered = [...recs].sort((a, b) => a.rank - b.rank);
+export function ResultsView({ submissionId, recommendations, onSelect = noop, onReject = noop, children }: Props) {
+  void submissionId;
+  const chosenRank = recommendations.find((r) => r.selected)?.rank ?? null;
+  const ordered = [...recommendations].sort((a, b) => a.rank - b.rank);
 
   return (
-    <div className="flex flex-col gap-4">
-      {ordered.map((rec) => (
-        <RecommendationCard
-          key={rec.rank}
-          rec={rec}
-          onSelect={onSelect}
-          onReject={onReject}
-          chosen={state.chosen === rec.rank}
-          collapsed={state.chosen !== null && state.chosen !== rec.rank}
-        />
-      ))}
-      {state.allRejected && (
-        <p className="text-center text-lg font-medium">Want 3 different directions?</p>
-      )}
-      {state.showOffer && (
-        <Offer submissionId={submissionId} creatorEmail={creatorEmail} creatorId={creatorId} />
-      )}
-    </div>
+    <main className="mx-auto max-w-md px-4 pb-16 pt-8">
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Your Songfit</h1>
+      <p className="mt-1 text-sm text-ink/60">Three songs that fit this video. Tap one to use it.</p>
+      <div className="mt-6 flex flex-col gap-4">
+        {ordered.map((r) => (
+          <RecommendationCard
+            key={r.rank}
+            rec={r}
+            chosen={chosenRank === r.rank}
+            collapsed={chosenRank !== null && chosenRank !== r.rank}
+            onSelect={onSelect}
+            onReject={onReject}
+          />
+        ))}
+      </div>
+      {children}
+      <p className="mt-8 text-center text-xs text-ink/50">Sections are our best estimate. Check it against the track.</p>
+    </main>
   );
 }
 ```
 
-- [ ] **Step 6: Wire it into the results page**
+- [ ] **Step 6: Write the client wrapper**
 
-In `app/results/[id]/page.tsx`, replace the block where Phase 3 maps `recommendations` to three `RecommendationCard`s with:
+`components/ResultsClient.tsx` owns state, posts feedback, and reverts on failure:
 
 ```tsx
-<ResultsClient
-  submissionId={submission.id}
-  recs={recommendations}
-  creatorEmail={creator.email}
-  creatorId={creator.id}
-/>
+"use client";
+import { useCallback, useState } from "react";
+import type { RecommendationView } from "@/src/shared/types";
+import { initialResultsState, nextResultsState, type Rank, type ResultsState } from "@/src/feedback/resultsState";
+import { ResultsView } from "@/components/ResultsView";
+import { Offer } from "@/components/Offer";
+
+type Props = {
+  submissionId: string;
+  recs: RecommendationView[];
+  creatorEmail: string;
+  creatorId: string;
+  paymentLinkUrl: string;
+  portalUrl: string | null;
+};
+
+async function post(submissionId: string, body: Record<string, unknown>): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/submissions/${submissionId}/feedback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function withFlags(recs: RecommendationView[], state: ResultsState): RecommendationView[] {
+  return recs.map((r) => ({ ...r, selected: state.chosen === r.rank, rejected: state.rejected.includes(r.rank) }));
+}
+
+export function ResultsClient({ submissionId, recs, creatorEmail, creatorId, paymentLinkUrl, portalUrl }: Props) {
+  const [state, setState] = useState<ResultsState>(() => initialResultsState(recs));
+  const [error, setError] = useState<string | null>(null);
+
+  const apply = useCallback(
+    async (action: { type: "select" | "reject"; rank: Rank }) => {
+      const prev = state;
+      const next = nextResultsState(prev, action);
+      setState(next);
+      setError(null);
+      const ok = await post(submissionId, { action: action.type, rank: action.rank });
+      if (!ok) {
+        setState(prev); // revert: the server is the record
+        setError("Couldn't save that. Try again.");
+        return;
+      }
+      if (action.type === "reject" && next.allRejected && !prev.allRejected) {
+        void post(submissionId, { action: "all_rejected" });
+      }
+    },
+    [state, submissionId],
+  );
+
+  const onSelect = useCallback((rank: Rank) => void apply({ type: "select", rank }), [apply]);
+  const onReject = useCallback((rank: Rank) => void apply({ type: "reject", rank }), [apply]);
+
+  return (
+    <ResultsView submissionId={submissionId} recommendations={withFlags(recs, state)} onSelect={onSelect} onReject={onReject}>
+      {error && <p role="alert" className="mt-4 text-center text-sm text-red-600">{error}</p>}
+      {state.allRejected && <p className="mt-6 text-center text-lg font-medium text-ink">Want 3 different directions?</p>}
+      {state.showOffer && (
+        <div className="mt-6">
+          <Offer submissionId={submissionId} creatorEmail={creatorEmail} creatorId={creatorId} paymentLinkUrl={paymentLinkUrl} portalUrl={portalUrl} />
+        </div>
+      )}
+    </ResultsView>
+  );
+}
 ```
 
-and add `import { ResultsClient } from "@/components/ResultsClient";`. The page already has `creator` from `getCreator()` and `recommendations: RecommendationView[]` built by Phase 3's `toRecommendationView` mapper (which copies `selected`/`rejected` from the rows). Remove the now-unused `RecommendationCard` import from the page.
+- [ ] **Step 7: Wire it into the results page**
 
-- [ ] **Step 7: Temporary Offer stub (only if Task 4.3 is not done yet)**
+In `app/results/[id]/page.tsx` (Phase 3), change the last line of the component from
+
+```tsx
+return <ResultsView submissionId={id} recommendations={recs} />;
+```
+
+to
+
+```tsx
+return (
+  <ResultsClient
+    submissionId={id}
+    recs={recs}
+    creatorEmail={creator.email}
+    creatorId={creator.id}
+    paymentLinkUrl={env("STRIPE_PAYMENT_LINK_URL")}
+    portalUrl={process.env.STRIPE_CUSTOMER_PORTAL_URL ?? null}
+  />
+);
+```
+
+Replace `import { ResultsView } from "@/components/ResultsView";` with `import { ResultsClient } from "@/components/ResultsClient";` and add `import { env } from "@/src/shared/config";`. `submission`, `recommendations` and `creator` are the page's existing variables (Phase 3, Task 3.11). The Stripe URLs are read on the server and passed down; there are no `NEXT_PUBLIC_STRIPE_*` variables.
+
+- [ ] **Step 8: Temporary Offer stub (only if Task 4.3 is not done yet)**
 
 `components/Offer.tsx`:
 
 ```tsx
 "use client";
-export function Offer(_: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }) {
+export function Offer(_: { submissionId: string | null; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null; headline?: string }) {
   return <div className="rounded-2xl border p-6 text-center">Offer goes here.</div>;
 }
 ```
 
 Task 4.3 replaces this file.
 
-- [ ] **Step 8: Typecheck, run, verify in the browser**
+- [ ] **Step 9: Typecheck, run, verify in the browser**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: pass.
+Expected: pass (`tsc` accepts the `Rank` callbacks end to end: card → ResultsView → ResultsClient).
 
-`pnpm dev`, open a ready `/results/<id>` at 390 px wide. Tap "Use this" on #2: #1 and #3 collapse, #2 shows "Your pick", the offer appears. Reload: #2 is still the pick (state came from the server). Tap "Use this" on #3: #3 becomes the pick, #2 collapses. Reload again, tap "Not for me" on all three: "Want 3 different directions?" and the offer appear. In Supabase Studio exactly one recommendation has `selected = true` at any time, and `events` has `recommendation_selected` ×2 (ranks 2 and 3), `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`, each with `creator_id`.
+`pnpm dev`, open a ready `/results/<id>` at 390 px wide. Heading "Your Songfit" and the "Sections are our best estimate" footer are present. Tap "Use this" on #2: #1 and #3 collapse, #2 shows "Chosen. Go make it.", the offer appears under the cards. Reload: #2 is still the pick (state came from the server). Tap "Use this" on #3: #3 becomes the pick, #2 collapses. Reload again, tap "Not for me" on all three: "Want 3 different directions?" and the offer appear. In Supabase Studio exactly one recommendation has `selected = true` at any time, and `events` has `recommendation_selected` ×2 (ranks 2 and 3), `recommendation_rejected` ×3, `all_rejected`, `more_like_this_requested`, each with `creator_id`. Failure path: stop `pnpm dev`'s network (DevTools → Network → Offline), tap "Use this": the card snaps back and "Couldn't save that. Try again." appears; go online, tap again: it sticks.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/feedback/resultsState.ts components/ResultsClient.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
-git commit -m "Wire results feedback with server-derived state and exclusive selection"
+git add src/feedback/resultsState.ts components/ResultsClient.tsx components/ResultsView.tsx components/RecommendationCard.tsx components/Offer.tsx app/results/[id]/page.tsx tests/feedback/resultsState.test.ts
+git commit -m "Wire results feedback with server-derived state, exclusive selection and revert on failure"
 ```
 
 ---
@@ -9481,7 +9947,6 @@ git commit -m "Wire results feedback with server-derived state and exclusive sel
 - Create: `app/subscribe/page.tsx`
 - Create: `app/subscribe/thanks/page.tsx`
 - Create: `components/ThanksClient.tsx`
-- Modify: `.env.example` (add `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`)
 - Test: `tests/billing/paymentLink.test.ts`
 
 **Interfaces:**
@@ -9491,11 +9956,11 @@ git commit -m "Wire results feedback with server-derived state and exclusive sel
   // src/billing/paymentLink.ts
   export function buildPaymentLink(base: string, creatorEmail: string, creatorId: string): string;
   // components/Offer.tsx
-  export function Offer(props: { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string }): JSX.Element;
+  export function Offer(props: { submissionId: string | null; creatorEmail: string; creatorId: string; paymentLinkUrl: string; portalUrl: string | null; headline?: string }): JSX.Element;
   // POST /api/offer-events  body { action: "offer_viewed" | "offer_clicked"; submissionId?: string } → 204 | 400 | 401
   // GET  /api/me/subscription → { status: "active" | "canceled" | "past_due" | "none" }
   ```
-  Env: `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL` (both public Stripe URLs; `NEXT_PUBLIC_` lets client components read them).
+  Env: `STRIPE_PAYMENT_LINK_URL` (required, read with `env()`) and `STRIPE_CUSTOMER_PORTAL_URL` (optional, `process.env… ?? null`) are read ONLY in server components/pages and passed to `Offer`/`ThanksClient` as props. There are no `NEXT_PUBLIC_STRIPE_*` variables; both keys already exist in `.env.example` (Phase 0).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9603,7 +10068,14 @@ export async function GET() {
 import { useEffect, useRef } from "react";
 import { buildPaymentLink } from "@/src/billing/paymentLink";
 
-type Props = { submissionId: string | null; creatorEmail: string; creatorId: string; headline?: string };
+type Props = {
+  submissionId: string | null;
+  creatorEmail: string;
+  creatorId: string;
+  paymentLinkUrl: string;      // from env("STRIPE_PAYMENT_LINK_URL") on the server
+  portalUrl: string | null;    // from process.env.STRIPE_CUSTOMER_PORTAL_URL on the server
+  headline?: string;
+};
 
 function track(action: "offer_viewed" | "offer_clicked", submissionId: string | null) {
   void fetch("/api/offer-events", {
@@ -9614,10 +10086,9 @@ function track(action: "offer_viewed" | "offer_clicked", submissionId: string | 
   }).catch(() => undefined);
 }
 
-export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want Songfit for your next posts?" }: Props) {
-  const base = process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL ?? "";
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
-  const href = base ? buildPaymentLink(base, creatorEmail, creatorId) : "#";
+export function Offer({ submissionId, creatorEmail, creatorId, paymentLinkUrl, portalUrl, headline = "Want Songfit for your next posts?" }: Props) {
+  const href = buildPaymentLink(paymentLinkUrl, creatorEmail, creatorId);
+  const portal = portalUrl ?? "";
   const viewed = useRef(false);
 
   useEffect(() => {
@@ -9654,6 +10125,7 @@ export function Offer({ submissionId, creatorEmail, creatorId, headline = "Want 
 ```tsx
 import { redirect } from "next/navigation";
 import { getCreator } from "@/src/auth/session";
+import { env } from "@/src/shared/config";
 import { Offer } from "@/components/Offer";
 import { Logo } from "@/components/Logo";
 
@@ -9662,12 +10134,13 @@ export const dynamic = "force-dynamic";
 export default async function SubscribePage() {
   const creator = await getCreator();
   if (!creator) redirect("/"); // sign-in is the first tap on the upload screen (Phase 1)
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
+  const paymentLinkUrl = env("STRIPE_PAYMENT_LINK_URL");
+  const portal = process.env.STRIPE_CUSTOMER_PORTAL_URL ?? "";
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 py-10">
       <Logo />
       <p className="text-center text-neutral-700">You&apos;ve used your free Songfit. Subscribe to keep going.</p>
-      <Offer submissionId={null} creatorEmail={creator.email} creatorId={creator.id} headline="Songfit for every post" />
+      <Offer submissionId={null} creatorEmail={creator.email} creatorId={creator.id} paymentLinkUrl={paymentLinkUrl} portalUrl={portal || null} headline="Songfit for every post" />
       {portal && (
         <p className="text-center text-xs text-neutral-500">
           <a href={portal} className="underline">Manage or cancel</a> an existing subscription.
@@ -9746,7 +10219,7 @@ export const dynamic = "force-dynamic";
 export default async function ThanksPage() {
   const creator = await getCreator();
   if (!creator) redirect("/");
-  const portal = process.env.NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL ?? "";
+  const portal = process.env.STRIPE_CUSTOMER_PORTAL_URL ?? ""; // server-side only
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-4 py-10 text-center">
       <Logo />
@@ -9759,15 +10232,10 @@ export default async function ThanksPage() {
 }
 ```
 
-- [ ] **Step 9: Env example**
+- [ ] **Step 9: Env check**
 
-Append to `.env.example` (keep the existing Stripe lines):
-
-```
-# Public Stripe URLs (safe to expose)
-NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL=https://buy.stripe.com/test_replace_me
-NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL=https://billing.stripe.com/p/login/test_replace_me
-```
+Run: `grep -n "STRIPE_PAYMENT_LINK_URL\|STRIPE_CUSTOMER_PORTAL_URL" .env.example`
+Expected: both lines present (added in Phase 0). Do not add `NEXT_PUBLIC_` variants; the URLs are read on the server. Put real values in `.env.local` (Dylan) and in Vercel.
 
 - [ ] **Step 10: Typecheck and verify**
 
@@ -9779,7 +10247,7 @@ Expected: pass.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add components/Offer.tsx components/ThanksClient.tsx src/billing/paymentLink.ts app/api/offer-events/route.ts app/api/me/subscription/route.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx .env.example tests/billing/paymentLink.test.ts
+git add components/Offer.tsx components/ThanksClient.tsx src/billing/paymentLink.ts app/api/offer-events/route.ts app/api/me/subscription/route.ts app/subscribe/page.tsx app/subscribe/thanks/page.tsx tests/billing/paymentLink.test.ts
 git commit -m "Add offer, creator-level offer events, and entitlement-aware subscribe pages"
 ```
 
@@ -9816,7 +10284,7 @@ git commit -m "Add offer, creator-level offer events, and entitlement-aware subs
   };
   export async function handleStripeEvent(event: Stripe.Event, deps?: Partial<StripeDeps>): Promise<"processed" | "duplicate" | "ignored">;
   ```
-  Processing order (C4): check recorded → process (validate, upsert from Stripe's *current* status) → record event id. A throw before recording leaves the event retryable by Stripe.
+  Processing order (C4): check recorded → process (validate, upsert from Stripe's *current* status) → record event id. A throw before recording leaves the event retryable by Stripe. For `customer.subscription.updated|deleted` the handler ALSO calls `retrieveSubscription(sub.id)` and uses the live `status` and price id, never the event snapshot — so a delayed "active" update can no longer undo a cancellation. Creator mapping for those events: existing `stripe_customer_id` row → else `subscription.metadata.creator_id` → else `stripe.unmapped`, ignored.
 
 - [ ] **Step 1: Install stripe**
 
@@ -9922,24 +10390,47 @@ describe("handleStripeEvent", () => {
     expect(await handleStripeEvent(checkoutEvent({ payment_status: "unpaid" }), d)).toBe("ignored");
   });
 
-  it("subscription.updated arriving before checkout upserts from the customer mapping", async () => {
-    const d = deps();
+  it("subscription.updated arriving before checkout retrieves the live subscription and upserts from the customer mapping", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "past_due" })) });
     const r = await handleStripeEvent(subEvent("customer.subscription.updated", { status: "past_due" }), d);
     expect(r).toBe("processed");
+    expect(d.retrieveSubscription).toHaveBeenCalledWith("sub_1");
     expect(d.getCreatorIdByStripeCustomer).toHaveBeenCalledWith("cus_1");
     expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith({ creatorId: "cre-by-customer", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_1", status: "past_due" });
   });
 
+  it("a delayed 'active' update after cancellation uses the LIVE status, so it cannot reactivate", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "canceled" })) });
+    await handleStripeEvent(subEvent("customer.subscription.updated", { status: "active" }), d);
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ status: "canceled" }));
+  });
+
   it("subscription.deleted marks canceled", async () => {
-    const d = deps();
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ status: "canceled" })) });
     await handleStripeEvent(subEvent("customer.subscription.deleted", { status: "canceled" }), d);
     expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ status: "canceled" }));
   });
 
-  it("subscription event for an unmapped customer is ignored", async () => {
+  it("subscription event with a different price id is ignored", async () => {
+    const d = deps({ retrieveSubscription: vi.fn(async () => subscription({ items: { data: [{ price: { id: "price_other" } }] } } as never)) });
+    expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("ignored");
+    expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+  });
+
+  it("subscription event maps the creator from live metadata when no customer row exists yet", async () => {
+    const d = deps({
+      getCreatorIdByStripeCustomer: vi.fn(async () => null),
+      retrieveSubscription: vi.fn(async () => subscription({ metadata: { creator_id: "cre-meta" } } as never)),
+    });
+    expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("processed");
+    expect(d.upsertSubscriptionFromStripe).toHaveBeenCalledWith(expect.objectContaining({ creatorId: "cre-meta" }));
+  });
+
+  it("subscription event for an unmapped customer (no row, no metadata) is ignored", async () => {
     const d = deps({ getCreatorIdByStripeCustomer: vi.fn(async () => null) });
     expect(await handleStripeEvent(subEvent("customer.subscription.updated"), d)).toBe("ignored");
     expect(d.upsertSubscriptionFromStripe).not.toHaveBeenCalled();
+    expect(d.recordStripeEvent).not.toHaveBeenCalled();
   });
 
   it("paid is logged once per subscription id", async () => {
@@ -10152,17 +10643,25 @@ export async function handleStripeEvent(
     return "processed";
   }
 
-  // customer.subscription.updated | deleted — may arrive before or after checkout.
-  const sub = event.data.object as Stripe.Subscription;
-  const stripeCustomerId = idOf(sub.customer);
-  if (!stripeCustomerId || !sub.id) return "ignored";
-  const creatorId = sub.metadata?.creator_id || (await deps.getCreatorIdByStripeCustomer(stripeCustomerId));
-  if (!creatorId) {
-    logger.warn("stripe.unmapped", { customer: stripeCustomerId, subscription: sub.id });
+  // customer.subscription.updated | deleted — may arrive before or after checkout, and out of order.
+  // Never trust the event snapshot: fetch the live subscription for status and price (ruling C4).
+  const snapshot = event.data.object as Stripe.Subscription;
+  if (!snapshot.id) return "ignored";
+  const live = await deps.retrieveSubscription(snapshot.id);
+  const stripeCustomerId = idOf(live.customer) ?? idOf(snapshot.customer);
+  if (!stripeCustomerId) return "ignored";
+  if (priceOf(live) !== deps.priceId) {
+    logger.warn("stripe.wrong_price", { subscription: live.id, price: priceOf(live) });
     return "ignored";
   }
-  const status = event.type === "customer.subscription.deleted" ? "canceled" : toStatus(sub.status);
-  await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId: sub.id, status });
+  const creatorId =
+    (await deps.getCreatorIdByStripeCustomer(stripeCustomerId)) ?? live.metadata?.creator_id ?? null;
+  if (!creatorId) {
+    logger.warn("stripe.unmapped", { customer: stripeCustomerId, subscription: live.id });
+    return "ignored";
+  }
+  const status = event.type === "customer.subscription.deleted" ? "canceled" : toStatus(live.status);
+  await deps.upsertSubscriptionFromStripe({ creatorId, stripeCustomerId, stripeSubscriptionId: live.id, status });
   await deps.recordStripeEvent(event.id, event.type);
   return "processed";
 }
@@ -10171,7 +10670,7 @@ export async function handleStripeEvent(
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/billing/stripe.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 7: Write the route**
 
@@ -10211,8 +10710,8 @@ export async function POST(req: Request) {
 - [ ] **Step 8: Dylan's Stripe setup (do once in test mode, repeat in live mode Wednesday evening)**
 
 - [ ] Stripe Dashboard → Product catalog → Add product → name `Songfit`, recurring, `$9.99` monthly. Save. Open the price and copy its ID (`price_...`) into `STRIPE_PRICE_ID`.
-- [ ] Payment Links → New → pick the Songfit price. "Collect customers' email" on. After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create; copy the link into `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`.
-- [ ] Settings → Billing → Customer portal → Activate; allow "Cancel subscriptions". Copy the portal login link (`https://billing.stripe.com/p/login/...`) into `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`.
+- [ ] Payment Links → New → pick the Songfit price. "Collect customers' email" on. After payment → "Don't show confirmation page" → redirect to `https://thissongfits.com/subscribe/thanks`. Create; copy the link into `STRIPE_PAYMENT_LINK_URL`.
+- [ ] Settings → Billing → Customer portal → Activate; allow "Cancel subscriptions". Copy the portal login link (`https://billing.stripe.com/p/login/...`) into `STRIPE_CUSTOMER_PORTAL_URL`.
 - [ ] Developers → API keys → Secret key into `STRIPE_SECRET_KEY`.
 - [ ] Developers → Webhooks → Add endpoint → `https://thissongfits.com/api/stripe/webhook` → events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Signing secret into `STRIPE_WEBHOOK_SECRET` (Vercel). Locally use the CLI secret from Step 9.
 - [ ] Add all five values to Vercel env (Production + Preview) and `.env.local`.
@@ -10301,11 +10800,16 @@ Expected: FAIL — module not found.
 `src/shared/stats.ts`:
 
 ```ts
+/** Median of a list; null for empty input. Written for `noUncheckedIndexedAccess`. */
 export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
+  const n = values.length;
+  if (n === 0) return null;
   const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  const mid = Math.floor(n / 2);
+  const hi = s[mid] ?? 0;
+  if (n % 2 === 1) return hi;
+  const lo = s[mid - 1] ?? hi;
+  return (lo + hi) / 2;
 }
 ```
 
@@ -10316,9 +10820,16 @@ Expected: PASS, 3 tests.
 
 - [ ] **Step 5: Write the migration**
 
-`supabase/migrations/0004_metrics.sql`:
+`supabase/migrations/0004_metrics.sql` (the `exec_sql` test helper is defined FIRST, in this same migration, so it exists before the fixture test in Step 8 runs):
 
 ```sql
+-- Test helper: run a SQL script. Service role only; never exposed to clients.
+create or replace function exec_sql(sql text) returns void
+language plpgsql security definer set search_path = public as $$
+begin execute sql; end $$;
+revoke execute on function exec_sql(text) from public, anon, authenticated;
+grant execute on function exec_sql(text) to service_role;
+
 -- One-shot metrics summary for the admin page. Service role only.
 -- Funnel counts DISTINCT submissions and DISTINCT creators per milestone.
 -- Category breakdown aggregates submissions first (no event-join multiplication).
@@ -10389,7 +10900,7 @@ grant execute on function metrics_summary() to service_role;
 ```
 
 Run: `pnpm db:push && pnpm db:types`
-Expected (hosted project, see Phase 0 Task 0.3): `supabase db push` applies `0004_metrics.sql`; `src/db/types.ts` gains a `metrics_summary` entry under `Functions`.
+Expected (hosted project, see Phase 0 Task 0.3): `supabase db push` applies `0004_metrics.sql`; `src/db/types.ts` gains `metrics_summary` and `exec_sql` entries under `Functions`. Order matters: migration (with helper) → push → types → Step 8's test.
 
 - [ ] **Step 6: Document in the data model**
 
@@ -10494,25 +11005,39 @@ insert into subscriptions (creator_id, stripe_customer_id, stripe_subscription_i
 on conflict (stripe_subscription_id) do nothing;
 ```
 
-`tests/db/metrics.integration.test.ts` (runs only when a database is configured; it is a real check of the SQL, not a mock):
+`tests/db/metrics.integration.test.ts` (runs only when a database is configured; it is a real check of the SQL, not a mock). It snapshots the summary BEFORE seeding and asserts the EXACT delta the fixture must produce, so the check is exact even when real rows coexist on the hosted project, and any event-join multiplication fails it:
 
 ```ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const enabled = Boolean(url && key && process.env.RUN_DB_TESTS === "1");
+type Summary = {
+  funnel: { stage: string; submissions: number; creators: number }[];
+  byCategory: { category: string; ready: number; selected: number }[];
+  paidCreators: number;
+  paidEvents: number;
+  returningCreators: number;
+};
 
+const enabled = !!process.env.RUN_DB_TESTS && !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 const CREATORS = ["aaaaaaaa-0000-0000-0000-000000000001", "aaaaaaaa-0000-0000-0000-000000000002"];
 
-describe.skipIf(!enabled)("metrics_summary() against the fixture", () => {
-  const db = createClient(url ?? "", key ?? "");
+const stageOf = (m: Summary, s: string) => m.funnel.find((f) => f.stage === s) ?? { stage: s, submissions: 0, creators: 0 };
+const catOf = (m: Summary, c: string) => m.byCategory.find((x) => x.category === c) ?? { category: c, ready: 0, selected: 0 };
+
+describe.skipIf(!enabled)("metrics_summary() against the fixture (exact deltas)", () => {
+  let db: SupabaseClient;
+  let before: Summary;
 
   beforeAll(async () => {
+    // Constructed only when enabled, so a missing env never throws at collection time.
+    db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL as string, process.env.SUPABASE_SERVICE_ROLE_KEY as string);
+    const snap = await db.rpc("metrics_summary");
+    if (snap.error) throw snap.error;
+    before = snap.data as Summary;
     const sql = readFileSync("supabase/seed/metrics_fixture.sql", "utf8");
-    const { error } = await db.rpc("exec_sql", { sql }); // helper below
+    const { error } = await db.rpc("exec_sql", { sql }); // defined in 0004_metrics.sql, already pushed in Step 5
     if (error) throw error;
   });
 
@@ -10523,42 +11048,35 @@ describe.skipIf(!enabled)("metrics_summary() against the fixture", () => {
     await db.from("creators").delete().in("id", CREATORS);
   });
 
-  it("counts distinct submissions and creators, aggregates categories once, and reports paid correctly", async () => {
+  it("adds exactly the fixture's distinct submissions/creators, one category row per submission, and one paid creator", async () => {
     const { data, error } = await db.rpc("metrics_summary");
     expect(error).toBeNull();
-    const m = data as {
-      funnel: { stage: string; submissions: number; creators: number }[];
-      byCategory: { category: string; ready: number; selected: number }[];
-      paidCreators: number; paidEvents: number; returningCreators: number;
-    };
-    const stage = (s: string) => m.funnel.find((f) => f.stage === s)!;
-    expect(stage("submission_created").submissions).toBeGreaterThanOrEqual(3);
-    expect(stage("submission_created").creators).toBeGreaterThanOrEqual(2);
-    expect(stage("recommendations_ready").creators).toBeGreaterThanOrEqual(2); // creatorId is on ready events now (I7)
-    expect(stage("recommendations_viewed").submissions).toBeGreaterThanOrEqual(1); // two view rows, one submission
-    const fashion = m.byCategory.find((c) => c.category === "fashion")!;
-    expect(fashion.ready).toBeGreaterThanOrEqual(2); // not multiplied by the 5 events on submission 1
-    expect(fashion.selected).toBeGreaterThanOrEqual(1);
-    expect(m.paidCreators).toBeGreaterThanOrEqual(1);
-    expect(m.paidEvents).toBeGreaterThanOrEqual(1);
-    expect(m.returningCreators).toBeGreaterThanOrEqual(1);
+    const after = data as Summary;
+    const d = (s: string, k: "submissions" | "creators") => stageOf(after, s)[k] - stageOf(before, s)[k];
+
+    expect(d("submission_created", "submissions")).toBe(3);
+    expect(d("submission_created", "creators")).toBe(2);
+    expect(d("recommendations_ready", "submissions")).toBe(3);
+    expect(d("recommendations_ready", "creators")).toBe(2);      // creatorId is on ready events (I7)
+    expect(d("recommendations_viewed", "submissions")).toBe(1);  // two view rows, ONE submission
+    expect(d("recommendation_selected", "submissions")).toBe(1);
+    expect(d("paid_offer_viewed", "creators")).toBe(1);          // null submission_id, creator-level event
+    expect(d("paid", "creators")).toBe(1);
+
+    const fashion = catOf(after, "fashion").ready - catOf(before, "fashion").ready;
+    expect(fashion).toBe(2);                                     // NOT multiplied by the 5 events on submission 1
+    expect(catOf(after, "fashion").selected - catOf(before, "fashion").selected).toBe(1);
+    expect(catOf(after, "fitness").ready - catOf(before, "fitness").ready).toBe(1);
+
+    expect(after.paidCreators - before.paidCreators).toBe(1);
+    expect(after.paidEvents - before.paidEvents).toBe(1);
+    expect(after.returningCreators - before.returningCreators).toBe(1); // creator A has 2 submissions
   });
 });
 ```
 
-The fixture is loaded through a tiny helper function. Add to the top of `supabase/migrations/0004_metrics.sql` (service role only):
-
-```sql
--- Test helper: run a SQL script. Service role only; never exposed to clients.
-create or replace function exec_sql(sql text) returns void
-language plpgsql security definer set search_path = public as $$
-begin execute sql; end $$;
-revoke execute on function exec_sql(text) from public, anon, authenticated;
-grant execute on function exec_sql(text) to service_role;
-```
-
 Run: `RUN_DB_TESTS=1 pnpm vitest run tests/db/metrics.integration.test.ts`
-Expected: PASS (1). Without `RUN_DB_TESTS=1` the suite reports it as skipped, so `pnpm test` stays green in CI-less local runs. (`≥` assertions keep the test valid when real data coexists with the fixture on the hosted project.)
+Expected: PASS (1). Without `RUN_DB_TESTS=1` the suite is reported as skipped and no client is constructed, so `pnpm test` stays green without a database.
 
 - [ ] **Step 9: Write the page**
 
@@ -10643,7 +11161,7 @@ In `app/admin/layout.tsx` add a nav link next to the existing "Queue" link:
 - [ ] **Step 10: Verify**
 
 Run: `pnpm typecheck && pnpm test`
-Expected: pass (integration test skipped unless `RUN_DB_TESTS=1`).
+Expected: pass (integration test skipped unless `RUN_DB_TESTS=1`); `median` compiles under `noUncheckedIndexedAccess`.
 
 Open `/admin/metrics` as the admin: the four tiles, funnel rows in order `submission_created … paid` with both distinct counts, a category table, returning creators, raw event counts. As a non-admin: redirected (existing `requireAdmin`).
 
@@ -10814,34 +11332,27 @@ git commit -m "Harden uploads, admin gating, error pages and config for launch"
 
 ---
 
-### Task 4.7: Production plans, domain and smoke test
+### Task 4.7: Domain, production URLs and smoke test
 
 **Files:**
 - Modify: `README.md` (Deploy section)
-- Modify (only if staying on Supabase Free): `src/shared/config.ts` (`maxUploadBytes`), `components/UploadForm.tsx` copy
 
-The Vercel project and GitHub repo already exist from Phase 1 Task 1.7; this task finishes production.
+The Vercel project, GitHub repo, Vercel Pro and Supabase Pro plans, the 150 MB Storage limit and the first deployed phone test are all done in Phase 1 Task 1.7 (Dylan approved the paid plans on 2026-10-06). This task only finishes the production domain and URLs. Confirm `maxDuration = 300` is exported by `app/api/submissions/route.ts` (submit route, runs the pipeline) and `app/api/submissions/[id]/run/route.ts` (admin retry).
 
-- [ ] **Step 1: Plans (Dylan decisions, defaults apply)**
-
-- [ ] **Vercel Pro** (default yes, $20/mo): Vercel → Settings → Billing → upgrade. Reason: commercial use is outside Hobby's terms, and Pro gives the 300 s function budget without relying on Fluid Compute. Confirm `maxDuration = 300` on `app/api/submissions/route.ts` (submit route, runs the pipeline) and `app/api/submissions/[id]/run/route.ts` (admin retry).
-- [ ] **Supabase Pro** (default yes, $25/mo): Supabase → Settings → Billing → Pro. Then Storage → Settings → global file size limit `150 MB`. Reason: Free caps files at 50 MB; a 3-minute 1080p Reel exceeds it.
-  - If Dylan chooses to stay on Free: set `maxUploadBytes: 50 * 1024 * 1024` in `src/shared/config.ts`, change the UploadForm size error to "Videos up to 50 MB for now", and set the Storage limit to 50 MB. Commit that change with message `Cap uploads at 50 MB (Supabase Free)`.
-
-- [ ] **Step 2: Domain**
+- [ ] **Step 1: Domain**
 
 - [ ] Vercel → Project → Settings → Domains → add `thissongfits.com` and `www.thissongfits.com` (redirect www → apex).
 - [ ] Registrar DNS: add the records Vercel shows (`A` for the apex to Vercel's IP, `CNAME` for `www` to `cname.vercel-dns.com`). Wait for "Valid Configuration".
 - [ ] `https://thissongfits.com` serves the app with a valid certificate.
 
-- [ ] **Step 3: Auth and payment URLs**
+- [ ] **Step 2: Auth and payment URLs**
 
 - [ ] Supabase → Authentication → URL Configuration: Site URL `https://thissongfits.com`; Redirect URLs: `https://thissongfits.com/auth/callback` and `http://localhost:3000/auth/callback` only (no `*.vercel.app` wildcard — M3).
 - [ ] Google Cloud Console → the OAuth client from Phase 1: Authorized JavaScript origins add `https://thissongfits.com`; the redirect URI remains `https://<project-ref>.supabase.co/auth/v1/callback`.
-- [ ] Vercel env: `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`; all Stripe LIVE values from Task 4.4 Step 8 (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `NEXT_PUBLIC_STRIPE_PAYMENT_LINK_URL`, `NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL_URL`). Redeploy.
+- [ ] Vercel env: `NEXT_PUBLIC_SITE_URL=https://thissongfits.com`; all Stripe LIVE values from Task 4.4 Step 8 (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `STRIPE_PAYMENT_LINK_URL`, `STRIPE_CUSTOMER_PORTAL_URL`). Redeploy.
 - [ ] Stripe live webhook endpoint → `https://thissongfits.com/api/stripe/webhook`; live Payment Link redirects to `https://thissongfits.com/subscribe/thanks`.
 
-- [ ] **Step 4: Smoke test from a phone on cellular**
+- [ ] **Step 3: Smoke test from a phone on cellular**
 
 - [ ] Wi-Fi off. Open `https://thissongfits.com`. Tap "Continue with Google" (first tap), sign in, the upload form appears.
 - [ ] Upload a 60–90 s iPhone MOV from the camera roll; progress bar moves; waiting state appears.
@@ -10849,7 +11360,7 @@ The Vercel project and GitHub repo already exist from Phase 1 Task 1.7; this tas
 - [ ] "Use this" collapses the others; the offer appears; `/admin` shows the submission `ready` with timing; `/admin/metrics` funnel has 1 creator at each stage reached.
 - [ ] Second upload attempt as the same creator → `/subscribe`.
 
-- [ ] **Step 5: README deploy section**
+- [ ] **Step 4: README deploy section**
 
 Append to `README.md`:
 
@@ -10859,19 +11370,17 @@ Append to `README.md`:
 Production runs on Vercel (Pro) from the `main` branch at https://thissongfits.com.
 Env vars live in Vercel (Settings → Environment Variables); `.env.example` is the list.
 The submit route and the admin run route export `maxDuration = 300`.
-Supabase: Pro plan, Storage file limit 150 MB, Auth Site URL and redirect URLs set to the production domain.
+Supabase: Pro plan and the 150 MB Storage file limit were set in Phase 1 (Task 1.7); Auth Site URL and redirect URLs point at the production domain.
 Google OAuth origins include the production domain. Stripe webhook: `https://thissongfits.com/api/stripe/webhook`.
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add README.md src/shared/config.ts components/UploadForm.tsx
+git add README.md
 git commit -m "Document production deployment"
 git push
 ```
-
-(Only include `src/shared/config.ts` and `components/UploadForm.tsx` if Step 1's 50 MB fallback was taken.)
 
 ---
 

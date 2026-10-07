@@ -35,7 +35,7 @@ Conventions for every task in this phase:
   export function normalizeTitle(s: string): string;       // folded, featuring stripped, version words kept
   export function versionTags(title: string): Set<string>; // {"live","remix","acoustic","sped up","slowed","instrumental","karaoke","cover","demo","radio edit","remaster","extended","version"}
   export function normalizeArtist(s: string): string;      // primary artist, featuring stripped; never split on "and"/"&"
-  export function normalizeKey(title: string, artist: string): string; // `${normalizeTitle}|${normalizeArtist}` (version words removed from title part)
+  export function normalizeKey(title: string, artist: string): string; // `${title sans version words}|${artist}|${version tags}` — version tags INCLUDED so live/remix/sped-up never dedupe with the studio recording (remaster/radio edit ignored: same take)
   export function titlesMatch(a: string, b: string): boolean;  // EQUALITY after removing version words, AND same version tags (ignoring remaster/radio edit)
   export function artistsMatch(a: string, b: string): boolean;
   ```
@@ -117,8 +117,14 @@ describe("matching (10 fixtures)", () => {
     expect(artistsMatch("Florence + The Machine", "Florence + the Machine")).toBe(true);
     expect(artistsMatch("宇多田ヒカル", "宇多田ヒカル")).toBe(true);
   });
-  it("normalizeKey drops version words so dedupe treats edits as one song", () => {
+  it("normalizeKey merges remaster/radio edit with the original (same recording)", () => {
     expect(normalizeKey("Blinding Lights - Remastered", "The Weeknd")).toBe("blinding lights|the weeknd");
+    expect(normalizeKey("Blinding Lights", "The Weeknd")).toBe("blinding lights|the weeknd");
+  });
+  it("normalizeKey keeps real version tags so variants never dedupe together", () => {
+    expect(normalizeKey("Stay (Sped Up)", "The Kid LAROI")).toBe("stay|the kid laroi|sped up");
+    expect(normalizeKey("Stay", "The Kid LAROI")).toBe("stay|the kid laroi");
+    expect(normalizeKey("Stay (Live)", "The Kid LAROI")).not.toBe(normalizeKey("Stay", "The Kid LAROI"));
   });
 });
 ```
@@ -143,7 +149,11 @@ const VERSION_WORDS = [
 const SAME_RECORDING = new Set(["remaster", "radio edit"]); // same take, different master/cut
 
 const FEAT_PAREN_RE = /\s*[(\[][^)\]]*\b(?:feat\.?|ft\.?|featuring|with)\b[^)\]]*[)\]]/gi;
-const FEAT_TAIL_RE = /\s+\b(?:feat\.?|ft\.?|featuring)\b\s+.*$/i;
+// No `\b` after the optional dot: "feat." is followed by a space, and there is no word boundary
+// between "." and " " — that is why the earlier version failed to strip "Drake feat. Rihanna".
+const FEAT_TAIL_TITLE_RE = /\s*\b(?:feat\.?|ft\.?|featuring)\s+.*$/i;
+// Artists additionally treat "with" as a credit ("Drake with Rihanna"); titles must not ("Stay With Me").
+const FEAT_TAIL_ARTIST_RE = /\s*\b(?:feat\.?|ft\.?|featuring|with)\s+.*$/i;
 
 /** Lowercase, fold combining marks, keep letters/digits of any script, collapse the rest to spaces. */
 function fold(s: string): string {
@@ -156,7 +166,7 @@ function fold(s: string): string {
 }
 
 export function normalizeTitle(s: string): string {
-  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_RE, ""));
+  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_TITLE_RE, ""));
 }
 
 export function versionTags(title: string): Set<string> {
@@ -175,17 +185,20 @@ function stripVersionWords(normalized: string): string {
 }
 
 export function normalizeArtist(s: string): string {
-  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_RE, ""));
-}
-
-export function normalizeKey(title: string, artist: string): string {
-  return `${stripVersionWords(normalizeTitle(title))}|${normalizeArtist(artist)}`;
+  return fold(s.replace(FEAT_PAREN_RE, "").replace(FEAT_TAIL_ARTIST_RE, ""));
 }
 
 function comparableTags(title: string): Set<string> {
   const tags = versionTags(title);
   for (const t of SAME_RECORDING) tags.delete(t);
   return tags;
+}
+
+/** Dedupe key. Version tags are part of the identity (I3): a live or sped-up take is a different recording. */
+export function normalizeKey(title: string, artist: string): string {
+  const tags = [...comparableTags(title)].sort().join(",");
+  const base = `${stripVersionWords(normalizeTitle(title))}|${normalizeArtist(artist)}`;
+  return tags ? `${base}|${tags}` : base;
 }
 
 export function titlesMatch(a: string, b: string): boolean {
@@ -209,7 +222,7 @@ export function artistsMatch(a: string, b: string): boolean {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/normalize.test.ts`
-Expected: PASS, 21 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -231,14 +244,14 @@ git commit -m "Add conservative title and artist normalisation for song matching
 - Produces:
   ```ts
   export const PROMPT_VERSION = "candidates-v2";
-  export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall };
+  export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; timeoutMs?: number }; // timeoutMs comes from the orchestrator's remaining budget
   export function buildCandidatePrompt(direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts?: { note?: string; exclude?: string[] }): string;
   export function parseCandidateList(text: string, direction: DirectionTag): { ok: true; items: GeneratedCandidate[] } | { ok: false; error: string };
   export function mergeCandidates(lists: GeneratedCandidate[][]): GeneratedCandidate[]; // dedupe by normalizeKey, union of directions
   export async function generateCandidates(brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts): Promise<GeneratedCandidate[]>;
   ```
 
-Rulings: C1 (whole-list validation, one retry, then fail), I4 (`exclude` for regeneration), I9 (`directions` keeps every membership; `anchor_seconds` and `section_is_vocal` are explicit fields).
+Rulings: C1 (whole-list validation — a direction must return at least `candidatesPerDirection − 5` items, one retry, then fail), I4 (`exclude` for regeneration), I9 (`directions` keeps every membership; `anchor_seconds` and `section_is_vocal` are explicit fields), C3 (`timeoutMs` threaded from the pipeline budget).
 
 - [ ] **Step 1: Write the shared fixtures**
 
@@ -302,6 +315,8 @@ const item = (title: string, artist = "X") => ({
   title, artist, proposed_start: 10, proposed_end: 25, anchor_seconds: 12, section_is_vocal: true,
   section_reason: "s", fit_reason: "f",
 });
+// A direction must return at least LIMITS.candidatesPerDirection − 5 (= 20) items to be accepted.
+const many = (prefix: string, n = 20, artist = "X") => Array.from({ length: n }, (_, i) => item(`${prefix} ${i}`, artist));
 
 describe("mergeCandidates", () => {
   it("dedupes by normalised key and unions directions in first-seen order", () => {
@@ -318,13 +333,19 @@ describe("mergeCandidates", () => {
 
 describe("parseCandidateList", () => {
   it("accepts a fenced array and stamps the direction", () => {
-    const r = parseCandidateList("```json\n" + JSON.stringify([item("A")]) + "\n```", "unexpected");
+    const r = parseCandidateList("```json\n" + JSON.stringify(many("A")) + "\n```", "unexpected");
     expect(r.ok && r.items[0]!.directions).toEqual(["unexpected"]);
+    expect(r.ok && r.items).toHaveLength(20);
   });
   it("rejects the whole list when any item is malformed", () => {
-    const r = parseCandidateList(JSON.stringify([item("A"), { title: "Bad", artist: "C" }]), "safe");
+    const r = parseCandidateList(JSON.stringify([...many("A", 19), { title: "Bad", artist: "C" }]), "safe");
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/proposed_start|anchor_seconds|section_is_vocal/);
+  });
+  it("rejects a list that is too short", () => {
+    const r = parseCandidateList(JSON.stringify(many("A", 5)), "safe");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/at least 20/);
   });
   it("rejects prose", () => {
     expect(parseCandidateList("sorry, no", "safe").ok).toBe(false);
@@ -335,16 +356,16 @@ describe("generateCandidates", () => {
   it("makes three calls and merges results", async () => {
     const call = vi.fn(async ({ user }: { user: string }) => {
       const dir = user.includes("DIRECTION: safe") ? "safe" : user.includes("DIRECTION: current") ? "current" : "unexpected";
-      return JSON.stringify([item(`${dir} song`), item("Shared Song", "Y")]);
+      return JSON.stringify([...many(`${dir} song`, 19), item("Shared Song", "Y")]);
     });
     const out = await generateCandidates(brief, analysis, { call });
     expect(call).toHaveBeenCalledTimes(3);
-    expect(out.map((c) => c.title).sort()).toEqual(["Shared Song", "current song", "safe song", "unexpected song"]);
+    expect(out).toHaveLength(3 * 19 + 1); // "Shared Song" merged into one entry
     expect(out.find((c) => c.title === "Shared Song")!.directions).toEqual(["safe", "current", "unexpected"]);
   });
   it("retries a direction once with the validation error, then fails", async () => {
     const call = vi.fn(async ({ user }: { user: string }) =>
-      user.includes("DIRECTION: safe") ? JSON.stringify([{ title: "Bad" }]) : JSON.stringify([item("ok")]));
+      user.includes("DIRECTION: safe") ? JSON.stringify([{ title: "Bad" }]) : JSON.stringify(many("ok")));
     await expect(generateCandidates(brief, analysis, { call })).rejects.toThrow(/candidate output invalid/);
     const safeCalls = call.mock.calls.filter((c) => (c[0] as { user: string }).user.includes("DIRECTION: safe"));
     expect(safeCalls).toHaveLength(2);
@@ -380,7 +401,7 @@ import { normalizeKey } from "@/src/engine/catalog/normalize";
 
 export const PROMPT_VERSION = "candidates-v2";
 
-export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall };
+export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; timeoutMs?: number };
 
 const SYSTEM = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
 You know mainstream, independent and viral music across decades, and you know which songs
@@ -447,7 +468,10 @@ Return ONLY a JSON array, no prose, each item exactly:
 }
 
 const Item = GeneratedCandidate.omit({ directions: true });
-const ItemList = z.array(Item).min(1);
+// C1: a direction that comes back with far fewer songs than asked is treated as invalid output
+// (the model truncated or refused), retried once, then fails the stage. Never silently accept a short list.
+const MIN_PER_DIRECTION = LIMITS.candidatesPerDirection - 5;
+const ItemList = z.array(Item).min(MIN_PER_DIRECTION, { message: `Array must contain at least ${MIN_PER_DIRECTION} element(s)` });
 
 export function parseCandidateList(
   text: string, direction: DirectionTag,
@@ -483,8 +507,9 @@ async function generateDirection(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts: GenerateOpts, call: ClaudeCall,
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
+  const timeoutMs = opts.timeoutMs ?? LIMITS.modelTimeoutMs;
   const started = Date.now();
-  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs });
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
     logger.info("candidates.direction", { direction, ms: Date.now() - started, items: r1.items.length });
@@ -492,7 +517,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs: LIMITS.modelTimeoutMs });
+  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) return r2.items;
   throw new PipelineError("recommend", `candidate output invalid (${direction}): ${r2.error.slice(0, 200)}`, second);
@@ -512,7 +537,7 @@ export async function generateCandidates(
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/candidates/generateCandidates.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -581,6 +606,13 @@ describe("deezerGet", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
     await expect(deezerGet("https://api.deezer.com/x", fetchImpl as unknown as typeof fetch, async () => {}))
       .rejects.toBeInstanceOf(ProviderError);
+  });
+});
+
+describe("searchDeezer", () => {
+  it("treats an error-shaped 200 body (Deezer quota) as a ProviderError, never as no results", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(json({ error: { type: "Exception", message: "Quota limit exceeded", code: 4 } }));
+    await expect(searchDeezer("A", "B", fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
   });
 });
 
@@ -681,11 +713,18 @@ export async function deezerGet(
   throw last ?? new ProviderError("deezer: unknown failure");
 }
 
+const DeezerErrorSchema = z.object({ error: z.object({ message: z.string().optional(), code: z.number().optional() }) });
+
 async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]> {
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
   const body = await deezerLimit(() => deezerGet(url, fetchImpl));
   const parsed = DeezerSearchSchema.safeParse(body);
-  return parsed.success ? parsed.data.data : [];
+  if (parsed.success) return parsed.data.data;
+  // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
+  // not "no such song": it must never be reported as an empty result.
+  const err = DeezerErrorSchema.safeParse(body);
+  if (err.success) throw new ProviderError(`deezer error ${err.data.error.code ?? ""}: ${err.data.error.message ?? "unknown"}`.trim(), err.data.error.code);
+  throw new ProviderError("deezer: unexpected response shape");
 }
 
 export async function searchDeezer(title: string, artist: string, fetchImpl: typeof fetch = fetch): Promise<DeezerTrack[]> {
@@ -713,7 +752,7 @@ export async function findDeezerMatch(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/deezer.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -848,11 +887,13 @@ git commit -m "Add iTunes preview lookup gated by PREVIEWS_ENABLED"
 - Consumes: `GeneratedCandidate`, `VerifiedCandidate`; `findDeezerMatch`, `ProviderError`, `DeezerTrack` (Task 3.3); `PREVIEWS_ENABLED`.
 - Produces:
   ```ts
-  export function validateSection(start: number, end: number, anchor: number, duration: number): { start: number; end: number } | null;
-  export async function verifyCandidates(cands: GeneratedCandidate[], deps?: { find?: typeof findDeezerMatch }): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }>; // throws ProviderError when ≥30% of lookups hit the provider
+  export function validateSection(start: number, end: number, anchor: number, duration: number): { start: number; end: number } | null; // null for tracks shorter than sectionMin + 2
+  export async function verifyCandidates(cands: GeneratedCandidate[], deps?: { find?: typeof findDeezerMatch }): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
+  // unverified = Deezer answered and nothing acceptable matched (a real "no"). lookupFailed = the provider failed twice for that
+  // candidate (NOT a "no"; dropped and logged; does not feed regeneration). Throws ProviderError when ≥30% of lookups still fail after retry.
   ```
 
-Rulings C6 (no clamp-and-pretend: an anchor past the track end means the model is wrong about the song, drop it), I3 (dedupe by `deezer_id`), I4/I5 (outage ≠ no match).
+Rulings C6 (no clamp-and-pretend: an anchor past the track end means the model is wrong about the song, drop it; tracks too short for a section are dropped), I3 (dedupe by `deezer_id`), I9 (duplicates merge their `directions`), I4/I5 (outage ≠ no match: provider failures are retried once, then dropped as `lookupFailed`, never reported as unverified).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -877,6 +918,10 @@ describe("validateSection", () => {
     expect(validateSection(180, 195, 199, 200)).toBeNull();
     expect(validateSection(180, 195, 250, 200)).toBeNull();
   });
+  it("drops a track too short to hold a section", () => {
+    expect(validateSection(0, 10, 3, 12)).toBeNull(); // 12 s < sectionMin (12) + 2
+    expect(validateSection(0, 12, 3, 14)).toEqual({ start: 0, end: 12 });
+  });
 });
 
 const hit = (over: Partial<DeezerTrack> = {}): DeezerTrack => ({
@@ -885,16 +930,18 @@ const hit = (over: Partial<DeezerTrack> = {}): DeezerTrack => ({
 });
 
 describe("verifyCandidates", () => {
-  it("splits verified/unverified, attaches canonical fields, dedupes by deezer id", async () => {
+  it("splits verified/unverified, attaches canonical fields, dedupes by deezer id and merges directions", async () => {
     const find = vi.fn(async (c: { title: string }) => (c.title.startsWith("Found") ? hit() : null));
-    const { verified, unverified } = await verifyCandidates(
-      [gen({ title: "Found" }), gen({ title: "Found - Remastered" }), gen({ title: "Missing" })], { find },
+    const { verified, unverified, lookupFailed } = await verifyCandidates(
+      [gen({ title: "Found", directions: ["safe"] }), gen({ title: "Found - Remastered", directions: ["current"] }), gen({ title: "Missing" })], { find },
     );
     expect(unverified.map((c) => c.title)).toEqual(["Missing"]);
+    expect(lookupFailed).toEqual([]);
     expect(verified).toHaveLength(1);
     expect(verified[0]).toMatchObject({
       deezer_id: "7", canonical_title: "Found", canonical_artist: "The Weeknd", duration_seconds: 200,
       artwork_url: "b.jpg", deezer_url: "https://d/7", preview_url: null, proposed_start: 43, proposed_end: 58,
+      directions: ["safe", "current"],
     });
   });
   it("drops a verified song whose section is impossible for the real track", async () => {
@@ -903,21 +950,34 @@ describe("verifyCandidates", () => {
     expect(verified).toHaveLength(0);
     expect(unverified).toHaveLength(1);
   });
-  it("throws when the provider is failing for 30% or more of lookups", async () => {
+  it("throws when the provider is still failing for 30% or more of lookups after the retry", async () => {
     const find = vi.fn(async (c: { title: string }) => {
       if (c.title === "A") throw new ProviderError("deezer 503", 503);
       return hit();
     });
     await expect(verifyCandidates([gen({ title: "A" }), gen({ title: "B" }), gen({ title: "C" })], { find }))
       .rejects.toBeInstanceOf(ProviderError);
+    expect(find.mock.calls.filter((c) => (c[0] as { title: string }).title === "A")).toHaveLength(2); // retried once
   });
-  it("tolerates a single provider failure among many", async () => {
+  it("retries a transient provider failure and keeps the candidate when the retry succeeds", async () => {
+    let aCalls = 0;
+    const find = vi.fn(async (c: { title: string }) => {
+      if (c.title === "A" && aCalls++ === 0) throw new ProviderError("deezer 503", 503);
+      return hit({ id: Number(c.title.charCodeAt(0)) });
+    });
+    const { verified, lookupFailed } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
+    expect(verified).toHaveLength(4);
+    expect(lookupFailed).toEqual([]);
+  });
+  it("drops a persistently failing lookup as lookupFailed, not unverified", async () => {
     const find = vi.fn(async (c: { title: string }) => {
       if (c.title === "A") throw new ProviderError("deezer 503", 503);
       return hit({ id: Number(c.title.charCodeAt(0)) });
     });
-    const { verified } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
+    const { verified, unverified, lookupFailed } = await verifyCandidates(["A", "B", "C", "D"].map((t) => gen({ title: t })), { find });
     expect(verified).toHaveLength(3);
+    expect(unverified).toEqual([]);
+    expect(lookupFailed.map((c) => c.title)).toEqual(["A"]);
   });
 });
 ```
@@ -932,8 +992,8 @@ Expected: FAIL, module not found.
 ```ts
 // src/engine/catalog/verifyCandidates.ts
 import type { GeneratedCandidate, VerifiedCandidate } from "@/src/shared/types";
-import { PREVIEWS_ENABLED } from "@/src/shared/config";
-import { findDeezerMatch, ProviderError } from "@/src/engine/catalog/deezer";
+import { LIMITS, PREVIEWS_ENABLED } from "@/src/shared/config";
+import { findDeezerMatch, ProviderError, type DeezerTrack } from "@/src/engine/catalog/deezer";
 import { logger } from "@/src/shared/logger";
 
 const OUTAGE_RATIO = 0.3;
@@ -941,58 +1001,76 @@ const OUTAGE_RATIO = 0.3;
 /**
  * A section is valid only if it fits the real track. We never move an anchor: if the model's
  * musical moment cannot exist in this recording, the candidate is wrong, not the arithmetic.
+ * A track shorter than sectionMin + 2 s cannot hold a section at all (C6).
  */
 export function validateSection(
   start: number, end: number, anchor: number, duration: number,
 ): { start: number; end: number } | null {
-  if (duration <= 0) return null;
+  if (duration < LIMITS.sectionMin + 2) return null;
   if (anchor >= duration - 2) return null;
   if (end > duration + 1) return null;
   return { start: Math.max(0, start), end: Math.min(end, duration) };
 }
 
+type Lookup = { ok: true; hit: DeezerTrack | null } | { ok: false; error: unknown };
+
+async function lookup(find: typeof findDeezerMatch, c: GeneratedCandidate): Promise<Lookup> {
+  try {
+    return { ok: true, hit: await find(c) };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 export async function verifyCandidates(
   cands: GeneratedCandidate[],
   deps: { find?: typeof findDeezerMatch } = {},
-): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }> {
+): Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }> {
   const find = deps.find ?? findDeezerMatch;
   const verified: VerifiedCandidate[] = [];
   const unverified: GeneratedCandidate[] = [];
-  const seenIds = new Set<string>();
-  let providerErrors = 0;
+  const lookupFailed: GeneratedCandidate[] = [];
+  const byId = new Map<string, VerifiedCandidate>();
   let lastProviderError: ProviderError | null = null;
 
-  // Concurrency is bounded inside deezer.ts (deezerLimit); allSettled keeps one failure from hiding the rest.
-  const results = await Promise.allSettled(cands.map((c) => find(c)));
+  // Concurrency is bounded inside deezer.ts (deezerLimit). One failure never hides the rest.
+  const results = await Promise.all(cands.map((c) => lookup(find, c)));
+
+  // I4/I5: a provider failure is not a "no". Retry those once, sequentially, after the batch.
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]!;
+    if (!r.ok && r.error instanceof ProviderError) results[i] = await lookup(find, cands[i]!);
+  }
 
   results.forEach((r, i) => {
     const c = cands[i]!;
-    if (r.status === "rejected") {
-      if (r.reason instanceof ProviderError) {
-        providerErrors++;
-        lastProviderError = r.reason;
-      } else {
-        logger.warn("verifyCandidates.lookup_error", { title: c.title, err: String(r.reason) });
-      }
-      unverified.push(c);
+    if (!r.ok) {
+      if (r.error instanceof ProviderError) lastProviderError = r.error;
+      logger.warn("verifyCandidates.lookup_failed", { title: c.title, artist: c.artist, err: String(r.error) });
+      lookupFailed.push(c);
       return;
     }
-    const hit = r.value;
+    const hit = r.hit;
     if (!hit) {
       unverified.push(c);
       return;
     }
     const id = String(hit.id);
-    if (seenIds.has(id)) return; // same recording proposed twice under different spellings
+    const existing = byId.get(id);
+    if (existing) {
+      // Same recording proposed twice under different spellings: keep the first, merge memberships (I9).
+      for (const d of c.directions) if (!existing.directions.includes(d)) existing.directions.push(d);
+      return;
+    }
     const section = validateSection(c.proposed_start, c.proposed_end, c.anchor_seconds, hit.duration);
     if (!section) {
       logger.info("verifyCandidates.section_impossible", { title: c.title, anchor: c.anchor_seconds, duration: hit.duration });
       unverified.push(c);
       return;
     }
-    seenIds.add(id);
-    verified.push({
+    const v: VerifiedCandidate = {
       ...c,
+      directions: [...c.directions],
       proposed_start: section.start,
       proposed_end: section.end,
       deezer_id: id,
@@ -1002,21 +1080,23 @@ export async function verifyCandidates(
       artwork_url: hit.album?.cover_big ?? hit.album?.cover_medium ?? null,
       deezer_url: hit.link,
       preview_url: PREVIEWS_ENABLED ? hit.preview : null,
-    });
+    };
+    byId.set(id, v);
+    verified.push(v);
   });
 
-  if (cands.length > 0 && providerErrors / cands.length >= OUTAGE_RATIO && lastProviderError) {
-    throw lastProviderError;
+  if (cands.length > 0 && lookupFailed.length / cands.length >= OUTAGE_RATIO && lastProviderError) {
+    throw lastProviderError; // outage: let the runner fail the stage instead of regenerating songs
   }
-  logger.info("verifyCandidates", { total: cands.length, verified: verified.length, providerErrors });
-  return { verified, unverified };
+  logger.info("verifyCandidates", { total: cands.length, verified: verified.length, unverified: unverified.length, lookupFailed: lookupFailed.length });
+  return { verified, unverified, lookupFailed };
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/engine/catalog/verifyCandidates.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1043,7 +1123,7 @@ git commit -m "Verify candidates against Deezer, drop impossible sections, dedup
   // modelScores.ts
   export const PROMPT_VERSION = "scoring-v2";
   export function parseScores(text: string, count: number): { ok: true; scores: Record<ModelDimension, ComponentScore>[] } | { ok: false; error: string };
-  export async function modelScores(analysis, brief, cands: VerifiedCandidate[], deps?: { call?: ClaudeCall }): Promise<Record<ModelDimension, ComponentScore>[]>; // aligned with cands; throws PipelineError
+  export async function modelScores(analysis, brief, cands: VerifiedCandidate[], deps?: { call?: ClaudeCall; timeoutMs?: number }): Promise<Record<ModelDimension, ComponentScore>[]>; // aligned with cands; throws PipelineError
   // dialogue.ts
   export function dialogueScore(analysis: VideoAnalysis, cand: VerifiedCandidate): ComponentScore;
   // overuse.ts
@@ -1052,7 +1132,7 @@ git commit -m "Verify candidates against Deezer, drop impossible sections, dedup
   export const WEIGHTS: Record<Dimension, number>;
   export function combine(scores: ComponentScores): number;
   // scoreCandidates.ts
-  export async function scoreCandidates(analysis, brief, cands: VerifiedCandidate[], deps?: { scores?: typeof modelScores }): Promise<ScoredCandidate[]>; // sorted desc by total_score
+  export async function scoreCandidates(analysis, brief, cands: VerifiedCandidate[], deps?: { scores?: typeof modelScores; timeoutMs?: number }): Promise<ScoredCandidate[]>; // sorted desc by total_score; timeoutMs from the orchestrator's remaining budget
   ```
 
 Rulings C1 (every candidate must be scored or the stage fails), I1 (Sonnet, short reasons, right-sized `max_tokens`), I9 (dialogue rule uses the explicit `section_is_vocal` flag, not prose).
@@ -1333,13 +1413,14 @@ export function parseScores(
 
 export async function modelScores(
   analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[],
-  deps: { call?: ClaudeCall } = {},
+  deps: { call?: ClaudeCall; timeoutMs?: number } = {},
 ): Promise<Record<ModelDimension, ComponentScore>[]> {
   const call = deps.call ?? callClaude;
+  const timeoutMs = deps.timeoutMs ?? LIMITS.modelTimeoutMs;
   const user = buildScoringPrompt(analysis, brief, cands);
   const maxTokens = Math.min(16000, 500 + cands.length * TOKENS_PER_ITEM);
   const started = Date.now();
-  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.scoring, system: SYSTEM, user, maxTokens, timeoutMs });
   const r1 = parseScores(first, cands.length);
   if (r1.ok) {
     logger.info("scoring", { ms: Date.now() - started, candidates: cands.length, chars: first.length });
@@ -1347,7 +1428,7 @@ export async function modelScores(
   }
   logger.warn("scoring.retry", { error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array with every index.`;
-  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, timeoutMs: LIMITS.modelTimeoutMs });
+  const second = await call({ model: MODELS.scoring, system: SYSTEM, user: retryUser, maxTokens, timeoutMs });
   const r2 = parseScores(second, cands.length);
   if (r2.ok) return r2.scores;
   throw new PipelineError("recommend", `scoring output invalid: ${r2.error.slice(0, 200)}`, second);
@@ -1364,11 +1445,11 @@ import { combine } from "@/src/engine/scoring/weights";
 
 export async function scoreCandidates(
   analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[],
-  deps: { scores?: typeof modelScores } = {},
+  deps: { scores?: typeof modelScores; timeoutMs?: number } = {},
 ): Promise<ScoredCandidate[]> {
   if (cands.length === 0) return [];
   const scores = deps.scores ?? modelScores;
-  const fromModel = await scores(analysis, brief, cands);
+  const fromModel = await scores(analysis, brief, cands, { timeoutMs: deps.timeoutMs });
   const scored: ScoredCandidate[] = cands.map((c, i) => {
     const component_scores: ComponentScores = {
       ...fromModel[i]!,
@@ -1407,15 +1488,14 @@ git commit -m "Add strict candidate scoring: batched model dimensions, dialogue 
 - Test: `tests/engine/diversify/diversify.test.ts`
 
 **Interfaces:**
-- Consumes: `ScoredCandidate`, `Pick`, `DirectionTag`, `DIRECTION_LABEL`; `normalizeArtist`; `PipelineError`.
+- Consumes: `ScoredCandidate`, `Pick`, `DirectionTag`, `DIRECTION_LABEL`, `BEST_FIT_LABEL` (all from `src/shared/types`, Phase 0); `normalizeArtist`; `PipelineError`.
 - Produces:
   ```ts
   export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTag; // first membership
-  export const RUNNER_UP_LABEL: Record<DirectionTag, string>; // safe: "Safe bet", current: "More current", unexpected: "Unexpected"
   export function diversify(scored: ScoredCandidate[]): Pick[]; // length 3, ranks 1–3
   ```
 
-Ruling I9: overall rank and generation direction are different things. Rank 1 is the top total and is labeled "Best fit" whatever its direction. Ranks 2–3 are labeled by their primary direction (`RUNNER_UP_LABEL`, which equals the header's `DIRECTION_LABEL`: safe → "Safe bet"; rank 1 uses `BEST_FIT_LABEL`).
+Ruling I9: overall rank and generation direction are different things. Rank 1 is the top total and is labeled `BEST_FIT_LABEL` ("Best fit") whatever its direction. Ranks 2–3 are labeled by their primary direction via the shared `DIRECTION_LABEL` (safe → "Safe bet", current → "More current", unexpected → "Unexpected"). There is exactly one label map in the codebase.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1480,17 +1560,11 @@ Expected: FAIL, module not found.
 
 ```ts
 // src/engine/diversify/diversify.ts
-import { DirectionTag, type Pick, type ScoredCandidate } from "@/src/shared/types";
+import { DirectionTag, DIRECTION_LABEL, BEST_FIT_LABEL, type Pick, type ScoredCandidate } from "@/src/shared/types";
 import { PipelineError } from "@/src/shared/errors";
 import { normalizeArtist } from "@/src/engine/catalog/normalize";
 
 const ARTIST_TOLERANCE = 0.1;
-
-export const RUNNER_UP_LABEL: Record<DirectionTag, string> = {
-  safe: "Safe bet",
-  current: "More current",
-  unexpected: "Unexpected",
-};
 
 export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTag {
   return c.directions[0] ?? "safe";
@@ -1533,7 +1607,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
   return picks.map((c, i) => ({
     ...c,
     rank: (i + 1) as 1 | 2 | 3,
-    direction_label: i === 0 ? "Best fit" : RUNNER_UP_LABEL[primaryDirection(c)],
+    direction_label: i === 0 ? BEST_FIT_LABEL : DIRECTION_LABEL[primaryDirection(c)],
     start_seconds: c.proposed_start,
     end_seconds: c.proposed_end,
     aligned_to_moment: null,
@@ -1632,7 +1706,11 @@ describe("selectSections", () => {
     expect(out[1]).toMatchObject({ start_seconds: 0, end_seconds: 15, aligned_to_moment: null });
     // rank 3: window first fitted to 20 s (20–40), then aligned: 22 − 7.8 = 14.2
     expect(out[2]).toMatchObject({ start_seconds: 14.2, end_seconds: 34.2, aligned_to_moment: 7.8 });
-    expect(out.map((p) => p.end_seconds - p.start_seconds)).toEqual([15, 15, 20]);
+    // Lengths are compared with toBeCloseTo: 34.2 − 14.2 is 20.000000000000004 in IEEE 754.
+    const lengths = out.map((p) => p.end_seconds - p.start_seconds);
+    expect(lengths[0]).toBeCloseTo(15, 5);
+    expect(lengths[1]).toBeCloseTo(15, 5);
+    expect(lengths[2]).toBeCloseTo(20, 5);
   });
 });
 ```
@@ -1727,7 +1805,7 @@ git commit -m "Add section selection with feasible-only anchor alignment"
   export const PROMPT_VERSION = "explain-v2";
   export function spotifySearchUrl(title: string, artist: string): string;
   export function parseExplanations(text: string, ranks: number[]): { ok: true; byRank: Map<number, string> } | { ok: false; error: string };
-  export async function explainPicks(picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { call?: ClaudeCall; itunes?: typeof findItunesPreview }): Promise<FinalRecommendation[]>;
+  export async function explainPicks(picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { call?: ClaudeCall; itunes?: typeof findItunesPreview; timeoutMs?: number }): Promise<FinalRecommendation[]>;
   ```
 
 Rulings C1 (all three required, one retry, then fail — no fit_reason fallback), C6/I9 (mention alignment only when `aligned_to_moment` is non-null; never claim trend status or platform availability), I5 (iTunes only for a missing preview; failure never blocks).
@@ -1740,10 +1818,12 @@ import { describe, it, expect, vi } from "vitest";
 import { explainPicks, spotifySearchUrl, buildExplainPrompt } from "@/src/engine/explain/explainPicks";
 import { analysis, brief, pick } from "../fixtures";
 
+// The implementation uses the provider's canonical title/artist for Spotify and iTunes, so the
+// fixtures set title and canonical_title together.
 const three = () => [
-  pick({ rank: 1, title: "Song 1", aligned_to_moment: 7.8 }),
-  pick({ rank: 2, deezer_id: "2", title: "Song 2", direction_label: "More current" }),
-  pick({ rank: 3, deezer_id: "3", title: "Song 3", direction_label: "Unexpected", preview_url: "https://d.mp3" }),
+  pick({ rank: 1, title: "Song 1", canonical_title: "Song 1", aligned_to_moment: 7.8 }),
+  pick({ rank: 2, deezer_id: "2", title: "Song 2", canonical_title: "Song 2", direction_label: "More current" }),
+  pick({ rank: 3, deezer_id: "3", title: "Song 3", canonical_title: "Song 3", direction_label: "Unexpected", preview_url: "https://d.mp3" }),
 ];
 const ok = JSON.stringify([{ rank: 1, explanation: "One." }, { rank: 2, explanation: "Two." }, { rank: 3, explanation: "Three." }]);
 
@@ -1847,24 +1927,26 @@ export function parseExplanations(text: string, ranks: number[]): { ok: true; by
 
 export async function explainPicks(
   picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief,
-  deps: { call?: ClaudeCall; itunes?: typeof findItunesPreview } = {},
+  deps: { call?: ClaudeCall; itunes?: typeof findItunesPreview; timeoutMs?: number } = {},
 ): Promise<FinalRecommendation[]> {
   const call = deps.call ?? callClaude;
   const itunes = deps.itunes ?? findItunesPreview;
+  const timeoutMs = deps.timeoutMs ?? LIMITS.modelTimeoutMs;
   const ranks = picks.map((p) => p.rank);
   const user = buildExplainPrompt(picks, analysis, brief);
 
+  // Previews are optional (I5): the lookup runs alongside the model call and never throws (itunes.ts returns null on failure).
   const previewsP = Promise.all(picks.map((p) => (p.preview_url ? Promise.resolve(null) : itunes(p.canonical_title, p.canonical_artist))));
 
   const started = Date.now();
-  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs: LIMITS.modelTimeoutMs });
+  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs });
   let parsed = parseExplanations(first, ranks);
   if (!parsed.ok) {
     logger.warn("explain.retry", { error: parsed.error.slice(0, 300) });
     const second = await call({
       model: MODELS.explain, system: SYSTEM,
       user: `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${parsed.error.slice(0, 1000)}\nReturn the full corrected JSON array.`,
-      maxTokens: 1500, timeoutMs: LIMITS.modelTimeoutMs,
+      maxTokens: 1500, timeoutMs,
     });
     parsed = parseExplanations(second, ranks);
     if (!parsed.ok) throw new PipelineError("recommend", `explanation output invalid: ${parsed.error.slice(0, 200)}`, second);
@@ -1908,15 +1990,16 @@ git commit -m "Add strict Songfit-voice explanations with alignment-aware prompt
 - Test: `tests/engine/recommend.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 3.2–3.9; from Phase 0: `getSubmission(id)`, `getAnalysis(submissionId) → { analysis, brief, row } | null`, `setSubmissionStatus(id, status, error?)`, `replaceCandidates(submissionId, rows: CandidateInsert[]) → CandidateRow[]` (rows carry `id`, `deezer_id`), `replaceRecommendations(submissionId, rows: RecommendationInsert[])`, `logEvent`, `PipelineError`; from Phase 2: `runSubmission(id, deps)` whose deps include `recommend: (submissionId: string) => Promise<void>` (Phase 2 ships a stub that throws `PipelineError("recommend", "not implemented")`).
+- Consumes: Tasks 3.2–3.9; from Phase 0: `getSubmission(id)`, `getAnalysis(submissionId) → { analysis, brief, row } | null` (Task 0.4), `setSubmissionStatus(id, status, error?)`, `replaceCandidates(submissionId, rows: CandidateInsert[]) → CandidateRow[]` (rows carry `id`, `deezer_id`), `replaceRecommendations(submissionId, rows: RecommendationInsert[]) → RecommendationRow[]`, `logEvent`, `PipelineError`; `CandidateInsert` must include `artwork_url`, `deezer_url`, `preview_url`, `preview_source` (`'deezer' | 'itunes' | null`), `itunes_id`, `aligned_to_moment` — if Phase 0's `0001_init.sql` lacks `preview_source`, add `preview_source text null` to the candidates table there before this task; from Phase 2: `runSubmission(id, deps)` whose deps include `recommend: (id: string, ctx: StageCtx) => Promise<void>` (`StageCtx = { deadlineAt: number }`, exported from `src/pipeline/run.ts`; Phase 2 ships `recommendNotImplemented`), and `remainingBudget(ctx): number` from `src/pipeline/budget.ts` (`Math.max(5_000, Math.min(LIMITS.modelTimeoutMs, ctx.deadlineAt - Date.now() - 5_000))`).
 - Produces:
   ```ts
   export type RecommendDeps = { getSubmission; getAnalysis; generate; verify; score; diversify; sections; explain; replaceCandidates; replaceRecommendations; setStatus; logEvent };
   export function toCandidateInsert(submissionId: string, c: GeneratedCandidate | ScoredCandidate, verified: boolean, promptVersion: string): CandidateInsert;
-  export async function recommendSubmission(submissionId: string, deps?: RecommendDeps): Promise<void>;
+  export async function recommendSubmission(submissionId: string, ctx: StageCtx, deps?: RecommendDeps): Promise<void>;
   ```
+  Dependency injection (`deps`) and the stage context (`ctx`) are separate parameters: the runner always passes `ctx`; tests pass both.
 
-Rulings C3 (one runner; this task does not rewrite `src/pipeline/run.ts`), I4 (regeneration merges with the first attempt by `deezer_id` and excludes seen keys), I7 (`recommendations_ready` carries `creatorId`), I8 (structured provenance persisted: canonical names, anchor, directions, both reasons, `source`, explain prompt version).
+Rulings C3 (one runner; this task does not rewrite `src/pipeline/run.ts`; every model call gets a timeout derived from the remaining pipeline budget), I4 (regeneration merges with the first attempt by `deezer_id` and excludes seen keys; `lookupFailed` candidates are dropped and NOT excluded, because a provider failure says nothing about the song), I7 (`recommendations_ready` carries `creatorId`), I8 (structured provenance persisted: canonical names, anchor, directions, both reasons, `source`, artwork/urls/preview source, explain prompt version; attempt-2 tagging applies only to keys first seen in attempt 2).
 
 - [ ] **Step 1: Make `setSubmissionStatus` preserve the first `recommended_at`**
 
@@ -1952,6 +2035,7 @@ import type { GeneratedCandidate, VerifiedCandidate, FinalRecommendation } from 
 import { analysis, brief, gen, ver, scored, pick } from "./fixtures";
 
 const row = { id: "sub-1", creator_id: "cre-1", status: "recommending" } as never;
+const ctx = () => ({ deadlineAt: Date.now() + 200_000 });
 const finalsFrom = (vs: VerifiedCandidate[]): FinalRecommendation[] =>
   vs.slice(0, 3).map((v, i) => ({ ...pick({ ...v, rank: (i + 1) as 1 | 2 | 3 }), explanation: "e", spotify_url: "s", itunes_id: null }));
 
@@ -1961,7 +2045,7 @@ function makeDeps(over: Partial<RecommendDeps> = {}): RecommendDeps & { calls: s
     getSubmission: vi.fn(async () => row),
     getAnalysis: vi.fn(async () => ({ analysis, brief, row: {} as never })),
     generate: vi.fn(async () => { calls.push("generate"); return []; }),
-    verify: vi.fn(async () => { calls.push("verify"); return { verified: [], unverified: [] }; }),
+    verify: vi.fn(async () => { calls.push("verify"); return { verified: [], unverified: [], lookupFailed: [] }; }),
     score: vi.fn(async (_a, _b, vs: VerifiedCandidate[]) => { calls.push("score"); return vs.map((v) => scored(v)); }),
     diversify: vi.fn((s) => { calls.push("diversify"); return s.slice(0, 3).map((c, i) => pick({ ...c, rank: (i + 1) as 1 | 2 | 3 })); }),
     sections: vi.fn((p) => { calls.push("sections"); return p; }),
@@ -1970,7 +2054,7 @@ function makeDeps(over: Partial<RecommendDeps> = {}): RecommendDeps & { calls: s
       calls.push("replaceCandidates");
       return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id })) as never;
     }),
-    replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); }),
+    replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
     setStatus: vi.fn(async () => { calls.push("setStatus"); }),
     logEvent: vi.fn(async () => {}),
     ...over,
@@ -1984,15 +2068,19 @@ describe("recommendSubmission", () => {
     const verified = generated.slice(0, 3).map((c, i) => ver({ ...c, deezer_id: String(i + 1) }));
     const deps = makeDeps({
       generate: vi.fn(async () => generated),
-      verify: vi.fn(async () => ({ verified, unverified: [generated[3]!] })),
+      verify: vi.fn(async () => ({ verified, unverified: [generated[3]!], lookupFailed: [] })),
     });
-    await recommendSubmission("sub-1", deps);
+    await recommendSubmission("sub-1", ctx(), deps);
     expect(deps.calls.filter((c) => c !== "generate" && c !== "verify"))
       .toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
-    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { verified: boolean; directions: string[]; anchor_seconds: number; source: string }[];
+    // Every model-backed stage received a timeout derived from the remaining budget.
+    expect((deps.generate as ReturnType<typeof vi.fn>).mock.calls[0]![2]).toMatchObject({ timeoutMs: expect.any(Number) });
+    expect((deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![3]).toMatchObject({ timeoutMs: expect.any(Number) });
+    expect((deps.explain as ReturnType<typeof vi.fn>).mock.calls[0]![3]).toMatchObject({ timeoutMs: expect.any(Number) });
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { verified: boolean; directions: string[]; anchor_seconds: number; source: string; preview_source: string | null; aligned_to_moment: number | null; deezer_url: string | null }[];
     expect(rows).toHaveLength(4);
     expect(rows.filter((r) => !r.verified)).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, aligned_to_moment: null, deezer_url: "https://www.deezer.com/track/1" });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
     const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string | null; explain_prompt_version: string }[];
@@ -2000,32 +2088,36 @@ describe("recommendSubmission", () => {
     expect(recRows[0]!.explain_prompt_version).toBe("explain-v2");
   });
 
-  it("regenerates once with exclusions and merges by deezer id", async () => {
-    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" })];
+  it("regenerates once with exclusions (not lookup failures), merges by deezer id, tags only new keys #2", async () => {
+    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" }), gen({ title: "Flaky" })];
     const second = [gen({ title: "A - Remastered" }), gen({ title: "C" })]; // A again (same recording), plus C
     const generate = vi.fn(async (_b, _a, opts?: { exclude?: string[] }) => (opts?.exclude ? second : first));
     const verify = vi.fn(async (cands: GeneratedCandidate[]) => ({
-      verified: cands.filter((c) => c.title !== "Gone").map((c) => ver({ ...c, deezer_id: c.title.startsWith("A") ? "10" : c.title === "B" ? "11" : "12" })),
+      verified: cands.filter((c) => c.title !== "Gone" && c.title !== "Flaky").map((c) => ver({ ...c, deezer_id: c.title.startsWith("A") ? "10" : c.title === "B" ? "11" : "12" })),
       unverified: cands.filter((c) => c.title === "Gone"),
+      lookupFailed: cands.filter((c) => c.title === "Flaky"),
     }));
     const deps = makeDeps({ generate, verify });
-    await recommendSubmission("sub-1", deps);
+    await recommendSubmission("sub-1", ctx(), deps);
     expect(generate).toHaveBeenCalledTimes(2);
     const opts = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[]; note: string };
     expect(opts.exclude).toEqual(expect.arrayContaining(["a|the weeknd", "b|the weeknd", "gone|the weeknd"]));
+    expect(opts.exclude).not.toContain("flaky|the weeknd"); // a provider failure is not a "no"
     expect(opts.note).toMatch(/could not be found/);
     const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
-    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { prompt_version: string }[];
-    expect(rows.some((r) => r.prompt_version.endsWith("#2"))).toBe(true);
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; prompt_version: string }[];
+    expect(rows.find((r) => r.title === "A")!.prompt_version).not.toMatch(/#2/); // seen in attempt 1: keeps its original version
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toMatch(/#2/);
+    expect(rows.find((r) => r.title === "Flaky")).toBeUndefined(); // dropped and logged, never persisted as unverified
   });
 
   it("fails when still fewer than 3 distinct recordings after regeneration", async () => {
     const deps = makeDeps({
       generate: vi.fn(async () => [gen({ title: "X" })]),
-      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [] })),
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [], lookupFailed: [] })),
     });
-    await expect(recommendSubmission("sub-1", deps)).rejects.toThrow(/fewer than 3/);
+    await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/fewer than 3/);
     expect(deps.replaceCandidates).toHaveBeenCalled(); // what we saw is still persisted for the inspector
   });
 });
@@ -2057,20 +2149,22 @@ import { explainPicks, PROMPT_VERSION as EXPLAIN_VERSION } from "@/src/engine/ex
 import { getAnalysis } from "@/src/db/queries/analyses";
 import { getSubmission, setSubmissionStatus, type SubmissionRow } from "@/src/db/queries/submissions";
 import { replaceCandidates, type CandidateInsert, type CandidateRow } from "@/src/db/queries/candidates";
-import { replaceRecommendations, type RecommendationInsert } from "@/src/db/queries/recommendations";
+import { replaceRecommendations, type RecommendationInsert, type RecommendationRow } from "@/src/db/queries/recommendations";
 import { logEvent } from "@/src/feedback/events";
+import type { StageCtx } from "@/src/pipeline/run"; // type-only: no runtime cycle with run.ts
+import { remainingBudget } from "@/src/pipeline/budget";
 
 export type RecommendDeps = {
   getSubmission: (id: string) => Promise<SubmissionRow | null>;
   getAnalysis: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; row: unknown } | null>;
   generate: (brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts) => Promise<GeneratedCandidate[]>;
-  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[] }>;
-  score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[]) => Promise<ScoredCandidate[]>;
+  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
+  score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[], opts?: { timeoutMs?: number }) => Promise<ScoredCandidate[]>;
   diversify: (scored: ScoredCandidate[]) => Pick[];
   sections: (picks: Pick[], analysis: VideoAnalysis) => Pick[];
-  explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief) => Promise<FinalRecommendation[]>;
+  explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, opts?: { timeoutMs?: number }) => Promise<FinalRecommendation[]>;
   replaceCandidates: (submissionId: string, rows: CandidateInsert[]) => Promise<CandidateRow[]>;
-  replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<void>;
+  replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<RecommendationRow[]>;
   setStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
   logEvent: typeof logEvent;
 };
@@ -2095,7 +2189,12 @@ export function toCandidateInsert(
     canonical_title: s.canonical_title ?? null,
     canonical_artist: s.canonical_artist ?? null,
     deezer_id: s.deezer_id ?? null,
-    itunes_id: null,
+    itunes_id: null,                                   // only the final 3 ever get an iTunes lookup (Task 3.9)
+    artwork_url: s.artwork_url ?? null,
+    deezer_url: s.deezer_url ?? null,
+    preview_url: s.preview_url ?? null,
+    preview_source: s.preview_url ? "deezer" : null,   // candidate-stage previews can only come from Deezer
+    aligned_to_moment: null,                           // alignment is decided per pick in Task 3.8
     duration_seconds: s.duration_seconds ?? null,
     verified,
     proposed_start: c.proposed_start,
@@ -2138,34 +2237,48 @@ function toRecommendationInsert(submissionId: string, candidateId: string | null
 
 const distinctRecordings = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.deezer_id)).size;
 
-export async function recommendSubmission(submissionId: string, deps: RecommendDeps = defaultDeps): Promise<void> {
+export async function recommendSubmission(
+  submissionId: string, ctx: StageCtx, deps: RecommendDeps = defaultDeps,
+): Promise<void> {
   const started = Date.now();
   const sub = await deps.getSubmission(submissionId);
   if (!sub) throw new PipelineError("recommend", "submission not found");
   const stored = await deps.getAnalysis(submissionId);
   if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
   const { analysis, brief } = stored;
+  // C3: every model call is bounded by what is left of the pipeline budget, recomputed per stage.
+  const budget = () => ({ timeoutMs: remainingBudget(ctx) });
 
   // Attempt 1
-  const gen1 = await deps.generate(brief, analysis);
+  const gen1 = await deps.generate(brief, analysis, budget());
   const v1 = await deps.verify(gen1);
-  let verified = v1.verified;
-  let unverified = v1.unverified;
+  const verified = [...v1.verified];
+  let unverified = [...v1.unverified];
+  let lookupFailed = [...v1.lookupFailed];
   const versionOf = new Map<string, string>(gen1.map((c) => [normalizeKey(c.title, c.artist), CANDIDATES_VERSION]));
 
-  // Attempt 2 (I4): keep what we have, exclude everything seen, merge by recording id.
+  // Attempt 2 (I4): keep what we have, exclude everything Deezer actually answered on, merge by recording id.
+  // lookupFailed keys are NOT excluded: a provider failure says nothing about whether the song exists.
   if (distinctRecordings(verified) < 3) {
-    const exclude = gen1.map((c) => normalizeKey(c.title, c.artist));
-    logger.warn("recommend.regenerate", { submissionId, verified: distinctRecordings(verified) });
-    const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude });
-    for (const c of gen2) versionOf.set(normalizeKey(c.title, c.artist), `${CANDIDATES_VERSION}#2`);
+    const failedKeys = new Set(lookupFailed.map((c) => normalizeKey(c.title, c.artist)));
+    const exclude = gen1.map((c) => normalizeKey(c.title, c.artist)).filter((k) => !failedKeys.has(k));
+    logger.warn("recommend.regenerate", { submissionId, verified: distinctRecordings(verified), lookupFailed: lookupFailed.length });
+    const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude, ...budget() });
+    for (const c of gen2) {
+      const key = normalizeKey(c.title, c.artist);
+      if (!versionOf.has(key)) versionOf.set(key, `${CANDIDATES_VERSION}#2`); // only keys first seen in attempt 2
+    }
     const v2 = await deps.verify(gen2);
     const seen = new Set(verified.map((v) => v.deezer_id));
     for (const v of v2.verified) if (!seen.has(v.deezer_id)) { verified.push(v); seen.add(v.deezer_id); }
     unverified = [...unverified, ...v2.unverified];
+    lookupFailed = [...lookupFailed, ...v2.lookupFailed];
+  }
+  if (lookupFailed.length) {
+    logger.warn("recommend.lookup_failed_dropped", { submissionId, count: lookupFailed.length, titles: lookupFailed.map((c) => c.title) });
   }
 
-  const scored = distinctRecordings(verified) >= 3 ? await deps.score(analysis, brief, verified) : [];
+  const scored = distinctRecordings(verified) >= 3 ? await deps.score(analysis, brief, verified, budget()) : [];
   const rows: CandidateInsert[] = [
     ...scored.map((c) => toCandidateInsert(submissionId, c, true, `${versionOf.get(normalizeKey(c.title, c.artist)) ?? CANDIDATES_VERSION}+${SCORING_VERSION}`)),
     ...(scored.length ? [] : verified).map((c) => toCandidateInsert(submissionId, c, true, versionOf.get(normalizeKey(c.title, c.artist)) ?? CANDIDATES_VERSION)),
@@ -2178,7 +2291,7 @@ export async function recommendSubmission(submissionId: string, deps: RecommendD
   const idByDeezer = new Map(inserted.filter((r) => r.deezer_id).map((r) => [r.deezer_id as string, r.id]));
 
   const picks = deps.sections(deps.diversify(scored), analysis);
-  const finals = await deps.explain(picks, analysis, brief);
+  const finals = await deps.explain(picks, analysis, brief, budget());
 
   await deps.replaceRecommendations(
     submissionId,
@@ -2192,17 +2305,17 @@ export async function recommendSubmission(submissionId: string, deps: RecommendD
 }
 ```
 
-- [ ] **Step 5: Plug into the runner (one line)**
+- [ ] **Step 5: Plug into the runner (two lines)**
 
-In `src/pipeline/run.ts` (Phase 2), replace the stub import in the default deps:
+In `src/pipeline/run.ts` (Phase 2), replace the stub in the default deps. The runner's slot is `recommend: (id: string, ctx: StageCtx) => Promise<void>`; the orchestrator additionally takes `deps` as a third parameter, so the wiring is an explicit adapter, never a bare function reference:
 
 ```ts
 // before (Phase 2 stub)
-// recommend: async (id) => { throw new PipelineError("recommend", "not implemented"); },
+// recommend: recommendNotImplemented,
 // after
 import { recommendSubmission } from "@/src/engine/recommend";
 // … in defaultDeps:
-recommend: recommendSubmission,
+recommend: (id, ctx) => recommendSubmission(id, ctx),
 ```
 
 Nothing else in `run.ts` changes: status handling, the atomic claim, the time budget and `pipeline_failed` logging all stay as Phase 2 wrote them (ruling C3).
@@ -2230,17 +2343,21 @@ git commit -m "Add recommendation orchestrator with merged regeneration and plug
 - Test: `tests/shared/format.test.ts`, `tests/shared/views.test.ts`
 
 **Interfaces:**
-- Consumes: `listRecommendations` (Phase 0), `getSubmission`, `getCreator` (Phase 1), `logEvent`, `<WaitingState submissionId>` (Phase 1), `RecommendationView` (header).
+- Consumes: `listRecommendations` (Phase 0), `getSubmission`, `getCreator` (Phase 1), `logEvent`, `<WaitingState submissionId initialStatus>` (Phase 1, Task 1.5 — exactly those two props), `RecommendationView` (header).
 - Produces:
   ```ts
   export function formatTime(seconds: number): string;                                  // "0:43"
   export function toRecommendationView(row: RecommendationRow): RecommendationView;      // the ONLY mapper to the browser shape
   // GET /api/submissions/[id] → { status: SubmissionStatus; recommendations: RecommendationView[] }
-  // <RecommendationCard rec chosen collapsed onSelect onReject />
-  // <ResultsView submissionId recommendations />   (Phase 4 wires real handlers; here local state)
+  export type Rank = 1 | 2 | 3;
+  // <RecommendationCard rec chosen collapsed onSelect={(rank: Rank) => void} onReject={(rank: Rank) => void} />
+  // <ResultsView submission={{ id }} recommendations onSelect? onReject? />
+  //   Renders the "Your Songfit" heading, the three cards and the section-estimate footer. When onSelect/onReject
+  //   are omitted it keeps local state (this task). Phase 4 WRAPS ResultsView in a client component that supplies
+  //   real handlers and server-seeded state; Phase 4 must not replace ResultsView or re-implement its heading/footer.
   ```
 
-Rulings C5 (one DTO, no scores/reasons/directions to the browser), I10 (`selected`/`rejected` come from the server so refresh keeps state), C6 (footer copy).
+Rulings C5 (one DTO, no scores/reasons/directions to the browser), I10 (`selected`/`rejected` come from the server so refresh keeps state), C6 (footer copy), C8 (Dylan chose artwork-free cards: nothing renders `artwork_url`; the field stays in the DTO for a later decision).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2377,33 +2494,44 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   const sub = await getSubmission(id);
   if (!sub || sub.creator_id !== creator.id) notFound();
 
-  if (sub.status !== "ready") return <WaitingState submissionId={id} status={sub.status} />;
+  const submission = sub;
+  if (submission.status !== "ready") return <WaitingState submissionId={id} initialStatus={submission.status} />;
 
   if (await markViewed(id)) {
     await logEvent({ name: "recommendations_viewed", creatorId: creator.id, submissionId: id });
   }
-  const recs = (await listRecommendations(id)).map(toRecommendationView);
-  return <ResultsView submissionId={id} recommendations={recs} />;
+  const recommendations = (await listRecommendations(id)).map(toRecommendationView);
+  return <ResultsView submission={{ id: submission.id }} recommendations={recommendations} />;
 }
 ```
 
-`WaitingState` gains an optional `status` prop here so a `failed` submission can render the honest failure state (ruling I10); Phase 4 Task 4.1 wires the copy. For this task pass it through; `WaitingState` may ignore it.
+`WaitingState` (Phase 1, Task 1.5) already renders the honest failure state from `initialStatus`/polling; this page passes exactly its two props and adds nothing.
 
 ```tsx
 // components/ResultsView.tsx
 "use client";
 import { useState } from "react";
-import { RecommendationCard } from "@/components/RecommendationCard";
+import { RecommendationCard, type Rank } from "@/components/RecommendationCard";
 import type { RecommendationView } from "@/src/shared/types";
 
-export function ResultsView({ submissionId, recommendations }: { submissionId: string; recommendations: RecommendationView[] }) {
-  // Phase 4 replaces local state with the feedback API; the server-provided selected/rejected flags seed it.
-  const [selected, setSelected] = useState<number | null>(recommendations.find((r) => r.selected)?.rank ?? null);
-  const [rejected, setRejected] = useState<Set<number>>(new Set(recommendations.filter((r) => r.rejected).map((r) => r.rank)));
-  void submissionId;
+export type ResultsViewProps = {
+  submission: { id: string };
+  recommendations: RecommendationView[];
+  /** Phase 4 supplies these from its client wrapper. Omitted → local state only (this task). */
+  onSelect?: (rank: Rank) => void;
+  onReject?: (rank: Rank) => void;
+};
+
+export function ResultsView({ submission, recommendations, onSelect, onReject }: ResultsViewProps) {
+  // Server-provided selected/rejected flags seed local state so a refresh keeps what the creator did.
+  const [selected, setSelected] = useState<Rank | null>(recommendations.find((r) => r.selected)?.rank ?? null);
+  const [rejected, setRejected] = useState<Set<Rank>>(new Set(recommendations.filter((r) => r.rejected).map((r) => r.rank)));
+
+  const select = (rank: Rank) => { setSelected(rank); onSelect?.(rank); };
+  const reject = (rank: Rank) => { setRejected((s) => new Set(s).add(rank)); onReject?.(rank); };
 
   return (
-    <main className="mx-auto max-w-md px-4 pb-16 pt-8">
+    <main className="mx-auto max-w-md px-4 pb-16 pt-8" data-submission-id={submission.id}>
       <h1 className="text-2xl font-semibold tracking-tight text-ink">Your Songfit</h1>
       <p className="mt-1 text-sm text-ink/60">Three songs that fit this video. Tap one to use it.</p>
       <div className="mt-6 flex flex-col gap-4">
@@ -2413,8 +2541,8 @@ export function ResultsView({ submissionId, recommendations }: { submissionId: s
             rec={{ ...r, selected: selected === r.rank, rejected: rejected.has(r.rank) }}
             chosen={selected === r.rank}
             collapsed={selected !== null && selected !== r.rank}
-            onSelect={(rank) => setSelected(rank)}
-            onReject={(rank) => setRejected((s) => new Set(s).add(rank))}
+            onSelect={select}
+            onReject={reject}
           />
         ))}
       </div>
@@ -2431,14 +2559,17 @@ import { useRef, useState } from "react";
 import { formatTime } from "@/src/shared/format";
 import type { RecommendationView } from "@/src/shared/types";
 
+export type Rank = 1 | 2 | 3;
+
 type Props = {
   rec: RecommendationView;
   chosen: boolean;
   collapsed: boolean;
-  onSelect: (rank: number) => void;
-  onReject: (rank: number) => void;
+  onSelect: (rank: Rank) => void;
+  onReject: (rank: Rank) => void;
 };
 
+// Artwork-free by decision (C8): the card never renders rec.artwork_url.
 export function RecommendationCard({ rec, chosen, collapsed, onSelect, onReject }: Props) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -2453,18 +2584,11 @@ export function RecommendationCard({ rec, chosen, collapsed, onSelect, onReject 
 
   return (
     <article className={["rounded-2xl border border-ink/10 bg-white shadow-sm transition", featured ? "p-5" : "p-4", rec.rejected ? "opacity-40" : ""].join(" ")}>
-      <div className="flex gap-4">
-        {rec.artwork_url ? (
-          <img src={rec.artwork_url} alt="" className={featured ? "h-24 w-24 rounded-xl object-cover" : "h-16 w-16 rounded-lg object-cover"} />
-        ) : (
-          <div className={featured ? "h-24 w-24 rounded-xl bg-ink/5" : "h-16 w-16 rounded-lg bg-ink/5"} />
-        )}
-        <div className="min-w-0 flex-1">
-          <span className="inline-block rounded-full bg-steel/10 px-2 py-0.5 text-xs font-medium text-steel">#{rec.rank} {rec.direction_label}</span>
-          <h2 className={featured ? "mt-1 truncate text-lg font-semibold text-ink" : "mt-1 truncate font-semibold text-ink"}>{rec.title}</h2>
-          <p className="truncate text-sm text-ink/60">{rec.artist}</p>
-          <p className="mt-2 text-base font-bold text-ink">Use {formatTime(rec.start_seconds)}–{formatTime(rec.end_seconds)}</p>
-        </div>
+      <div className="min-w-0">
+        <span className="inline-block rounded-full bg-steel/10 px-2 py-0.5 text-xs font-medium text-steel">#{rec.rank} {rec.direction_label}</span>
+        <h2 className={featured ? "mt-2 text-xl font-semibold text-ink" : "mt-2 text-lg font-semibold text-ink"}>{rec.title}</h2>
+        <p className="text-sm text-ink/60">{rec.artist}</p>
+        <p className={featured ? "mt-3 text-xl font-bold text-ink" : "mt-3 text-base font-bold text-ink"}>Use {formatTime(rec.start_seconds)}–{formatTime(rec.end_seconds)}</p>
       </div>
 
       <p className="mt-3 text-sm leading-relaxed text-ink/80">{rec.explanation}</p>
@@ -2498,7 +2622,7 @@ Tailwind tokens `ink` and `steel` come from Phase 0's `tailwind.config.ts`.
 - [ ] **Step 7: Check it renders**
 
 Run: `pnpm typecheck && pnpm dev`, open `/results/<id of a ready submission>` at a 390 px viewport.
-Expected: "Your Songfit", three cards with #1 larger, bold "Use m:ss–m:ss", no preview button (previews disabled), "Open in Spotify" opens a search in a new tab, "Use this" hides the other two, "Not for me" dims a card, the footer line is present. Refreshing does not log a second `recommendations_viewed` event. The JSON from `/api/submissions/<id>` contains no `component_scores`, `directions`, `anchor_seconds` or `deezer_id`.
+Expected: "Your Songfit", three cards with #1 larger, no artwork anywhere, bold "Use m:ss–m:ss", no preview button (previews disabled), "Open in Spotify" opens a search in a new tab, "Use this" hides the other two, "Not for me" dims a card, the footer line "Sections are our best estimate. Check it against the track." is present. Refreshing does not log a second `recommendations_viewed` event. The JSON from `/api/submissions/<id>` contains no `component_scores`, `directions`, `anchor_seconds` or `deezer_id`.
 
 - [ ] **Step 8: Commit**
 
@@ -2547,7 +2671,8 @@ export function CandidatesTable({ rows }: { rows: CandidateRow[] }) {
               <tr key={r.id} className={r.verified ? "" : "text-gray-400"}>
                 <td className="p-1">{i + 1}</td>
                 <td className="p-1" title={`${r.section_reason} / ${r.fit_reason}`}>{r.canonical_title ?? r.title} — {r.canonical_artist ?? r.artist}</td>
-                <td className="p-1">{(r.directions ?? []).join(",")}</td>
+                {/* "current" is the model's belief about recent popularity, not a measured trend (I9). */}
+                <td className="p-1">{(r.directions ?? []).map((d) => (d === "current" ? "current (unverified)" : d)).join(", ")}</td>
                 <td className="p-1">{r.verified ? "yes" : "no"}</td>
                 <td className="p-1">{formatTime(Number(r.anchor_seconds))}</td>
                 <td className="p-1">{formatTime(Number(r.proposed_start))}–{formatTime(Number(r.proposed_end))}</td>
@@ -2603,7 +2728,7 @@ const [candidates, recs] = await Promise.all([listCandidates(id), listRecommenda
 - [ ] **Step 3: Check it renders**
 
 Run: `pnpm typecheck && pnpm dev`, open `/admin/submissions/<id>` as the admin.
-Expected: "Final 3" with alignment notes where present, and a candidates table sorted by total with unverified rows greyed out; hovering a score shows its reason; hovering a song shows both reasons.
+Expected: "Final 3" with alignment notes where present, and a candidates table sorted by total with unverified rows greyed out; the `current` direction is shown as "current (unverified)"; hovering a score shows its reason; hovering a song shows both reasons.
 
 - [ ] **Step 4: Commit**
 
