@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fileExt } from "./fileExt";
 import { readVideoDuration } from "./videoDuration";
+import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { LIMITS } from "@/src/shared/config";
 
@@ -11,7 +12,7 @@ type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
 
 /** The server-issued upload target. Held in state so a retry reuses the SAME path and
  *  submission id; a new one is requested only when none is held or the server rejected it. */
-type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string };
+type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string; uploaded: boolean };
 
 const FAILED = "Upload didn't finish. Try again.";
 
@@ -53,8 +54,8 @@ export function UploadForm({ creator }: { creator: Creator }) {
     if (urlRes.status === 402) return "paywall";
     if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
     if (!urlRes.ok) throw new Error(FAILED);
-    const issued = (await urlRes.json()) as Omit<UploadTarget, "ext">;
-    const next: UploadTarget = { ...issued, ext };
+    const issued = (await urlRes.json()) as Omit<UploadTarget, "ext" | "uploaded">;
+    const next: UploadTarget = { ...issued, ext, uploaded: false };
     setTarget(next);
     return next;
   }
@@ -80,7 +81,7 @@ export function UploadForm({ creator }: { creator: Creator }) {
     try {
       setPhase("checking");
       const duration = await readVideoDuration(file);
-      if (duration > LIMITS.maxDurationSeconds) {
+      if (durationVerdict(duration) === "too_long") {
         setError("Keep it under 3 minutes for now.");
         setPhase("idle");
         return;
@@ -95,7 +96,11 @@ export function UploadForm({ creator }: { creator: Creator }) {
 
       setPhase("uploading");
       setProgress(0);
-      await uploadVideo({ file, path, token, signedUrl, onProgress: setProgress });
+      if (!issued.uploaded) {
+        await uploadVideo({ file, path, token, signedUrl, onProgress: setProgress });
+        // The object now exists; a retry must not upload to it again (x-upsert is false).
+        setTarget({ ...issued, uploaded: true });
+      }
 
       setPhase("creating");
       const createRes = await fetch("/api/submissions", {

@@ -20,7 +20,7 @@ function putToSignedUrl(signedUrl: string, file: File, onProgress: (pct: number)
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", signedUrl, true);
-    xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("content-type", file.type || "video/mp4");
     xhr.setRequestHeader("x-upsert", "false");
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
