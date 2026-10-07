@@ -23,8 +23,9 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
 
   const ready = submission.status === "ready";
   const recommendations = ready ? (await listRecommendations(id)).map(toRecommendationView) : [];
-  if (ready && !submission.viewed_at) {
-    await markSubmissionViewed(id);
+  // Only the owner's first ready view counts; admins browsing never do. The conditional update
+  // returns true for exactly one concurrent request, so the event logs once.
+  if (ready && submission.creator_id === creator.id && !submission.viewed_at && (await markSubmissionViewed(id))) {
     await logEvent({ name: "recommendations_viewed", creatorId: submission.creator_id, submissionId: id });
   }
 

@@ -92,14 +92,16 @@ export async function updateSubmission(
   if (error) throw error;
 }
 
-/** Sets viewed_at only the first time. */
-export async function markSubmissionViewed(id: string): Promise<void> {
-  const { error } = await createServiceClient()
+/** Sets viewed_at only the first time. Returns true if this call set it. */
+export async function markSubmissionViewed(id: string): Promise<boolean> {
+  const { data, error } = await createServiceClient()
     .from("submissions")
     .update({ viewed_at: new Date().toISOString() })
     .eq("id", id)
-    .is("viewed_at", null);
+    .is("viewed_at", null)
+    .select("id");
   if (error) throw error;
+  return data.length > 0;
 }
 
 export type SubmissionWithCreator = SubmissionRow & { creator: { email: string } | null };

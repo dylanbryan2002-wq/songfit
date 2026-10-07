@@ -14,7 +14,6 @@ type Props = {
 };
 
 // Artwork-free by decision: the card never renders rec.artwork_url.
-// Handlers are no-ops until Phase 4 wires them.
 export function RecommendationCard({ rec, chosen, collapsed, onSelect, onReject }: Props) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
