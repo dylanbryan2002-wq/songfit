@@ -1,0 +1,54 @@
+import "server-only";
+import { createServiceClient } from "../client";
+import type { Database } from "../types";
+
+export type RecommendationRow = Database["public"]["Tables"]["recommendations"]["Row"];
+export type RecommendationInsert = Database["public"]["Tables"]["recommendations"]["Insert"];
+
+/** Idempotent per stage run: replaces the submission's 3 recommendations. */
+export async function replaceRecommendations(
+  submissionId: string,
+  rows: RecommendationInsert[],
+): Promise<RecommendationRow[]> {
+  const db = createServiceClient();
+  const { error: delError } = await db.from("recommendations").delete().eq("submission_id", submissionId);
+  if (delError) throw delError;
+  if (rows.length === 0) return [];
+  const { data, error } = await db
+    .from("recommendations")
+    .insert(rows.map((r) => ({ ...r, submission_id: submissionId })))
+    .select("*")
+    .order("rank", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function listRecommendations(submissionId: string): Promise<RecommendationRow[]> {
+  const { data, error } = await createServiceClient()
+    .from("recommendations")
+    .select("*")
+    .eq("submission_id", submissionId)
+    .order("rank", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Records creator feedback on one rank through the `set_recommendation_feedback`
+ * SQL function: one statement, so selection is exclusive even under concurrent
+ * taps. Returns the number of rows that exist for the target rank (0 = no such rank).
+ */
+export async function markRecommendationFeedback(
+  submissionId: string,
+  rank: 1 | 2 | 3,
+  patch: { selected?: boolean; rejected?: boolean },
+): Promise<number> {
+  const { data, error } = await createServiceClient().rpc("set_recommendation_feedback", {
+    p_submission_id: submissionId,
+    p_rank: rank,
+    p_selected: patch.selected === true,
+    p_rejected: patch.rejected === true,
+  });
+  if (error) throw error;
+  return data ?? 0;
+}
