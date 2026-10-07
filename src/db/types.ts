@@ -671,6 +671,8 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      exec_sql: { Args: { sql: string }; Returns: undefined }
+      metrics_summary: { Args: never; Returns: Json }
       set_recommendation_feedback: {
         Args: {
           p_rank: number

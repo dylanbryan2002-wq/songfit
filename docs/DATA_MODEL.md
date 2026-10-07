@@ -199,8 +199,12 @@ RLS: service role only.
   row whose `updated_at` is older than 6 minutes (status unchanged so the
   runner resumes from stored outputs). Never touches `ready`. Returns the
   row, or null when nothing was claimed.
-- `metrics_summary() returns jsonb` — funnel by distinct submissions and creators, medians,
-  by-category, paid, returning. (Not yet migrated.)
+- `metrics_summary() returns jsonb` — one jsonb: eventCounts, funnel (distinct submissions and
+  distinct creators per milestone), uploadToReadySeconds[], readyToSelectionSeconds[], byCategory
+  (submissions aggregated before any event join), paidCreators (distinct creators with an active
+  subscription), paidEvents, returningCreators (>= 2 submissions). Read by `src/db/queries/metrics.ts`.
+- `exec_sql(sql text) returns void` — test helper that runs a SQL script (loads
+  `supabase/seed/metrics_fixture.sql` in the integration test). Service role only.
 
 ## subscriptions
 Written by the Stripe webhook.
