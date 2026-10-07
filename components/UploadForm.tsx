@@ -1,6 +1,6 @@
 export default function UploadForm() {
   return (
-    <form className="mt-10 flex w-full max-w-md flex-col gap-4" aria-disabled>
+    <form className="mt-10 flex w-full max-w-md flex-col gap-4">
       <div className="flex h-44 w-full items-center justify-center rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted">
         Tap to choose a video
       </div>
