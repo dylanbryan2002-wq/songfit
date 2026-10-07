@@ -105,3 +105,7 @@ microservices, design systems, analytics beyond the events table, carousels.
   dev-mode quotas. Do not add a Spotify dependency. Deep link via search URL only.
 - Deezer public API ~50 req / 5 s per IP. Throttle candidate verification.
 - iTunes Search API ~20 req / min. Only call it for the final 3.
+- `vercel link` and `vercel env pull` OVERWRITE `.env.local` with Vercel's env. The project is already linked
+  (`.vercel/`); never run either again. Back up `.env.local` before any Vercel CLI command that touches env.
+- Recovery: VS Code keeps local history of edited files under
+  ~/Library/Application Support/Code/User/History (used to restore .env.local on 2026-10-07).
