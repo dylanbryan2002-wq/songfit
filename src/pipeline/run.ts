@@ -102,7 +102,7 @@ export async function runSubmission(submissionId: string, overrides: Partial<Run
   } catch (err) {
     const e = err as Error;
     const failedStage = e instanceof PipelineError ? e.stage : current;
-    const message = e.message ?? String(err);
+    const message = err instanceof Error ? err.message : String(err);
     const raw = e instanceof PipelineError && e.raw ? e.raw.slice(0, RAW_MAX_CHARS) : null;
     logger.error("pipeline.failed", { submissionId, stage: failedStage, message });
     try {
