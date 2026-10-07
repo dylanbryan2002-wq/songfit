@@ -19,6 +19,7 @@ Design docs:
 - `docs/ARCHITECTURE.md` — modules, pipeline, rules that keep stages replaceable
 - `docs/DATA_MODEL.md` — every table, status and event name
 - `docs/RESEARCH.md` — findings on music APIs, trend data and recommendation literature
+- `docs/RUNBOOK.md` — launch-day operations: monitoring, troubleshooting, manual fixes
 - `CLAUDE.md` — working rules for AI coding agents on this repo
 
 ## Stack
