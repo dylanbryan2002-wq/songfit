@@ -11,7 +11,7 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 
-export const PROMPT_VERSION = "candidates-v1";
+export const PROMPT_VERSION = "candidates-v2";
 
 export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
 
@@ -29,6 +29,12 @@ const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   unexpected: "Less obvious: older songs, niche genres, deep cuts from known artists, genre-crossing picks that a tasteful editor would reach for. Must still be real, released and findable in the libraries.",
 };
 
+const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+function humanizeKey(key: string): string {
+  const [title = "", artist = "", version] = key.split("|");
+  return `${titleCase(title)} — ${titleCase(artist)}${version ? ` (${version})` : ""}`;
+}
+
 export function buildCandidatePrompt(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis,
   opts: { note?: string; exclude?: string[] } = {},
@@ -37,7 +43,7 @@ export function buildCandidatePrompt(
     .map((m) => `- ${m.time.toFixed(1)}s: ${m.type}${m.note ? ` (${m.note})` : ""}`)
     .join("\n") || "- none identified";
   const exclude = opts.exclude?.length
-    ? `\nDO NOT propose any of these (title|artist keys): ${opts.exclude.join("; ")}\n`
+    ? `\nDo NOT propose these songs (already considered):\n${opts.exclude.map((k) => `- ${humanizeKey(k)}`).join("\n")}\n`
     : "";
   return `DIRECTION: ${direction}
 ${DIRECTION_BRIEF[direction]}
@@ -63,7 +69,9 @@ Propose exactly ${LIMITS.candidatesPerDirection} songs for this direction. For e
 best ${LIMITS.sectionMin}–${LIMITS.sectionMax} second window of the ORIGINAL studio recording for this video.
 - anchor_seconds: the second where the song's defining musical moment happens inside that window
   (chorus entry, drop, the lift). Be as accurate as you can; if unsure, say so in section_reason.
-- proposed_start / proposed_end: the window, in seconds, containing anchor_seconds.
+- proposed_start / proposed_end: seconds from the start of the track; the window must be ${LIMITS.sectionMin}–${LIMITS.sectionMax} seconds long
+  (proposed_end − proposed_start between ${LIMITS.sectionMin} and ${LIMITS.sectionMax}); anchor_seconds must lie inside the window.
+- Do not list the same song twice.
 - section_is_vocal: true if lead vocals are singing during most of the window.
 
 Return ONLY a JSON array, no prose, each item exactly:
@@ -119,9 +127,8 @@ async function generateDirection(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts: GenerateOpts, call: ClaudeCall,
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
-  const timeoutMs = remainingBudget(opts.ctx);
   const started = Date.now();
-  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs });
+  const first = await call({ model: MODELS.candidates, system: SYSTEM, user, maxTokens: 6000, timeoutMs: remainingBudget(opts.ctx) });
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
     logger.info("candidates.generated", { direction, count: r1.items.length, ms: Date.now() - started });
@@ -129,7 +136,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs });
+  const second = await call({ model: MODELS.candidates, system: SYSTEM, user: retryUser, maxTokens: 6000, timeoutMs: remainingBudget(opts.ctx) });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) {
     logger.info("candidates.generated", { direction, count: r2.items.length, ms: Date.now() - started });

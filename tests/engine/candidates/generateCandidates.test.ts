@@ -75,6 +75,23 @@ describe("generateCandidates", () => {
   it("includes the note and the exclusion list when given", () => {
     const p = buildCandidatePrompt("safe", brief, analysis, { note: "avoid previous list", exclude: ["stay|the kid laroi"] });
     expect(p).toContain("avoid previous list");
-    expect(p).toContain("stay|the kid laroi");
+    expect(p).toContain("Stay — The Kid Laroi");
+  });
+  it("states the window rules and renders exclusions in human form", () => {
+    const p = buildCandidatePrompt("safe", brief, analysis, { exclude: ["stay|the kid laroi|sped up"] });
+    expect(p).toContain("between 12 and 20");
+    expect(p).toContain("anchor_seconds must lie inside the window");
+    expect(p).toContain("Do NOT propose these songs (already considered):");
+    expect(p).toContain("Stay — The Kid Laroi (sped up)");
+  });
+  it("recomputes timeoutMs for the retry", async () => {
+    let n = 0;
+    const call = vi.fn(async (a: { user: string; timeoutMs?: number }) => {
+      if (a.user.includes("DIRECTION: safe") && n++ === 0) { await new Promise((r) => setTimeout(r, 30)); return "[]"; }
+      return JSON.stringify(many("ok"));
+    });
+    await generateCandidates(brief, analysis, { call, ctx: { deadlineAt: Date.now() + 60_000 } });
+    const safe = call.mock.calls.map((c) => c[0]).filter((a) => a.user.includes("DIRECTION: safe"));
+    expect(safe[1]!.timeoutMs!).toBeLessThanOrEqual(safe[0]!.timeoutMs!);
   });
 });
