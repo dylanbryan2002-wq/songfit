@@ -42,7 +42,7 @@ describe("verifyCandidates", () => {
     expect(verified).toHaveLength(1);
     expect(verified[0]).toMatchObject({
       deezer_id: "7", canonical_title: "Found", canonical_artist: "The Weeknd", duration_seconds: 200,
-      artwork_url: "b.jpg", deezer_url: "https://d/7", preview_url: null, proposed_start: 43, proposed_end: 58,
+      artwork_url: "b.jpg", deezer_url: "https://d/7", preview_url: "https://p.mp3", proposed_start: 43, proposed_end: 58,
       directions: ["safe", "current"],
     });
   });

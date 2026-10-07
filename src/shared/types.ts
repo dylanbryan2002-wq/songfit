@@ -136,5 +136,31 @@ export const RecommendationView = z.object({
 });
 export type RecommendationView = z.infer<typeof RecommendationView>;
 
+/** Song-picker row. `preview_url` is filled per request by loadPicker and never stored (Deezer terms). */
+export const PickerRow = z.object({
+  rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  direction_label: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  start_seconds: z.number(),
+  end_seconds: z.number(),
+  explanation: z.string(),
+  artwork_url: z.string().nullable(),
+  spotify_url: z.string(),
+  deezer_url: z.string().nullable(),
+  deezer_id: z.string().nullable(),
+  preview_url: z.string().nullable(),
+  selected: z.boolean(),
+  rejected: z.boolean(),
+});
+export type PickerRow = z.infer<typeof PickerRow>;
+
+export const PickerData = z.object({
+  submission_id: z.string(),
+  video_duration_seconds: z.number().nullable(),
+  rows: z.array(PickerRow),
+});
+export type PickerData = z.infer<typeof PickerData>;
+
 export const SubmissionStatus = z.enum(["uploaded", "analyzing", "recommending", "ready", "failed"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatus>;

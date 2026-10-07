@@ -165,6 +165,11 @@ paid_offer_clicked
 paid
 returned_with_second_submission
 pipeline_failed              metadata.stage, metadata.error
+song_previewed               metadata.rank
+explanation_opened           metadata.rank
+title_copied                 metadata.rank
+open_app                     metadata.rank, metadata.destination (tiktok|instagram|spotify)
+song_not_found               metadata.rank  (creator could not find the song in TikTok/Instagram)
 ```
 
 RLS: service role only.

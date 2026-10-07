@@ -52,3 +52,16 @@ export async function markRecommendationFeedback(
   if (error) throw error;
   return data ?? 0;
 }
+
+/** Picker projection: the recommendation plus its candidate's Deezer id (needed to refresh previews). */
+export type PickerRecommendationRow = RecommendationRow & { candidates: { deezer_id: string | null } | null };
+
+export async function listPickerRows(submissionId: string): Promise<PickerRecommendationRow[]> {
+  const { data, error } = await createServiceClient()
+    .from("recommendations")
+    .select("*, candidates(deezer_id)")
+    .eq("submission_id", submissionId)
+    .order("rank", { ascending: true });
+  if (error) throw error;
+  return data;
+}

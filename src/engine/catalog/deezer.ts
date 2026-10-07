@@ -119,3 +119,26 @@ export async function findDeezerMatch(
 ): Promise<DeezerTrack | null> {
   return pickDeezerMatch(cand, await searchDeezer(cand.title, cand.artist, fetchImpl));
 }
+
+export type DeezerTrackLookup = { kind: "ok"; previewUrl: string } | { kind: "none" };
+
+const DeezerTrackLookupSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  preview: z.string().nullable().optional(),
+  duration: z.number(),
+});
+
+/**
+ * Fresh preview url for one Deezer track (urls are signed and expire, so they are never stored).
+ * "none" = Deezer has no such track (error body, e.g. code 800) or no preview. Throws ProviderError
+ * on outage or an unexpected shape.
+ */
+export async function getDeezerTrack(id: string, fetchImpl: typeof fetch = fetch): Promise<DeezerTrackLookup> {
+  const url = `https://api.deezer.com/track/${encodeURIComponent(id)}`;
+  const body = await paced(() => deezerGet(url, fetchImpl));
+  if (DeezerErrorSchema.safeParse(body).success) return { kind: "none" }; // quota (code 4) was retried and thrown inside deezerGet
+  const parsed = DeezerTrackLookupSchema.safeParse(body);
+  if (!parsed.success) throw new ProviderError("deezer: unexpected response shape");
+  return parsed.data.preview ? { kind: "ok", previewUrl: parsed.data.preview } : { kind: "none" };
+}

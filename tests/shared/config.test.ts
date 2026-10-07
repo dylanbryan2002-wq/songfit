@@ -40,8 +40,8 @@ describe("LIMITS and MODELS", () => {
     expect(MODELS.scoring).toBe("claude-sonnet-5-5");
     expect(MODELS.explain).toBe("claude-sonnet-5-5");
   });
-  it("ships with previews off and one free result", () => {
-    expect(PREVIEWS_ENABLED).toBe(false);
+  it("ships with previews on (Dylan, 2026-10-07) and one free result", () => {
+    expect(PREVIEWS_ENABLED).toBe(true);
     expect(FREE_RESULTS_PER_CREATOR).toBe(1);
   });
 });

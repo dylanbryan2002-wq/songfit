@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  deezerGet, pickDeezerMatch, searchDeezer, findDeezerMatch, ProviderError, type DeezerTrack,
+  deezerGet, pickDeezerMatch, searchDeezer, findDeezerMatch, getDeezerTrack, ProviderError, type DeezerTrack,
 } from "@/src/engine/catalog/deezer";
 
 const track = (over: Partial<DeezerTrack> = {}): DeezerTrack => ({
@@ -153,5 +153,36 @@ describe("findDeezerMatch", () => {
     const p = expect(findDeezerMatch({ title: "A", artist: "B" }, fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
     await vi.advanceTimersByTimeAsync(10_000);
     await p;
+  });
+});
+
+describe("getDeezerTrack", () => {
+  it("returns the preview url for a track", async () => {
+    const fetchImpl = vi.fn(async (_url: string) => json({ id: 7, title: "T", duration: 200, preview: "https://p/7.mp3" }));
+    const out = await getDeezerTrack("7", fetchImpl as unknown as typeof fetch);
+    expect(out).toEqual({ kind: "ok", previewUrl: "https://p/7.mp3" });
+    expect(fetchImpl.mock.calls[0]![0]).toBe("https://api.deezer.com/track/7");
+  });
+  it("is none for an empty or missing preview", async () => {
+    const empty = vi.fn(async () => json({ id: 7, title: "T", duration: 200, preview: "" }));
+    expect(await getDeezerTrack("7", empty as unknown as typeof fetch)).toEqual({ kind: "none" });
+    const missing = vi.fn(async () => json({ id: 7, title: "T", duration: 200 }));
+    expect(await getDeezerTrack("7", missing as unknown as typeof fetch)).toEqual({ kind: "none" });
+  });
+  it("is none when Deezer answers with an error body such as code 800", async () => {
+    const fetchImpl = vi.fn(async () => json({ error: { type: "DataException", message: "no data", code: 800 } }));
+    expect(await getDeezerTrack("7", fetchImpl as unknown as typeof fetch)).toEqual({ kind: "none" });
+  });
+  it("throws ProviderError on a provider failure", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn().mockImplementation(() => json({}, 503));
+    const p = expect(getDeezerTrack("7", fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await p;
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+  it("throws ProviderError on an unexpected body shape", async () => {
+    const fetchImpl = vi.fn(async () => json({ hello: "world" }));
+    await expect(getDeezerTrack("7", fetchImpl as unknown as typeof fetch)).rejects.toBeInstanceOf(ProviderError);
   });
 });
