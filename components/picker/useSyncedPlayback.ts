@@ -135,12 +135,14 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       setState("unavailable");
     };
     const onStalled = () => logger.warn("picker.audio_stalled", {});
-    const onHidden = () => {
-      if (document.visibilityState !== "hidden") return;
+    const stopNow = () => {
       token.current++;
       audio.pause();
       videoRef.current?.pause();
       if (stateRef.current === "playing" || stateRef.current === "loading") setState("paused");
+    };
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") stopNow();
     };
     audio.addEventListener("loadedmetadata", onMeta);
     audio.addEventListener("timeupdate", tick);
@@ -148,6 +150,9 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     audio.addEventListener("error", onError);
     audio.addEventListener("stalled", onStalled);
     document.addEventListener("visibilitychange", onHidden);
+    // Leaving the page: silence at once rather than after the unload finishes.
+    window.addEventListener("pagehide", stopNow);
+    window.addEventListener("beforeunload", stopNow);
     return () => {
       audio.pause();
       video?.pause();
@@ -157,6 +162,8 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       audio.removeEventListener("error", onError);
       audio.removeEventListener("stalled", onStalled);
       document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", stopNow);
+      window.removeEventListener("beforeunload", stopNow);
       audio.src = "";
       tokenRef.current++;
     };

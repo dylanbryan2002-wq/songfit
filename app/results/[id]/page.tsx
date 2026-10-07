@@ -1,14 +1,14 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreator, isAdmin } from "@/src/auth/session";
-import { listRecommendations } from "@/src/db/queries/recommendations";
 import { getSubmission, markSubmissionViewed } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
-import { toRecommendationView } from "@/src/feedback/recommendationView";
+import { loadPicker } from "@/src/feedback/picker";
+import { getSignedPlaybackUrl } from "@/src/media/storage";
 import { SubmissionStatus } from "@/src/shared/types";
 import { isUuid } from "@/src/shared/ids";
 import { Logo } from "@/components/Logo";
 import { WaitingState } from "@/components/WaitingState";
-import { ResultsView } from "@/components/ResultsView";
+import { SongPicker } from "@/components/picker/SongPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,9 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   if (submission.creator_id !== creator.id && !isAdmin(creator)) notFound();
 
   const ready = submission.status === "ready";
-  const recommendations = ready ? (await listRecommendations(id)).map(toRecommendationView) : [];
+  const [picker, videoUrl] = ready
+    ? await Promise.all([loadPicker(id), getSignedPlaybackUrl(submission.video_path, 3600)])
+    : [null, null];
   // Only the owner's first ready view counts; admins browsing never do. The conditional update
   // returns true for exactly one concurrent request, so the event logs once.
   if (ready && submission.creator_id === creator.id && !submission.viewed_at && (await markSubmissionViewed(id))) {
@@ -30,10 +32,16 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-10 px-4 pb-10 pt-10">
+    <main
+      className={
+        picker && videoUrl
+          ? "mx-auto flex min-h-dvh w-full max-w-md flex-col gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]"
+          : "mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-10 px-4 pb-10 pt-10"
+      }
+    >
       <Logo />
-      {ready ? (
-        <ResultsView submission={{ id: submission.id }} recommendations={recommendations} />
+      {picker && videoUrl ? (
+        <SongPicker data={picker} videoUrl={videoUrl} />
       ) : (
         <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} />
       )}
