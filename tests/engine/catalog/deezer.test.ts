@@ -116,7 +116,7 @@ describe("findDeezerMatch", () => {
     const urls: string[] = [];
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const u = String(url); urls.push(u);
-      return json({ data: u.includes("artist%3A") ? [track({})] : [track({ title: "Blinding Lights (Live)" })] });
+      return json({ data: u.includes("artist%3A") ? [track({})] : [track({ id: 5, title: "Blinding Lights (Live)" })] });
     });
     const out = await findDeezerMatch({ title: "Blinding Lights", artist: "The Weeknd" }, fetchImpl as unknown as typeof fetch);
     expect(urls).toHaveLength(2);
