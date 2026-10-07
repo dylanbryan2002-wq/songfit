@@ -2,8 +2,12 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { getAnalysisRow } from "@/src/db/queries/analyses";
+import { listCandidates } from "@/src/db/queries/candidates";
+import { listRecommendations } from "@/src/db/queries/recommendations";
 import { getSignedPlaybackUrl } from "@/src/media/storage";
 import { isUuid } from "@/src/shared/ids";
+import { formatTime } from "@/src/shared/format";
+import { CandidatesTable } from "@/components/admin/CandidatesTable";
 import { retrySubmission } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +28,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
   const sub = await getSubmission(id);
   if (!sub) notFound();
   const analysis = await getAnalysisRow(id);
+  const [candidates, recs] = await Promise.all([listCandidates(id), listRecommendations(id)]);
   let videoUrl: string | null = null;
   try {
     videoUrl = await getSignedPlaybackUrl(sub.video_path);
@@ -97,8 +102,23 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
         )}
       </section>
 
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Candidates (Phase 3)</h2>
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Final 3</h2>
+        {recs.length === 0 ? <p className="text-sm text-gray-500">none yet</p> : (
+          <ol className="mt-2 space-y-2 text-sm">
+            {recs.map((r) => (
+              <li key={r.id}>
+                <b>#{r.rank} {r.direction_label}</b>: {r.title} — {r.artist}, use {formatTime(Number(r.start_seconds))}–{formatTime(Number(r.end_seconds))}
+                {r.aligned_to_moment !== null && <span className="text-gray-500"> (aligned to {r.aligned_to_moment}s)</span>}
+                <div className="text-gray-600">{r.explanation}</div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Candidates ({candidates.length}, {candidates.filter((c) => c.verified).length} verified)</h2>
+        <CandidatesTable rows={candidates} />
       </section>
     </div>
   );
