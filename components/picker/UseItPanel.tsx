@@ -24,6 +24,7 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
   const [copied, setCopied] = useState(false);
   const [manualCopy, setManualCopy] = useState(false);
   const [reported, setReported] = useState(false);
+  const [pasteHint, setPasteHint] = useState<"TikTok" | "Instagram" | null>(null);
   const manualRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -43,12 +44,20 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
     }
   };
 
+  // Phone test 2026-10-07: the TikTok and Instagram apps open but ignore the search in the link
+  // (Universal Links drop the path), so copy the song name on the same tap and say so.
   const link = (destination: Destination, href: string, text: string) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={() => onOpen(destination)}
+      onClick={() => {
+        onOpen(destination);
+        if (destination !== "spotify") {
+          navigator.clipboard?.writeText(label).catch(() => undefined);
+          setPasteHint(destination === "tiktok" ? "TikTok" : "Instagram");
+        }
+      }}
       className={`${action} border border-ink/10 bg-white text-ink`}
     >
       {text}
@@ -65,7 +74,11 @@ export function UseItPanel({ row, showTrimNote, onCopied, onOpen, onNotFound }: 
         <span className="text-sm font-medium text-muted">of the full track</span>
       </p>
       {showTrimNote && <p className="mt-0.5 text-xs text-muted">(Trimming the sample does not change this.)</p>}
-      <p className="mt-3 text-sm text-ink/80">Search for it in TikTok or Instagram, then use that part.</p>
+      <p className="mt-3 text-sm text-ink/80">
+        {pasteHint
+          ? `Copied. Paste "${label}" into ${pasteHint}'s search, then use that part.`
+          : "Open TikTok or Instagram, paste the song name into search, then use that part."}
+      </p>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={copy} className={`${action} flex-col bg-ink text-white`}>
