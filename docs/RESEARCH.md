@@ -165,3 +165,10 @@ summarised in docs/superpowers/specs/2026-10-07-song-picker-design.md):
   `playsInline` on the video and both `play()` calls inside the same tap. Dylan's `.mov` is
   `video/quicktime`; Android Chrome may need H.264 mp4 (transcode later).
 - No competitor found that returns real commercial songs with an exact section for the user's video.
+- **Deezer developer terms (verified 2026-10-07, developers.deezer.com/termsofuse and the CGU PDF):**
+  "the use of the Services is strictly limited for a non-commercial purpose and in a non-commercial
+  environment"; any other use "shall be beforehand reviewed and approved by DEEZER"; full-length
+  streaming only for Premium users, "otherwise accessible only up to 30 seconds". This covers our
+  verification calls too, not only previews. Codex flagged it (docs/review/07). Mitigations: kill
+  switch `PREVIEWS_ENABLED`, no audio storage, attribution, approval request to Deezer, and Apple Music
+  API / MusicKit as the licensed route for catalogue + previews after the challenge.

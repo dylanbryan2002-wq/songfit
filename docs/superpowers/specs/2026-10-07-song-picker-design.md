@@ -129,3 +129,42 @@ Phase 4 then shrinks to: paywall + Stripe, admin metrics, domain, runbook.
 1. Build this now, before paywall/metrics? **Default: yes.**
 2. Keep the two-sentence reason? **Default: yes, collapsed under "Why this song".**
 3. Original video sound while previewing? **Default: muted.**
+
+## Revisions after Codex review (2026-10-07, see docs/review/07 and 08)
+
+**The legal point first.** Deezer's developer terms (verified today at developers.deezer.com/termsofuse)
+limit the API to non-commercial use and require Deezer's approval for anything else. That covers the
+previews AND the song verification we already run. Decision for Dylan (see below); the plan builds the
+screen with previews behind the existing `PREVIEWS_ENABLED` switch either way.
+
+**What changed**
+- Cut: the waveform, automatic "your reveal lands on the drop" alignment, trim persistence, the new
+  column and migration. Trim becomes a plain "Adjust sample start" slider over a flat 0:00–0:30 ruler,
+  and only if previews are approved.
+- Honest copy: the player is labelled "30-second sample · not the suggested section". "Use 0:43–0:58
+  of the full track" sits in its own panel with "Trimming the sample does not change this".
+- Playback contract: preview URLs fetched server-side at page render; `audio.play()` and
+  `video.play()` back to back inside the tap handler; visible Play/Pause always; loop length
+  `L = min(video length, loaded sample length)`; trim disabled for videos ≥ 30 s; both pause when the
+  page is hidden; if iOS refuses the second play, audio-only audition with no sync claim.
+- Data: no migration. A query-layer projection `listPickerRows` (adds `deezer_id`) feeds a `PickerRow`
+  type; selection/rejection use the existing atomic `set_recommendation_feedback`.
+- Events added to DATA_MODEL before use: `song_previewed`, `explanation_opened`, `title_copied`,
+  `open_app`. `recommendation_selected` fires only on confirm.
+
+**Revised tasks**
+| # | Task | Size |
+|---|---|---|
+| P1 | `getDeezerTrack(id)` (Zod, ok/none/error) + server-side preview fetch at render + refresh route `GET /api/submissions/[id]/preview/[rank]` (owner only, one refresh); `listPickerRows` + `PickerRow`; events in DATA_MODEL + `EVENT_NAMES`; tests | S |
+| P2 | Playback spike on Dylan's iPhone: `useSyncedPlayback` per the contract, Play/Pause control, cold cellular + rapid switch + interrupt + Low Power Mode; go/no-go on sync | S–M |
+| P3 | `SongPicker` screen: `VideoPane`, `SongSheet`, `SongRow` (artwork, pills, play/pause, reject, confirm), `UseItPanel` (full-track section, copy, open TikTok/Instagram/Spotify), feedback route via `markRecommendationFeedback`, collapsed "Why this song", attribution; replaces `ResultsView`/`RecommendationCard`; absorbs Phase 4 Task 4.1 | L |
+| P4 | Launch checks on the phone: ownership, save failure, two concurrent selects, previews-off degradation; `pnpm typecheck && pnpm test && pnpm build` | S |
+
+Cut order if time runs out: sample-start slider → loop/drift sync (audio-only audition) → never the
+rows, explanation, choice, copy/open. Phase 4 paywall + webhook come right after P3.
+
+**Decision for Dylan (added):** previews on Deezer's public API are outside its non-commercial terms.
+Options: (a) ship for the challenge with the switch on, attribution shown, and email Deezer API support
+for approval today; (b) ship the screen with previews off until approval; (c) move catalogue + previews
+to Apple Music API / MusicKit ($99 Developer Program, 1–2 days, own preview rules) after Sunday.
+Default if unanswered: (a) now, (c) on the roadmap.
