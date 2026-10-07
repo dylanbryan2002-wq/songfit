@@ -1,0 +1,158 @@
+import type {
+  FinalRecommendation, GeneratedCandidate, MusicBrief, Pick, ScoredCandidate, SubmissionStatus,
+  VerifiedCandidate, VideoAnalysis,
+} from "@/src/shared/types";
+import type { Json } from "@/src/db/types";
+import { PipelineError } from "@/src/shared/errors";
+import { logger } from "@/src/shared/logger";
+import { generateCandidates, PROMPT_VERSION as CANDIDATES_VERSION, type GenerateOpts } from "@/src/engine/candidates/generateCandidates";
+import { normalizeKey } from "@/src/engine/catalog/normalize";
+import { verifyCandidates } from "@/src/engine/catalog/verifyCandidates";
+import { scoreCandidates } from "@/src/engine/scoring/scoreCandidates";
+import { diversify } from "@/src/engine/diversify/diversify";
+import { selectSections } from "@/src/engine/sections/selectSections";
+import { explainPicks, PROMPT_VERSION as EXPLAIN_VERSION } from "@/src/engine/explain/explainPicks";
+import { getAnalysis } from "@/src/db/queries/analyses";
+import { getSubmission, setSubmissionStatus, type SubmissionRow } from "@/src/db/queries/submissions";
+import { replaceCandidates, type CandidateInsert, type CandidateRow } from "@/src/db/queries/candidates";
+import { replaceRecommendations, type RecommendationInsert, type RecommendationRow } from "@/src/db/queries/recommendations";
+import { logEvent } from "@/src/feedback/events";
+import type { StageCtx } from "@/src/pipeline/budget";
+
+type VerifyResult = { verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] };
+
+export type RecommendDeps = {
+  getSubmission: (id: string) => Promise<SubmissionRow | null>;
+  getAnalysis: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; row: unknown } | null>;
+  generate: (brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts) => Promise<GeneratedCandidate[]>;
+  verify: (cands: GeneratedCandidate[]) => Promise<VerifyResult>;
+  score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[], deps?: { ctx?: StageCtx }) => Promise<ScoredCandidate[]>;
+  diversify: (scored: ScoredCandidate[]) => Pick[];
+  sections: (picks: Pick[], analysis: VideoAnalysis) => Pick[];
+  explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { ctx?: StageCtx }) => Promise<FinalRecommendation[]>;
+  replaceCandidates: (submissionId: string, rows: CandidateInsert[]) => Promise<CandidateRow[]>;
+  replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<RecommendationRow[]>;
+  setStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
+  logEvent: typeof logEvent;
+};
+
+const defaultDeps: RecommendDeps = {
+  getSubmission, getAnalysis,
+  generate: generateCandidates, verify: verifyCandidates, score: scoreCandidates,
+  diversify, sections: selectSections, explain: explainPicks,
+  replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent,
+};
+
+const RETRY_NOTE = "previous suggestions could not be found on Deezer; propose different, well-known songs";
+const MIN_VERIFIED = 3;
+
+export function toCandidateInsert(
+  submissionId: string, c: GeneratedCandidate | ScoredCandidate | VerifiedCandidate, verified: boolean, promptVersion: string,
+): CandidateInsert {
+  const s = c as Partial<ScoredCandidate>;
+  return {
+    submission_id: submissionId,
+    title: c.title,
+    artist: c.artist,
+    canonical_title: verified ? s.canonical_title ?? null : null,
+    canonical_artist: verified ? s.canonical_artist ?? null : null,
+    deezer_id: verified ? s.deezer_id ?? null : null,
+    itunes_id: null,
+    artwork_url: s.artwork_url ?? null,
+    deezer_url: s.deezer_url ?? null,
+    preview_url: s.preview_url ?? null,
+    preview_source: s.preview_url ? "deezer" : null,
+    aligned_to_moment: null,
+    duration_seconds: s.duration_seconds ?? null,
+    verified,
+    proposed_start: c.proposed_start,
+    proposed_end: c.proposed_end,
+    anchor_seconds: c.anchor_seconds,
+    section_is_vocal: c.section_is_vocal,
+    directions: c.directions,
+    section_reason: c.section_reason,
+    fit_reason: c.fit_reason,
+    source: "model",
+    song_id: null,
+    segment_id: null,
+    component_scores: (s.component_scores as unknown as Json) ?? null,
+    total_score: s.total_score ?? null,
+    prompt_version: promptVersion,
+  };
+}
+
+const distinct = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.deezer_id)).size;
+const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.artist);
+
+export async function recommendSubmission(
+  submissionId: string, ctx: StageCtx, deps: RecommendDeps = defaultDeps,
+): Promise<void> {
+  const started = Date.now();
+  const sub = await deps.getSubmission(submissionId);
+  if (!sub) throw new PipelineError("recommend", "submission not found");
+  const stored = await deps.getAnalysis(submissionId);
+  if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
+  const { analysis, brief } = stored;
+
+  const gen1 = await deps.generate(brief, analysis, { ctx });
+  const v1 = await deps.verify(gen1);
+  const verified = [...v1.verified];
+  let unverified = [...v1.unverified];
+  let lookupFailed = [...v1.lookupFailed];
+  let generated = gen1.length;
+  const firstSeen = new Set(gen1.map(keyOf));
+  const seenKeys = [...firstSeen];
+
+  if (distinct(verified) < MIN_VERIFIED) {
+    logger.warn("recommend.regenerate", { submissionId, verified: distinct(verified) });
+    const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude: seenKeys, ctx });
+    generated += gen2.length;
+    const v2 = await deps.verify(gen2);
+    const have = new Set(verified.map((v) => v.deezer_id));
+    for (const v of v2.verified) if (!have.has(v.deezer_id)) { verified.push(v); have.add(v.deezer_id); }
+    unverified = [...unverified, ...v2.unverified];
+    lookupFailed = [...lookupFailed, ...v2.lookupFailed];
+  }
+
+  const enough = distinct(verified) >= MIN_VERIFIED;
+  const scored = enough ? await deps.score(analysis, brief, verified, { ctx }) : [];
+  const version = (c: { title: string; artist: string }) =>
+    firstSeen.has(keyOf(c)) ? CANDIDATES_VERSION : `${CANDIDATES_VERSION}#2`;
+  const rows: CandidateInsert[] = [
+    ...(enough ? scored : verified).map((c) => toCandidateInsert(submissionId, c, true, version(c))),
+    ...[...unverified, ...lookupFailed].map((c) => toCandidateInsert(submissionId, c, false, version(c))),
+  ];
+  // Persisted even when we fail below, so the inspector can show what was seen.
+  const inserted = await deps.replaceCandidates(submissionId, rows);
+  if (!enough) throw new PipelineError("recommend", "fewer than 3 verified candidates");
+
+  const picks = deps.sections(deps.diversify(scored), analysis);
+  const finals = await deps.explain(picks, analysis, brief, { ctx });
+  const idByDeezer = new Map(inserted.filter((r) => r.deezer_id).map((r) => [r.deezer_id as string, r.id]));
+
+  await deps.replaceRecommendations(submissionId, finals.map((r): RecommendationInsert => ({
+    submission_id: submissionId,
+    candidate_id: idByDeezer.get(r.deezer_id) ?? null,
+    rank: r.rank,
+    direction_label: r.direction_label,
+    title: r.canonical_title,
+    artist: r.canonical_artist,
+    start_seconds: r.start_seconds,
+    end_seconds: r.end_seconds,
+    aligned_to_moment: r.aligned_to_moment,
+    explanation: r.explanation,
+    explain_prompt_version: EXPLAIN_VERSION,
+    spotify_url: r.spotify_url,
+    deezer_url: r.deezer_url || null,
+    artwork_url: r.artwork_url,
+    preview_url: r.preview_url,
+    selected: false,
+    rejected: false,
+  })));
+  await deps.setStatus(submissionId, "ready");
+  await deps.logEvent({ name: "recommendations_ready", creatorId: sub.creator_id, submissionId });
+  logger.info("recommend.summary", {
+    submissionId, generated, verified: distinct(verified), unverified: unverified.length,
+    lookupFailed: lookupFailed.length, picks: finals.length, ms: Date.now() - started,
+  });
+}

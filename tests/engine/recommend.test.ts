@@ -1,0 +1,97 @@
+import { describe, it, expect, vi } from "vitest";
+import { recommendSubmission, type RecommendDeps } from "@/src/engine/recommend";
+import type { GeneratedCandidate, VerifiedCandidate, FinalRecommendation, ScoredCandidate, Pick as SPick } from "@/src/shared/types";
+import { analysis, brief, gen, ver, scored, pick } from "./fixtures";
+
+vi.mock("server-only", () => ({}));
+
+const row = { id: "sub-1", creator_id: "cre-1" } as never;
+const ctx = () => ({ deadlineAt: Date.now() + 200_000 });
+
+function makeDeps(over: Partial<RecommendDeps> = {}) {
+  const calls: string[] = [];
+  const deps: RecommendDeps = {
+    getSubmission: vi.fn(async () => row),
+    getAnalysis: vi.fn(async () => ({ analysis, brief, row: {} })),
+    generate: vi.fn(async () => { calls.push("generate"); return []; }),
+    verify: vi.fn(async () => { calls.push("verify"); return { verified: [], unverified: [], lookupFailed: [] }; }),
+    score: vi.fn(async (_a, _b, vs: VerifiedCandidate[]) => { calls.push("score"); return vs.map((v) => scored(v)); }),
+    diversify: vi.fn((s: ScoredCandidate[]) => { calls.push("diversify"); return s.slice(0, 3).map((c, i) => pick({ ...c, rank: (i + 1) as 1 | 2 | 3 })); }),
+    sections: vi.fn((p) => { calls.push("sections"); return p; }),
+    explain: vi.fn(async (p: SPick[]): Promise<FinalRecommendation[]> => {
+      calls.push("explain");
+      return p.map((x) => ({ ...x, explanation: "e", spotify_url: "s", itunes_id: null }));
+    }),
+    replaceCandidates: vi.fn(async (_id: string, rows: { deezer_id?: string | null }[]) => {
+      calls.push("replaceCandidates");
+      return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id ?? null })) as never;
+    }),
+    replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
+    setStatus: vi.fn(async () => { calls.push("setStatus"); }),
+    logEvent: vi.fn(async () => {}),
+    ...over,
+  };
+  return Object.assign(deps, { calls });
+}
+
+describe("recommendSubmission", () => {
+  it("runs stages in order, persists unverified rows, links recs to candidate ids, logs creatorId", async () => {
+    const generated = [gen({ title: "V1" }), gen({ title: "V2" }), gen({ title: "V3" }), gen({ title: "Missing" })];
+    const verified = generated.slice(0, 3).map((c, i) => ver({ ...c, deezer_id: String(i + 1), deezer_url: `https://www.deezer.com/track/${i + 1}` }));
+    const deps = makeDeps({
+      generate: vi.fn(async () => generated),
+      verify: vi.fn(async () => ({ verified, unverified: [generated[3]!], lookupFailed: [] })),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    expect(deps.calls).toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v2", total_score: 0.7 });
+    expect(rows[3]).toMatchObject({ verified: false, deezer_id: null, canonical_title: null, total_score: null, component_scores: null });
+    expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
+    expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
+    const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string; explain_prompt_version: string; selected: boolean }[];
+    expect(recRows.map((r) => r.candidate_id)).toEqual(["cand-0", "cand-1", "cand-2"]);
+    expect(recRows[0]).toMatchObject({ explain_prompt_version: "explain-v1", selected: false });
+  });
+
+  it("regenerates once, excludes seen keys, merges by deezer id, tags only new keys #2, persists all", async () => {
+    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" }), gen({ title: "Flaky" })];
+    const second = [gen({ title: "A" }), gen({ title: "C" })];
+    const generate = vi.fn(async (_b, _a, opts?: { exclude?: string[] }) => (opts?.exclude ? second : first));
+    const verify = vi.fn(async (cands: GeneratedCandidate[]) => ({
+      verified: cands.filter((c) => !["Gone", "Flaky"].includes(c.title)).map((c) => ver({ ...c, deezer_id: c.title === "A" ? "10" : c.title === "B" ? "11" : "12" })),
+      unverified: cands.filter((c) => c.title === "Gone"),
+      lookupFailed: cands.filter((c) => c.title === "Flaky"),
+    }));
+    const deps = makeDeps({ generate, verify });
+    await recommendSubmission("sub-1", ctx(), deps);
+    expect(generate).toHaveBeenCalledTimes(2);
+    const opts = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[]; note: string };
+    expect(opts.exclude).toEqual(expect.arrayContaining(["a|the weeknd", "b|the weeknd", "gone|the weeknd", "flaky|the weeknd"]));
+    expect(opts.note).toMatch(/could not be found on Deezer/);
+    const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
+    expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; verified: boolean; prompt_version: string }[];
+    expect(rows).toHaveLength(5);
+    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v2");
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v2#2");
+    expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
+    expect(rows.find((r) => r.title === "Flaky")).toMatchObject({ verified: false });
+  });
+
+  it("fails with fewer than 3 distinct recordings after regeneration, still persisting what was seen", async () => {
+    const deps = makeDeps({
+      generate: vi.fn(async () => [gen({ title: "X" })]),
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [], lookupFailed: [] })),
+    });
+    await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/fewer than 3 verified candidates/);
+    expect(deps.replaceCandidates).toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalled();
+  });
+
+  it("fails when no analysis is stored", async () => {
+    const deps = makeDeps({ getAnalysis: vi.fn(async () => null) });
+    await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/no analysis stored/);
+  });
+});

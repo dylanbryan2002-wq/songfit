@@ -2,6 +2,7 @@ import { claimSubmissionRun, setSubmissionStatus } from "../db/queries/submissio
 import { getAnalysisRow } from "../db/queries/analyses";
 import { listRecommendations } from "../db/queries/recommendations";
 import { analyzeSubmission } from "../analysis";
+import { recommendSubmission } from "../engine/recommend";
 import { logEvent } from "../feedback/events";
 import { LIMITS } from "../shared/config";
 import { PipelineError } from "../shared/errors";
@@ -40,7 +41,7 @@ export const defaultDeps: RunDeps = {
   listRecommendations,
   setSubmissionStatus,
   analyze: (id, ctx) => analyzeSubmission(id, ctx),
-  recommend: recommendNotImplemented,
+  recommend: (id, ctx) => recommendSubmission(id, ctx),
   logEvent,
   now: () => Date.now(),
 };
