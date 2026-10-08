@@ -100,7 +100,9 @@ export function artistsMatch(a: string, b: string): boolean {
 // Loose matching (C1). Deezer/iTunes titles often carry a descriptor ("Dreams (2004 Remaster)",
 // "Sunflower (Spider-Man: Into the Spider-Verse)") and credit only the lead artist. Measured on two
 // real submissions: 12 famous songs were dropped by the strict rules for exactly these reasons.
-const ARTIST_SPLIT_RE = /\s*(?:&|,|\s(?:and|x|with)\s|\b(?:feat\.?|ft\.?|featuring)(?=\s))\s*/i;
+const ARTIST_SPLIT_RE = /\s*(?:&|,|\s(?:and|with)\s|\b(?:feat\.?|ft\.?|featuring)(?=\s))\s*/i;
+// " x " splits only with a name on both sides: the trailing X in "Lil Nas X" is part of the name.
+const X_SPLIT_RE = /\s+x\s+/i;
 const DESCRIPTOR_START_RE = /\s+[(\[]|\s+[-–—]\s+/;
 // "Soundtrack Version" is the original film recording, not a variant: the one exception to "version".
 export const DISQUALIFYING_DESCRIPTOR =
@@ -108,7 +110,11 @@ export const DISQUALIFYING_DESCRIPTOR =
 
 /** Every credited artist, normalised: "Post Malone & Swae Lee" → ["post malone", "swae lee"]. */
 export function artistList(a: string): string[] {
-  return a.split(ARTIST_SPLIT_RE).map(normalizeArtist).filter(Boolean);
+  return a
+    .split(ARTIST_SPLIT_RE)
+    .flatMap((piece) => piece.trim().split(X_SPLIT_RE))
+    .map(normalizeArtist)
+    .filter(Boolean);
 }
 
 function splitDescriptor(t: string): [string, string] {

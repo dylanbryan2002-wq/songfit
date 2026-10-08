@@ -93,6 +93,11 @@ describe("loose matching (C1)", () => {
     expect(artistList("Drake featuring Rihanna")).toEqual(["drake", "rihanna"]);
     expect(artistList("Drake with Rihanna")).toEqual(["drake", "rihanna"]);
     expect(artistList("Daft Punk")).toEqual(["daft punk"]);
+    expect(artistList("Lil Nas X & Jack Harlow")).toEqual(["lil nas x", "jack harlow"]);
+    expect(artistList("Lil Nas X")).toEqual(["lil nas x"]);
+    expect(artistList("Charli xcx x Troye Sivan")).toEqual(["charli xcx", "troye sivan"]);
+    // Accepted limitation: a comma inside a name splits it. Harmless for "any shared artist" matching.
+    expect(artistList("Tyler, The Creator")).toEqual(["tyler", "the creator"]);
   });
   it("coreTitle and titleDescriptor split at the first bracket or spaced dash", () => {
     expect(coreTitle("Dreams (2004 Remaster)")).toBe("dreams");

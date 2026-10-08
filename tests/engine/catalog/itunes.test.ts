@@ -37,6 +37,14 @@ describe("findItunesTrack", () => {
     expect(await p).toMatchObject({ itunesId: "3", artworkUrl: null });
     vi.useRealTimers();
   });
+  it("skips a malformed result item instead of failing the lookup", async () => {
+    vi.useFakeTimers();
+    const { findItunesTrack } = await import("@/src/engine/catalog/itunes");
+    const p = findItunesTrack("Hello", "Adele", ok([{ trackId: "bad", kind: "podcast" }, song()]) as unknown as typeof fetch);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await p).toMatchObject({ itunesId: "12" });
+    vi.useRealTimers();
+  });
   it("returns null when nothing matches", async () => {
     vi.useFakeTimers();
     const { findItunesTrack } = await import("@/src/engine/catalog/itunes");
@@ -58,7 +66,8 @@ describe("findItunesTrack", () => {
     expect(e403).toBeInstanceOf(ProviderError);
     expect((e403 as InstanceType<typeof ProviderError>).status).toBe(403);
     expect(await run(vi.fn(async () => { throw new TypeError("fetch failed"); }))).toBeInstanceOf(ProviderError);
-    expect(await run(vi.fn(async () => new Response(JSON.stringify({ results: [{ nope: 1 }] }), { status: 200 })))).toBeInstanceOf(ProviderError);
+    expect(await run(vi.fn(async () => new Response(JSON.stringify({ results: "nope" }), { status: 200 })))).toBeInstanceOf(ProviderError);
+    expect(await run(vi.fn(async () => new Response("not json", { status: 200 })))).toBeInstanceOf(ProviderError);
     vi.useRealTimers();
   });
   it("spaces requests by LIMITS.itunesMinIntervalMs", async () => {

@@ -13,7 +13,7 @@ const ItunesTrack = z.object({
   trackTimeMillis: z.number().optional(),
   artworkUrl100: z.string().optional(),
 });
-const ItunesTrackSearch = z.object({ results: z.array(ItunesTrack) });
+const ItunesTrackSearch = z.object({ results: z.array(z.unknown()) }); // items parsed one by one
 
 export type ItunesTrackMatch = {
   itunesId: string; title: string; artist: string; durationSeconds: number; artworkUrl: string | null;
@@ -51,7 +51,11 @@ export async function findItunesTrack(
   }
   const parsed = ItunesTrackSearch.safeParse(body);
   if (!parsed.success) throw new ProviderError("itunes: unexpected response shape");
-  const withDuration = parsed.data.results.filter((r) => r.trackTimeMillis !== undefined);
+  // A malformed item is skipped, never fatal: one odd result must not hide the real song.
+  const withDuration = parsed.data.results.flatMap((item) => {
+    const r = ItunesTrack.safeParse(item);
+    return r.success && r.data.trackTimeMillis !== undefined ? [r.data] : [];
+  });
   const hit = pickBestMatch({ title, artist }, withDuration, (r) => ({ title: r.trackName, artist: r.artistName }));
   if (!hit) return null;
   return {
