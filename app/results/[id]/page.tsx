@@ -24,7 +24,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
 
   const ready = submission.status === "ready";
   const [picker, videoUrl] = ready
-    ? await Promise.all([loadPicker(id), getSignedPlaybackUrl(submission.video_path, 3600)])
+    ? await Promise.all([loadPicker(id), getSignedPlaybackUrl(submission.playback_path ?? submission.video_path, 3600)])
     : [null, null];
   // Only the owner's first ready view counts; admins browsing never do. The conditional update
   // returns true for exactly one concurrent request, so the event logs once.

@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getSubmission, updateSubmission } from "../db/queries/submissions";
 import { upsertAnalysis } from "../db/queries/analyses";
-import { downloadToTmp } from "../media/storage";
+import { downloadToTmp, playbackPathFor, uploadPlayback } from "../media/storage";
 import { extractMedia } from "../media/extract";
+import { transcodeForPlayback } from "../media/transcode";
 import { transcribe } from "./transcribe";
 import { analyzeVideo } from "./analyzeVideo";
 import { logEvent } from "../feedback/events";
@@ -15,6 +16,8 @@ export type AnalyzeDeps = {
   getSubmission: typeof getSubmission;
   downloadToTmp: typeof downloadToTmp;
   extractMedia: typeof extractMedia;
+  transcodeForPlayback: typeof transcodeForPlayback;
+  uploadPlayback: typeof uploadPlayback;
   readFrame: (framePath: string) => Promise<string>;
   transcribe: typeof transcribe;
   analyzeVideo: typeof analyzeVideo;
@@ -28,6 +31,8 @@ const defaultDeps: AnalyzeDeps = {
   getSubmission,
   downloadToTmp,
   extractMedia,
+  transcodeForPlayback,
+  uploadPlayback,
   readFrame: async (p) => (await fs.readFile(p)).toString("base64"),
   transcribe,
   analyzeVideo,
@@ -54,6 +59,22 @@ export async function analyzeSubmission(
   const workDir = path.dirname(videoPath);
   try {
     const media = await d.extractMedia(videoPath, { workDir, deadlineAt: ctx.deadlineAt });
+
+    // H.264 playback copy for Android/desktop browsers. Best effort: never fails the stage.
+    try {
+      const t0 = Date.now();
+      const playbackLocal = await d.transcodeForPlayback(videoPath, workDir, ctx.deadlineAt);
+      if (playbackLocal) {
+        const playbackPath = playbackPathFor(sub.video_path);
+        await d.uploadPlayback(playbackPath, playbackLocal);
+        await d.updateSubmission(submissionId, { playback_path: playbackPath });
+        const bytes = (await fs.stat(playbackLocal).catch(() => null))?.size ?? 0;
+        logger.info("media.transcoded", { submissionId, ms: Date.now() - t0, bytes });
+      }
+    } catch (err) {
+      logger.warn("media.transcode_failed", { submissionId, reason: err instanceof Error ? err.message : String(err) });
+    }
+
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
     );

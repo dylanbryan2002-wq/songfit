@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isExactStoragePath, storagePathFor } from "../../src/media/storage";
+import { isExactStoragePath, playbackPathFor, storagePathFor } from "../../src/media/storage";
+
+describe("playbackPathFor", () => {
+  it("swaps the extension for .playback.mp4 in the same folder", () => {
+    expect(playbackPathFor("cre/sub.mov")).toBe("cre/sub.playback.mp4");
+    expect(playbackPathFor("cre/sub.mp4")).toBe("cre/sub.playback.mp4");
+  });
+});
 
 const c = "11111111-1111-1111-1111-111111111111";
 const s = "22222222-2222-2222-2222-222222222222";

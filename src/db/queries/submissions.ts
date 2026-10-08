@@ -86,7 +86,7 @@ export async function setSubmissionAnalyzed(
 /** Narrow patch used by the analysis stage and admin tooling. */
 export async function updateSubmission(
   id: string,
-  patch: Partial<Pick<SubmissionUpdate, "content_category" | "duration_seconds" | "analyzed_at" | "recommended_at" | "viewed_at">>,
+  patch: Partial<Pick<SubmissionUpdate, "content_category" | "duration_seconds" | "playback_path" | "analyzed_at" | "recommended_at" | "viewed_at">>,
 ): Promise<void> {
   const { error } = await createServiceClient().from("submissions").update(patch).eq("id", id);
   if (error) throw error;

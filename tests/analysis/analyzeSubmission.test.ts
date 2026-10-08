@@ -39,6 +39,8 @@ function deps() {
       audioPath: "/tmp/x/audio.wav",
       workDir: "/tmp/x",
     }),
+    transcodeForPlayback: vi.fn().mockResolvedValue("/tmp/x/playback.mp4"),
+    uploadPlayback: vi.fn().mockResolvedValue(undefined),
     readFrame: vi.fn().mockResolvedValue("QUJD"),
     transcribe: vi.fn().mockResolvedValue({ text: "", segments: [] }),
     analyzeVideo: vi.fn().mockResolvedValue(analysisResult),
@@ -112,6 +114,31 @@ describe("analyzeSubmission", () => {
     await analyzeSubmission("sub-1", ctx, d);
     expect(d.transcribe).not.toHaveBeenCalled();
     expect(d.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ transcript: "", transcriptSegments: [] }), ctx);
+  });
+
+  it("uploads the playback copy and records playback_path before the model call", async () => {
+    const d = deps();
+    await analyzeSubmission("sub-1", ctx, d);
+    expect(d.transcodeForPlayback).toHaveBeenCalledWith("/tmp/x/video.mp4", "/tmp/x", 1_000_000);
+    expect(d.uploadPlayback).toHaveBeenCalledWith("cre-1/sub-1.playback.mp4", "/tmp/x/playback.mp4");
+    expect(d.updateSubmission).toHaveBeenCalledWith("sub-1", { playback_path: "cre-1/sub-1.playback.mp4" });
+  });
+
+  it("continues without a playback copy when the transcode returns null", async () => {
+    const d = deps();
+    d.transcodeForPlayback.mockResolvedValue(null);
+    await analyzeSubmission("sub-1", ctx, d);
+    expect(d.uploadPlayback).not.toHaveBeenCalled();
+    expect(d.updateSubmission).not.toHaveBeenCalledWith("sub-1", expect.objectContaining({ playback_path: expect.anything() }));
+    expect(d.upsertAnalysis).toHaveBeenCalled();
+  });
+
+  it("does not fail the stage when the playback upload throws", async () => {
+    const d = deps();
+    d.uploadPlayback.mockRejectedValue(new Error("storage down"));
+    await analyzeSubmission("sub-1", ctx, d);
+    expect(d.upsertAnalysis).toHaveBeenCalled();
+    expect(d.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "analysis_completed" }));
   });
 
   it("throws when the submission does not exist", async () => {

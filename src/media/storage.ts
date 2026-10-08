@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServiceClient } from "@/src/db/client";
@@ -65,4 +65,18 @@ export async function getSignedPlaybackUrl(storagePath: string, seconds = 3600):
     .createSignedUrl(storagePath, seconds);
   if (error || !data) throw new Error(`createSignedUrl failed: ${error?.message}`);
   return data.signedUrl;
+}
+
+/** `<creator>/<submission>.mov` → `<creator>/<submission>.playback.mp4` (same folder). */
+export function playbackPathFor(videoPath: string): string {
+  const ext = path.posix.extname(videoPath);
+  return `${videoPath.slice(0, videoPath.length - ext.length)}.playback.mp4`;
+}
+
+export async function uploadPlayback(storagePath: string, localPath: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase.storage
+    .from(VIDEO_BUCKET)
+    .upload(storagePath, await readFile(localPath), { contentType: "video/mp4", upsert: true });
+  if (error) throw new Error(`playback upload failed: ${error.message}`);
 }
