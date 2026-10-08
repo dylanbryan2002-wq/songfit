@@ -217,12 +217,6 @@ export function UploadForm({
         {(phase === "idle" || phase === "error") && "Find my songs"}
       </button>
       <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>
-      {/* One link: when blocked, the inline one above is it. */}
-      {!blocked && (
-        <Link href="/results/latest" className="mx-auto min-h-11 py-3 text-sm font-semibold text-steel-dark">
-          Open my latest result →
-        </Link>
-      )}
     </form>
   );
 }
