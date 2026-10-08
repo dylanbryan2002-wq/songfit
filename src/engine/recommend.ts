@@ -8,7 +8,7 @@ import { PICKS_MIN } from "@/src/shared/config";
 import { logger } from "@/src/shared/logger";
 import { generateCandidates, PROMPT_VERSION as CANDIDATES_VERSION, type GenerateOpts } from "@/src/engine/candidates/generateCandidates";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
-import { verifyCandidates } from "@/src/engine/catalog/verifyCandidates";
+import { verifyCandidates, type UnverifiedCandidate } from "@/src/engine/catalog/verifyCandidates";
 import { scoreCandidates } from "@/src/engine/scoring/scoreCandidates";
 import { diversify } from "@/src/engine/diversify/diversify";
 import { selectSections } from "@/src/engine/sections/selectSections";
@@ -20,7 +20,7 @@ import { replaceRecommendations, type RecommendationInsert, type RecommendationR
 import { logEvent } from "@/src/feedback/events";
 import type { StageCtx } from "@/src/pipeline/budget";
 
-type VerifyResult = { verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] };
+type VerifyResult = { verified: VerifiedCandidate[]; unverified: UnverifiedCandidate[]; lookupFailed: GeneratedCandidate[] };
 
 export type RecommendDeps = {
   getSubmission: (id: string) => Promise<SubmissionRow | null>;
@@ -44,10 +44,11 @@ const defaultDeps: RecommendDeps = {
   replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent,
 };
 
-const RETRY_NOTE = "previous suggestions could not be found on Deezer; propose different, well-known songs";
+const RETRY_NOTE =
+  "previous suggestions could not be found with a playable sample; propose different, well-known studio recordings (original releases, not live versions, covers or remixes)";
 
 export function toCandidateInsert(
-  submissionId: string, c: GeneratedCandidate | ScoredCandidate | VerifiedCandidate, verified: boolean, promptVersion: string,
+  submissionId: string, c: UnverifiedCandidate | ScoredCandidate | VerifiedCandidate, verified: boolean, promptVersion: string,
 ): CandidateInsert {
   const s = c as Partial<ScoredCandidate>;
   return {
@@ -56,7 +57,7 @@ export function toCandidateInsert(
     artist: c.artist,
     canonical_title: verified ? s.canonical_title ?? null : null,
     canonical_artist: verified ? s.canonical_artist ?? null : null,
-    deezer_id: verified ? s.deezer_id ?? null : null,
+    deezer_id: s.deezer_id ?? null, // on an unverified row: a Deezer match with no sample (no_sample)
     itunes_id: verified ? s.itunes_id ?? null : null,
     artwork_url: s.artwork_url ?? null,
     deezer_url: s.deezer_url ?? null,
@@ -83,7 +84,7 @@ export function toCandidateInsert(
 
 const distinct = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.catalog_key)).size;
 /** Same identity as VerifiedCandidate.catalog_key, rebuilt from a stored row (recommendations hold no catalogue id). */
-const rowKey = (r: CandidateRow) => (r.deezer_id ? `deezer:${r.deezer_id}` : r.itunes_id ? `itunes:${r.itunes_id}` : null);
+const rowKey = (r: CandidateRow) => (r.verified && r.deezer_id ? `deezer:${r.deezer_id}` : null);
 const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.artist);
 
 export async function recommendSubmission(
@@ -155,6 +156,7 @@ export async function recommendSubmission(
   await deps.logEvent({ name: "recommendations_ready", creatorId: sub.creator_id, submissionId });
   logger.info("recommend.summary", {
     submissionId, generated, verified: distinct(verified), unverified: unverified.length,
-    lookupFailed: lookupFailed.length, picks: finals.length, ms: Date.now() - started,
+    noSample: unverified.filter((u) => u.deezer_id).length, lookupFailed: lookupFailed.length, picks: finals.length,
+    ms: Date.now() - started,
   });
 }

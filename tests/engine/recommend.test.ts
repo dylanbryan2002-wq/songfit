@@ -3,6 +3,7 @@ import { recommendSubmission, type RecommendDeps } from "@/src/engine/recommend"
 import { diversify } from "@/src/engine/diversify/diversify";
 import type { GeneratedCandidate, VerifiedCandidate, FinalRecommendation, ScoredCandidate, Pick as SPick } from "@/src/shared/types";
 import { analysis, brief, gen, ver, scored, pick } from "./fixtures";
+import { logger } from "@/src/shared/logger";
 
 vi.mock("server-only", () => ({}));
 
@@ -23,9 +24,9 @@ function makeDeps(over: Partial<RecommendDeps> = {}) {
       calls.push("explain");
       return p.map((x) => ({ ...x, explanation: "e", spotify_url: "s", itunes_id: null }));
     }),
-    replaceCandidates: vi.fn(async (_id: string, rows: { deezer_id?: string | null; itunes_id?: string | null }[]) => {
+    replaceCandidates: vi.fn(async (_id: string, rows: { deezer_id?: string | null; itunes_id?: string | null; verified?: boolean }[]) => {
       calls.push("replaceCandidates");
-      return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id ?? null, itunes_id: r.itunes_id ?? null })) as never;
+      return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id ?? null, itunes_id: r.itunes_id ?? null, verified: r.verified })) as never;
     }),
     replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
     setStatus: vi.fn(async () => { calls.push("setStatus"); }),
@@ -47,7 +48,7 @@ describe("recommendSubmission", () => {
     expect(deps.calls).toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
     expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_source: null, itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v3", total_score: 0.7 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_url: "https://cdn.deezer/1.mp3", preview_source: "deezer", itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v3", total_score: 0.7 });
     expect(rows[3]).toMatchObject({ verified: false, deezer_id: null, canonical_title: null, total_score: null, component_scores: null });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
@@ -57,24 +58,25 @@ describe("recommendSubmission", () => {
   });
 
   it("regenerates once, excludes seen keys, merges by deezer id, tags only new keys #2, persists all", async () => {
-    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" }), gen({ title: "Flaky" })];
+    const first = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "Gone" }), gen({ title: "Flaky" }), gen({ title: "Silent" })];
     const second = [gen({ title: "A" }), gen({ title: "C" })];
     const generate = vi.fn(async (_b, _a, opts?: { exclude?: string[] }) => (opts?.exclude ? second : first));
     const verify = vi.fn(async (cands: GeneratedCandidate[]) => ({
-      verified: cands.filter((c) => !["Gone", "Flaky"].includes(c.title)).map((c) => ver({ ...c, deezer_id: c.title === "A" ? "10" : c.title === "B" ? "11" : "12" })),
-      unverified: cands.filter((c) => c.title === "Gone"),
+      verified: cands.filter((c) => !["Gone", "Flaky", "Silent"].includes(c.title)).map((c) => ver({ ...c, deezer_id: c.title === "A" ? "10" : c.title === "B" ? "11" : "12" })),
+      unverified: [...cands.filter((c) => c.title === "Gone"), ...cands.filter((c) => c.title === "Silent").map((c) => ({ ...c, deezer_id: "99" }))],
       lookupFailed: cands.filter((c) => c.title === "Flaky"),
     }));
     const deps = makeDeps({ generate, verify });
     await recommendSubmission("sub-1", ctx(), deps);
     expect(generate).toHaveBeenCalledTimes(2);
     const opts = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[]; note: string };
-    expect(opts.exclude).toEqual(expect.arrayContaining(["a|the weeknd", "b|the weeknd", "gone|the weeknd", "flaky|the weeknd"]));
-    expect(opts.note).toMatch(/could not be found on Deezer/);
+    // A Deezer match without a sample stays excluded: the model must not propose it again.
+    expect(opts.exclude).toEqual(expect.arrayContaining(["a|the weeknd", "b|the weeknd", "gone|the weeknd", "flaky|the weeknd", "silent|the weeknd"]));
+    expect(opts.note).toMatch(/well-known studio recordings/);
     const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; verified: boolean; prompt_version: string }[];
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(6);
     expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v3");
     expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v3#2");
     expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
@@ -91,36 +93,22 @@ describe("recommendSubmission", () => {
     expect(deps.setStatus).not.toHaveBeenCalled();
   });
 
-  it("keys iTunes-verified recordings by catalog_key: persists itunes_id, links candidate_id, passes ctx to verify", async () => {
-    const generated = [gen({ title: "V1" }), gen({ title: "Hello", artist: "Adele" }), gen({ title: "V3" })];
-    const verified = [
-      ver({ title: "V1", deezer_id: "1" }),
-      ver({ title: "Hello", artist: "Adele", verified_via: "itunes", deezer_id: null, itunes_id: "55", deezer_url: null }),
-      ver({ title: "V3", deezer_id: "3" }),
-    ];
-    const verify = vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] }));
+  it("persists a no-sample match unverified with its deezer id, links recs only to verified rows, reports noSample", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const generated = [gen({ title: "V1" }), gen({ title: "V2" }), gen({ title: "V3" }), gen({ title: "Silent" })];
+    const verified = generated.slice(0, 3).map((c, i) => ver({ ...c, deezer_id: String(i + 1) }));
+    // Same Deezer id as V1: the unverified row must never steal V1's candidate link.
+    const verify = vi.fn(async () => ({ verified, unverified: [{ ...generated[3]!, deezer_id: "1" }], lookupFailed: [] }));
     const deps = makeDeps({ generate: vi.fn(async () => generated), verify });
     const c = ctx();
     await recommendSubmission("sub-1", c, deps);
     expect(verify).toHaveBeenCalledWith(generated, { ctx: c });
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
-    expect(rows[1]).toMatchObject({ title: "Hello", verified: true, deezer_id: null, itunes_id: "55", deezer_url: null, preview_source: null });
-    const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string; deezer_url: string | null }[];
+    expect(rows[3]).toMatchObject({ title: "Silent", verified: false, deezer_id: "1", itunes_id: null, preview_url: null, canonical_title: null });
+    const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string }[];
     expect(recRows.map((r) => r.candidate_id)).toEqual(["cand-0", "cand-1", "cand-2"]);
-    expect(recRows[1]!.deezer_url).toBeNull();
-  });
-
-  it("counts a Deezer and an iTunes recording with the same id string as two distinct recordings", async () => {
-    const generated = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "C" })];
-    const verified = [
-      ver({ title: "A", deezer_id: "7" }),
-      ver({ title: "B", verified_via: "itunes", deezer_id: null, itunes_id: "7" }),
-      ver({ title: "C", verified_via: "itunes", deezer_id: null, itunes_id: "8" }),
-    ];
-    const generate = vi.fn(async () => generated);
-    const deps = makeDeps({ generate, verify: vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] })) });
-    await recommendSubmission("sub-1", ctx(), deps);
-    expect(generate).toHaveBeenCalledTimes(1); // 3 distinct catalog keys: no regeneration
+    expect(info).toHaveBeenCalledWith("recommend.summary", expect.objectContaining({ unverified: 1, noSample: 1, picks: 3 }));
+    info.mockRestore();
   });
 
   it("persists all fifteen picks, ranks 1..15, from twenty verified recordings", async () => {

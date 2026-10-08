@@ -15,8 +15,6 @@ export const LIMITS = {
   deezerConcurrency: 6,
   deezerMinIntervalMs: 120, // ≈8 req/s, under Deezer's ~50 req / 5 s per IP
   deezerTimeoutMs: 8_000,
-  itunesMinIntervalMs: 3_000, // iTunes Search API ~20 req / min per IP
-  itunesFallbackMax: 12, // Deezer misses re-checked on iTunes per verify run
   sectionMin: 12,
   sectionMax: 20,
   sectionDefault: 15,
@@ -30,7 +28,11 @@ export const PICKS_TOTAL = 15;
 export const PICKS_PER_BATCH = 5;
 export const PICKS_MIN = 3;
 
-/** C8 ruling: previews need Dylan's go. He enabled them on 2026-10-07 (song-picker spec, option a). */
+/**
+ * C8 ruling: previews need Dylan's go. He enabled them on 2026-10-07 (song-picker spec, option a).
+ * Gates only the picker's play buttons. Verification always reads the Deezer preview: no sample, no
+ * recommendation (samples-only rule, 2026-10-07).
+ */
 export const PREVIEWS_ENABLED = true;
 
 /** Must match the literal in the create_submission() SQL function (supabase/migrations/0001_init.sql). */

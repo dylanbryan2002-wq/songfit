@@ -103,7 +103,7 @@ export async function explainPicks(
   const maps = await Promise.all(batches.map((b) => explainBatch(b, analysis, brief, call, deps.ctx)));
   logger.info("explain", { ms: Date.now() - started, calls: batches.length, promptVersion: PROMPT_VERSION });
 
-  // Previews are Deezer-only (C1 ruling): preview_url and itunes_id come from verification as-is.
+  // preview_url (always a Deezer sample) and itunes_id (always null) come from verification as-is.
   const byRank = new Map(maps.flatMap((m) => [...m]));
   return picks.map((p) => ({
     ...p,

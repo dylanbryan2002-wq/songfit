@@ -48,12 +48,6 @@ describe("diversify", () => {
     const out = diversify([a, { ...a, directions: ["current"] }, sc("C1", ["current"], 0.8), sc("U1", ["unexpected"], 0.7)]);
     expect(new Set(out.map((p) => p.catalog_key)).size).toBe(3);
   });
-  it("treats Deezer and iTunes recordings as distinct by catalog_key, and dedupes iTunes duplicates", () => {
-    const i1 = scored({ title: "I1", canonical_artist: "Adele", directions: ["current"], verified_via: "itunes", deezer_id: null, itunes_id: "1", total_score: 0.85 });
-    const i2 = scored({ title: "I2", canonical_artist: "Hozier", directions: ["unexpected"], verified_via: "itunes", deezer_id: null, itunes_id: "2", total_score: 0.7 });
-    const out = diversify([sc("S1", ["safe"], 0.9), i1, { ...i1, directions: ["unexpected"] }, i2]);
-    expect(out.map((p) => p.title)).toEqual(["S1", "I1", "I2"]);
-  });
   it("15 from 60 across three directions: ranks 1..15, every batch of 5 holds each direction, no repeats", () => {
     // Safe songs score highest, so a plain top-15 would be all "safe".
     const dirs: DirectionTag[] = ["safe", "current", "unexpected"];

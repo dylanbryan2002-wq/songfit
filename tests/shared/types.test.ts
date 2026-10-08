@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL, RankSchema } from "@/src/shared/types";
+import { VideoAnalysis, MusicBrief, GeneratedCandidate, VerifiedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL, RankSchema } from "@/src/shared/types";
 
 const validAnalysis = {
   summary: "Creator walks through NYC at night and reveals an outfit.",
@@ -73,6 +73,22 @@ describe("GeneratedCandidate schema", () => {
   it("rejects a missing anchor", () => {
     const { anchor_seconds: _omit, ...noAnchor } = valid;
     expect(() => GeneratedCandidate.parse(noAnchor)).toThrow();
+  });
+});
+
+describe("VerifiedCandidate schema (samples-only rule)", () => {
+  const verified = {
+    title: "Found", artist: "A", proposed_start: 43, proposed_end: 58, anchor_seconds: 45, section_is_vocal: true,
+    section_reason: "chorus", fit_reason: "fits", directions: ["safe"], verified_via: "deezer", catalog_key: "deezer:7", deezer_id: "7", itunes_id: null,
+    canonical_title: "Found", canonical_artist: "A", duration_seconds: 200, artwork_url: null,
+    deezer_url: "https://d/7", preview_url: "https://p.mp3",
+  };
+  it("accepts a Deezer candidate with a preview", () => {
+    expect(VerifiedCandidate.parse(verified)).toMatchObject({ preview_url: "https://p.mp3" });
+  });
+  it("rejects a missing preview and iTunes verification", () => {
+    expect(() => VerifiedCandidate.parse({ ...verified, preview_url: null })).toThrow();
+    expect(() => VerifiedCandidate.parse({ ...verified, verified_via: "itunes" })).toThrow();
   });
 });
 

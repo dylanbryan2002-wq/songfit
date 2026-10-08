@@ -30,11 +30,10 @@ export const ver = (over: Partial<VerifiedCandidate> = {}): VerifiedCandidate =>
   const base: VerifiedCandidate = {
     ...gen(), verified_via: "deezer", catalog_key: "", deezer_id: "1", itunes_id: null,
     canonical_title: "Blinding Lights", canonical_artist: "The Weeknd",
-    duration_seconds: 200, artwork_url: null, deezer_url: "https://www.deezer.com/track/1", preview_url: null, ...over,
+    duration_seconds: 200, artwork_url: null, deezer_url: "https://www.deezer.com/track/1", preview_url: "https://cdn.deezer/1.mp3", ...over,
   };
-  // catalog_key follows the overridden ids unless given explicitly.
-  const key = base.verified_via === "itunes" ? `itunes:${base.itunes_id}` : `deezer:${base.deezer_id}`;
-  return { ...base, catalog_key: over.catalog_key ?? key };
+  // catalog_key follows the overridden deezer_id unless given explicitly.
+  return { ...base, catalog_key: over.catalog_key ?? `deezer:${base.deezer_id}` };
 };
 
 const one = { score: 0.7, reason: "r" };

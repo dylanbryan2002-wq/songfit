@@ -77,16 +77,16 @@ export const GeneratedCandidate = z.object({
 export type GeneratedCandidate = z.infer<typeof GeneratedCandidate>;
 
 export const VerifiedCandidate = GeneratedCandidate.extend({
-  verified_via: z.enum(["deezer", "itunes"]),
-  catalog_key: z.string(), // "deezer:<id>" or "itunes:<id>": THE identity of a verified recording
-  deezer_id: z.string().nullable(), // null when verified via iTunes
-  itunes_id: z.string().nullable(), // set only when verified via iTunes
+  verified_via: z.enum(["deezer"]), // samples-only rule: only Deezer (with a preview) verifies
+  catalog_key: z.string(), // "deezer:<id>": THE identity of a verified recording
+  deezer_id: z.string().nullable(),
+  itunes_id: z.string().nullable(), // always null for new rows; older rows may have one (C1 iTunes fallback, removed)
   canonical_title: z.string(), // provider's title, stored verbatim
   canonical_artist: z.string(),
   duration_seconds: z.number(),
   artwork_url: z.string().nullable(),
   deezer_url: z.string().nullable(),
-  preview_url: z.string().nullable(), // Deezer only; null when previews are disabled or verified via iTunes
+  preview_url: z.string(), // required: no sample, no recommendation. A snapshot; the picker re-fetches (~1 h expiry)
 });
 export type VerifiedCandidate = z.infer<typeof VerifiedCandidate>;
 

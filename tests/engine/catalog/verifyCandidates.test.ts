@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { validateSection, verifyCandidates } from "@/src/engine/catalog/verifyCandidates";
 import { ProviderError, type DeezerTrack } from "@/src/engine/catalog/deezer";
-import type { ItunesTrackMatch } from "@/src/engine/catalog/itunes";
 import { logger } from "@/src/shared/logger";
 import { gen } from "../fixtures";
 
@@ -37,7 +36,7 @@ describe("verifyCandidates", () => {
   it("splits verified/unverified, attaches canonical fields, dedupes by deezer id and merges directions", async () => {
     const find = vi.fn(async (c: { title: string }) => (c.title.startsWith("Found") ? hit() : null));
     const { verified, unverified, lookupFailed } = await verifyCandidates(
-      [gen({ title: "Found", directions: ["safe"] }), gen({ title: "Found - Remastered", directions: ["current"] }), gen({ title: "Missing" })], { find, findItunes: async () => null },
+      [gen({ title: "Found", directions: ["safe"] }), gen({ title: "Found - Remastered", directions: ["current"] }), gen({ title: "Missing" })], { find },
     );
     expect(unverified.map((c) => c.title)).toEqual(["Missing"]);
     expect(lookupFailed).toEqual([]);
@@ -86,88 +85,38 @@ describe("verifyCandidates", () => {
   });
 });
 
-const it_ = (over: Partial<ItunesTrackMatch> = {}): ItunesTrackMatch => ({
-  itunesId: "55", title: "Hello", artist: "Adele", durationSeconds: 295, artworkUrl: "https://a/600x600bb.jpg", ...over,
-});
-const live = () => ({ deadlineAt: Date.now() + 200_000 });
+describe("verifyCandidates samples-only rule", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe("verifyCandidates iTunes fallback", () => {
-  afterEach(() => { vi.restoreAllMocks(); });
-
-  it("verifies a Deezer miss on iTunes, with no Deezer fields and no preview", async () => {
+  it("leaves a Deezer match without a preview unverified (no_sample), carrying its deezer id", async () => {
     const info = vi.spyOn(logger, "info").mockImplementation(() => {});
-    const find = vi.fn(async (c: { title: string }) => (c.title === "Found" ? hit() : null));
-    const findItunes = vi.fn(async () => it_());
-    const { verified, unverified } = await verifyCandidates(
-      [gen({ title: "Found" }), gen({ title: "Hello", artist: "Adele" })], { find, findItunes, ctx: live() },
-    );
-    expect(findItunes).toHaveBeenCalledTimes(1);
-    expect(findItunes).toHaveBeenCalledWith("Hello", "Adele");
-    expect(unverified).toEqual([]);
-    expect(verified.map((v) => v.catalog_key)).toEqual(["deezer:7", "itunes:55"]);
-    expect(verified[1]).toMatchObject({
-      verified_via: "itunes", itunes_id: "55", deezer_id: null, deezer_url: null, preview_url: null,
-      canonical_title: "Hello", canonical_artist: "Adele", duration_seconds: 295, artwork_url: "https://a/600x600bb.jpg",
-    });
-    expect(info).toHaveBeenCalledWith("verify.summary", expect.objectContaining({ verified: 2, viaDeezer: 1, viaItunes: 1 }));
+    const find = vi.fn(async (c: { title: string }) => (c.title === "Silent" ? hit({ id: 9, preview: "" }) : hit()));
+    const { verified, unverified } = await verifyCandidates([gen({ title: "Found" }), gen({ title: "Silent" })], { find });
+    expect(verified.map((v) => v.catalog_key)).toEqual(["deezer:7"]);
+    expect(unverified).toEqual([expect.objectContaining({ title: "Silent", deezer_id: "9" })]);
+    expect(info).toHaveBeenCalledWith("verify.unverified", expect.objectContaining({ title: "Silent", reason: "no_sample" }));
   });
-  it("never asks iTunes about Deezer hits or Deezer lookup failures", async () => {
-    const find = vi.fn(async (c: { title: string }) => {
-      if (c.title === "Down") throw new ProviderError("deezer 503", 503);
-      return hit({ id: c.title.charCodeAt(0) });
-    });
-    const findItunes = vi.fn(async () => it_());
-    const { lookupFailed } = await verifyCandidates(["A", "B", "C", "Down"].map((t) => gen({ title: t })), { find, findItunes, ctx: live() });
-    expect(findItunes).not.toHaveBeenCalled();
-    expect(lookupFailed.map((c) => c.title)).toEqual(["Down"]);
-  });
-  it("caps the fallback at LIMITS.itunesFallbackMax misses, taken in candidate order", async () => {
+  it("never looks a Deezer miss up anywhere else", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
     const find = vi.fn(async () => null);
-    const findItunes = vi.fn(async () => null);
-    const cands = Array.from({ length: 14 }, (_, i) => gen({ title: `M${i}` }));
-    const { unverified } = await verifyCandidates(cands, { find, findItunes, ctx: live() });
-    expect(findItunes.mock.calls.map((c) => (c as unknown[])[0])).toEqual(cands.slice(0, 12).map((c) => c.title));
-    expect(unverified).toHaveLength(14);
-  });
-  it("stops when less than 30 s of pipeline budget remain", async () => {
-    const find = vi.fn(async () => null);
-    const findItunes = vi.fn(async () => it_());
-    const { verified, unverified } = await verifyCandidates([gen({ title: "Hello" })], {
-      find, findItunes, ctx: { deadlineAt: Date.now() + 20_000 },
-    });
-    expect(findItunes).not.toHaveBeenCalled();
+    const { verified, unverified } = await verifyCandidates([gen({ title: "Hello", artist: "Adele" })], { find });
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(verified).toEqual([]);
-    expect(unverified).toHaveLength(1);
+    expect(unverified.map((c) => c.title)).toEqual(["Hello"]);
   });
-  it("counts an iTunes ProviderError as lookupFailed and carries on", async () => {
-    const find = vi.fn(async () => null);
-    const findItunes = vi.fn(async (t: string) => {
-      if (t === "A") throw new ProviderError("itunes 500", 500);
-      return it_({ itunesId: t });
-    });
-    const { verified, lookupFailed } = await verifyCandidates(["A", "B"].map((t) => gen({ title: t })), { find, findItunes, ctx: live() });
-    expect(lookupFailed.map((c) => c.title)).toEqual(["A"]);
-    expect(verified.map((v) => v.catalog_key)).toEqual(["itunes:B"]);
+  it("reports noSample in verify.summary and no iTunes fields", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const find = vi.fn(async (c: { title: string }) =>
+      c.title === "Miss" ? null : c.title === "Silent" ? hit({ id: 9, preview: "" }) : hit());
+    await verifyCandidates(["Found", "Silent", "Miss"].map((t) => gen({ title: t })), { find });
+    const summary = info.mock.calls.find((c) => c[0] === "verify.summary")![1];
+    expect(summary).toMatchObject({ total: 3, verified: 1, unverified: 2, noSample: 1, lookupFailed: 0 });
+    expect(summary).not.toHaveProperty("viaItunes");
   });
-  it.each([403, 429])("aborts the fallback (never the stage) on iTunes %i and logs once", async (status) => {
-    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
-    const find = vi.fn(async () => null);
-    const findItunes = vi.fn(async () => { throw new ProviderError(`itunes ${status}`, status); });
-    const { lookupFailed, unverified } = await verifyCandidates(["A", "B", "C"].map((t) => gen({ title: t })), { find, findItunes, ctx: live() });
-    expect(findItunes).toHaveBeenCalledTimes(1);
-    expect(lookupFailed.map((c) => c.title)).toEqual(["A"]);
-    expect(unverified.map((c) => c.title)).toEqual(["B", "C"]);
-    expect(warn.mock.calls.filter((c) => c[0] === "verify.itunes_aborted")).toHaveLength(1);
-  });
-  it("drops an iTunes match whose section cannot fit, and merges two spellings of one iTunes recording", async () => {
-    const find = vi.fn(async () => null);
-    const findItunes = vi.fn(async (t: string) => (t === "Short" ? it_({ itunesId: "9", durationSeconds: 30 }) : it_()));
-    const { verified, unverified } = await verifyCandidates(
-      [gen({ title: "Hello", directions: ["safe"] }), gen({ title: "Hello!", directions: ["current"] }), gen({ title: "Short" })],
-      { find, findItunes, ctx: live() },
-    );
-    expect(verified).toHaveLength(1);
-    expect(verified[0]!.directions).toEqual(["safe", "current"]);
-    expect(unverified.map((c) => c.title)).toEqual(["Short"]);
+  it("always reads the preview: every verified candidate carries one", async () => {
+    const find = vi.fn(async () => hit());
+    const { verified } = await verifyCandidates([gen()], { find });
+    expect(verified[0]).toMatchObject({ verified_via: "deezer", itunes_id: null, preview_url: "https://p.mp3" });
   });
 });
