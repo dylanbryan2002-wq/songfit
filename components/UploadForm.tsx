@@ -168,7 +168,7 @@ export function UploadForm({
         className="flex h-64 w-full cursor-pointer items-center justify-center overflow-hidden rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
       >
         {previewUrl ? (
-          <video src={previewUrl} muted playsInline className="h-full w-full object-cover" />
+          <video src={previewUrl} muted playsInline autoPlay loop preload="auto" className="h-full w-full object-cover" />
         ) : (
           <span className="flex flex-col items-center gap-1 px-6 text-center">
             <span className="text-base font-semibold text-ink">Tap to choose a video</span>
