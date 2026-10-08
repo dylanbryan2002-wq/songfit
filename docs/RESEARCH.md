@@ -196,3 +196,20 @@ distinct songs were dropped as unverified, most of them famous.
 - Still unfound on both: Hot Chip "Sad Song", Kreayshawn "Oh No", Chiiild "Residual", Flying Lotus
   "Los Angeles" (model inventions or obscure tracks), plus soundtrack/classical credits where
   iTunes lists the performer, not the composer (Strauss, Mascagni).
+
+## 2026-10-07 — How many recommendations to show (literature check)
+
+- Choice overload has no reliable average effect: Scheibehenne, Greifeneder & Todd 2010 (meta-analysis,
+  50 experiments, mean effect ≈ 0). It appears when options are hard to compare, the set is complex,
+  preferences are uncertain, or the chooser wants minimum effort (Chernev, Böckenholt & Goodman 2015).
+  Thirty-second clips are easy to compare and creators have taste → 5–10 options are not overload.
+- Recommender lists: Bollen, Knijnenburg, Willemsen & Graus 2010 (RecSys): top-20 lists were more
+  attractive but harder to choose from, with no higher satisfaction than top-5. Diversifying the list
+  cuts choice difficulty (Willemsen, Graus & Knijnenburg 2016).
+- Working memory ≈ 4 chunks (Cowan 2001) is a soft anchor for comparing items held in mind; a
+  replayable on-screen list offloads most of it.
+- "Load more" beats pagination and infinite scroll for goal-directed tasks (Baymard; NN/g).
+- Products: Spotify shows ~5–6 "recommended songs" under a playlist with a refresh; TikTok/Instagram
+  recommended-sound counts unverified.
+- Decision (Dylan, 2026-10-07): 5 first, "Show 5 more" twice, cap 15, each batch mixed across
+  directions; log `more_requested` and the selected rank; revisit after the first 100 creators.
