@@ -86,6 +86,9 @@ describe("matching (10 fixtures)", () => {
 });
 
 describe("loose matching (C1)", () => {
+  it("rejects a (Mixed) variant (Codex Apple review I1)", () => {
+    expect(titlesMatchLoose("Too Sweet", "Too Sweet (Mixed)")).toBe(false);
+  });
   it("artistList splits credits into normalised artists", () => {
     expect(artistList("Post Malone & Swae Lee")).toEqual(["post malone", "swae lee"]);
     expect(artistList("A, B and C x D feat. E")).toEqual(["a", "b", "c", "d", "e"]);
