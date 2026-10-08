@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fitWindow, alignToMoment, selectSections } from "@/src/engine/sections/selectSections";
+import { fitWindow, alignToMoment, leadInToAnchor, selectSections } from "@/src/engine/sections/selectSections";
 import type { VideoAnalysis } from "@/src/shared/types";
 import { analysis, pick } from "../fixtures";
 
@@ -98,5 +98,39 @@ describe("selectSections", () => {
     expect(out[0]!.start_seconds).toBeCloseTo(42.2, 5);
     expect(out[1]!.start_seconds).toBeCloseTo(14.2, 5);
     expect(out[1]!.end_seconds - out[1]!.start_seconds).toBeCloseTo(20, 5);
+  });
+});
+
+describe("short video, no key moment: anchor moved near the start", () => {
+  const short: VideoAnalysis = { ...quiet, duration_seconds: 4.5 };
+  it("shifts the window so the anchor sits 0.5 s after start, keeping its length", () => {
+    const [o] = selectSections([pick({ anchor_seconds: 66, duration_seconds: 258, start_seconds: 62, end_seconds: 78 })], short);
+    expect(o!.start_seconds).toBeCloseTo(65.5, 5);
+    expect(o!.end_seconds).toBeCloseTo(81.5, 5);
+    expect(o!.aligned_to_moment).toBeNull();
+  });
+  it("never starts before 0", () => {
+    const [o] = selectSections([pick({ anchor_seconds: 0.2, duration_seconds: 200, start_seconds: 0, end_seconds: 15 })], short);
+    expect(o).toMatchObject({ start_seconds: 0, end_seconds: 15, aligned_to_moment: null });
+  });
+  it("never runs past the track end: slides back to fit, length kept", () => {
+    const [o] = selectSections([pick({ anchor_seconds: 95, duration_seconds: 100, start_seconds: 80, end_seconds: 95 })], short);
+    expect(o).toMatchObject({ start_seconds: 85, end_seconds: 100, aligned_to_moment: null });
+  });
+  it("does nothing for videos of 10 s or more", () => {
+    const [o] = selectSections([pick({ anchor_seconds: 50, duration_seconds: 200, start_seconds: 45, end_seconds: 60 })], { ...quiet, duration_seconds: 12 });
+    expect(o).toMatchObject({ start_seconds: 45, end_seconds: 60 });
+  });
+  it("does nothing when the video duration is unknown", () => {
+    const [o] = selectSections([pick({ anchor_seconds: 50, duration_seconds: 200, start_seconds: 45, end_seconds: 60 })], { ...quiet, duration_seconds: null });
+    expect(o).toMatchObject({ start_seconds: 45, end_seconds: 60 });
+  });
+  it("does nothing when a qualifying key moment exists (alignment rules apply instead)", () => {
+    const late: VideoAnalysis = { ...analysis, duration_seconds: 4.5, important_moments: [{ time: 10, type: "main_visual_reveal" }] };
+    const [o] = selectSections([pick({ anchor_seconds: 5, duration_seconds: 200, start_seconds: 0, end_seconds: 15 })], late);
+    expect(o).toMatchObject({ start_seconds: 0, end_seconds: 15, aligned_to_moment: null });
+  });
+  it("leadInToAnchor is exported as a pure helper", () => {
+    expect(leadInToAnchor({ start: 10, end: 25 }, 20, 200)).toEqual({ start: 19.5, end: 34.5 });
   });
 });

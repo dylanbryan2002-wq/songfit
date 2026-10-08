@@ -121,7 +121,7 @@ describe("DIRECTION_LABEL", () => {
   it("maps runner-up directions to creator-facing labels and reserves Best fit for rank 1", () => {
     expect(DIRECTION_LABEL).toEqual({
       safe: "Safe bet",
-      current: "More current",
+      current: "Recent",
       unexpected: "Unexpected",
     });
     expect(BEST_FIT_LABEL).toBe("Best fit");

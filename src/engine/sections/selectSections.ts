@@ -23,12 +23,28 @@ export function fitWindow(start: number, end: number, anchor: number, duration: 
   return { start: round1(s), end: round1(e) };
 }
 
+const firstKeyMoment = (analysis: VideoAnalysis) => analysis.important_moments
+  .filter((m) => KEY_MOMENT_TYPES.has(m.type))
+  .reduce<{ time: number } | undefined>((best, m) => (!best || m.time < best.time ? m : best), undefined);
+
+/** Under this video length a late anchor is never heard, so with no key moment the anchor is pulled to the start. */
+const SHORT_VIDEO_SECONDS = 10;
+const LEAD_IN_SECONDS = 0.5;
+
+/** Same length, anchor LEAD_IN_SECONDS after start; never before 0, never past the track end. No alignment claimed. */
+export function leadInToAnchor(
+  window: { start: number; end: number }, anchor: number, duration: number,
+): { start: number; end: number } {
+  const len = window.end - window.start;
+  let start = Math.max(0, anchor - LEAD_IN_SECONDS);
+  if (duration > 0 && start + len > duration) start = Math.max(0, duration - len);
+  return { start: round1(start), end: round1(start + len) };
+}
+
 export function alignToMoment(
   window: { start: number; end: number }, anchor: number, duration: number, analysis: VideoAnalysis,
 ): { start: number; end: number; aligned_to_moment: number } | null {
-  const moment = analysis.important_moments
-    .filter((m) => KEY_MOMENT_TYPES.has(m.type))
-    .reduce<{ time: number } | undefined>((best, m) => (!best || m.time < best.time ? m : best), undefined);
+  const moment = firstKeyMoment(analysis);
   if (!moment) return null;
   const len = window.end - window.start;
   const start = anchor - moment.time;
@@ -42,8 +58,11 @@ export function selectSections(picks: Pick[], analysis: VideoAnalysis): Pick[] {
   return picks.map((p) => {
     const fitted = fitWindow(p.start_seconds, p.end_seconds, p.anchor_seconds, p.duration_seconds);
     const aligned = alignToMoment(fitted, p.anchor_seconds, p.duration_seconds, analysis);
-    return aligned
-      ? { ...p, start_seconds: aligned.start, end_seconds: aligned.end, aligned_to_moment: aligned.aligned_to_moment }
-      : { ...p, start_seconds: fitted.start, end_seconds: fitted.end, aligned_to_moment: null };
+    if (aligned) return { ...p, start_seconds: aligned.start, end_seconds: aligned.end, aligned_to_moment: aligned.aligned_to_moment };
+    const video = analysis.duration_seconds;
+    const window = !firstKeyMoment(analysis) && video != null && video < SHORT_VIDEO_SECONDS
+      ? leadInToAnchor(fitted, p.anchor_seconds, p.duration_seconds)
+      : fitted;
+    return { ...p, start_seconds: window.start, end_seconds: window.end, aligned_to_moment: null };
   });
 }

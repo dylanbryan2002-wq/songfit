@@ -7,10 +7,11 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dimensions";
 
-export const PROMPT_VERSION = "scoring-v2";
+export const PROMPT_VERSION = "scoring-v3";
 // Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
 // ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
-const TOKENS_PER_ITEM = 220;
+// scoring-v3 (2026-10-08): its conditional rules raised a 20-item chunk to 3.9k–4.4k and truncated at 4400.
+const TOKENS_PER_ITEM = 320;
 const MIN_TOKENS = 2000;
 const MAX_TOKENS = 16_000;
 const CHUNK_SIZE = 20;
@@ -24,9 +25,9 @@ const DIMENSION_DEFINITIONS: Record<ModelDimension, string> = {
   semantic: "Does the song make sense for what is literally happening in the video (subject, setting, story)?",
   emotional: "Does the emotional character of this section match or productively contrast the video's feel and the creator's intent?",
   aesthetic: "Does the sound match the visual world (luxury vs raw, modern vs retro, polished vs lo-fi)?",
-  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment?",
-  cultural: "Would this creator realistically use this song on Instagram or TikTok right now, given their niche and audience?",
-  originality: "Is it good without being painfully obvious or exhausted?",
+  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment? If the video is under 10 s and the anchor is more than 3 s after the section start, the creator never hears the moment: score ≤ 0.3.",
+  cultural: "Would this creator realistically use this song on Instagram or TikTok right now, given their niche and audience? Songs whose social moment peaked in 2020–2023 read dated: ≤ 0.5 unless the brief asks for nostalgia.",
+  originality: "Is it good without being painfully obvious or exhausted? Score ≤ 0.3 if this song is a stock TikTok/Reels choice for this kind of joke or mood (e.g. Sweater Weather, Dreams, golden hour, Mad World, Careless Whisper, Eye of the Tiger, Sailor Song) — a creator would roll their eyes.",
 };
 
 const Item = z.object({ index: z.number().int().min(0) }).and(
@@ -41,6 +42,7 @@ export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, c
   const moments = analysis.important_moments.map((m) => `${m.time}s ${m.type}`).join("; ") || "none";
   return `VIDEO
 ${analysis.summary}
+Duration: ${analysis.duration_seconds != null ? `${analysis.duration_seconds.toFixed(1)}s` : "unknown"}.
 Category: ${analysis.content_category}. Aesthetic: ${analysis.aesthetic.join(", ")}. Mood: ${analysis.mood.join(", ")}.
 Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialogue_present ? "yes" : "no"}. Key moments: ${moments}.
 

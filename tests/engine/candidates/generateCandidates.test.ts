@@ -83,6 +83,10 @@ describe("generateCandidates", () => {
     expect(p).toContain("avoid previous list");
     expect(p).toContain("Stay — The Kid Laroi");
   });
+  it("states the video duration, or unknown when it is missing", () => {
+    expect(buildCandidatePrompt("safe", brief, { ...analysis, duration_seconds: 4.5 })).toContain("Duration: 4.5s");
+    expect(buildCandidatePrompt("safe", brief, analysis)).toContain("Duration: unknown");
+  });
   it("states the window rules and renders exclusions in human form", () => {
     const p = buildCandidatePrompt("safe", brief, analysis, { exclude: ["stay|the kid laroi|sped up"] });
     expect(p).toContain("between 12 and 20");

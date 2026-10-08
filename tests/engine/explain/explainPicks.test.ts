@@ -5,7 +5,7 @@ import { analysis, brief, pick } from "../fixtures";
 
 const three = () => [
   pick({ rank: 1, title: "Song 1", canonical_title: "Song 1", canonical_artist: "Canon Artist", aligned_to_moment: 7.8 }),
-  pick({ rank: 2, deezer_id: "2", title: "Song 2", canonical_title: "Song 2", direction_label: "More current" }),
+  pick({ rank: 2, deezer_id: "2", title: "Song 2", canonical_title: "Song 2", direction_label: "Recent" }),
   pick({ rank: 3, deezer_id: "3", title: "Song 3", canonical_title: "Song 3", direction_label: "Unexpected", preview_url: "https://d.mp3" }),
 ];
 const ok = JSON.stringify([{ rank: 1, explanation: "One." }, { rank: 2, explanation: "Two." }, { rank: 3, explanation: "Three." }]);

@@ -15,12 +15,12 @@ describe("diversify", () => {
     ]);
     expect(out.map((p) => p.title)).toEqual(["S1", "C1", "U1", "S2", "C2"]);
     expect(out.map((p) => p.rank)).toEqual([1, 2, 3, 4, 5]);
-    expect(out.map((p) => p.direction_label)).toEqual(["Best fit", "More current", "Unexpected", "Safe bet", "More current"]);
+    expect(out.map((p) => p.direction_label)).toEqual(["Best fit", "Recent", "Unexpected", "Safe bet", "Recent"]);
     expect(out[0]).toMatchObject({ start_seconds: 43, end_seconds: 58, aligned_to_moment: null });
   });
   it("a top candidate from the unexpected direction is still labeled Best fit", () => {
     const out = diversify([sc("U1", ["unexpected"], 0.95), sc("S1", ["safe"], 0.9), sc("C1", ["current"], 0.8)]);
-    expect(out.map((p) => p.direction_label)).toEqual(["Best fit", "Safe bet", "More current"]);
+    expect(out.map((p) => p.direction_label)).toEqual(["Best fit", "Safe bet", "Recent"]);
   });
   it("a song proposed in two directions does not count as a different direction from rank 1", () => {
     const out = diversify([sc("S1", ["safe"], 0.9), sc("X", ["safe", "current"], 0.88), sc("C1", ["current"], 0.8), sc("U1", ["unexpected"], 0.5)]);
@@ -60,14 +60,14 @@ describe("diversify", () => {
       const batch = out.slice(b * 5, b * 5 + 5);
       expect(new Set(batch.map(primaryDirection))).toEqual(new Set(dirs));
     }
-    expect(out.slice(1).every((p) => p.direction_label === { safe: "Safe bet", current: "More current", unexpected: "Unexpected" }[primaryDirection(p)])).toBe(true);
+    expect(out.slice(1).every((p) => p.direction_label === { safe: "Safe bet", current: "Recent", unexpected: "Unexpected" }[primaryDirection(p)])).toBe(true);
   });
-  it("a current+unexpected song counts as More current, so the batch still gets an Unexpected label", () => {
+  it("a current+unexpected song counts as Recent, so the batch still gets an Unexpected label", () => {
     const out = diversify([
       sc("S1", ["safe"], 0.9), sc("CU", ["current", "unexpected"], 0.85), sc("S2", ["safe"], 0.6), sc("U1", ["unexpected"], 0.5),
     ]);
     expect(out.slice(0, 3).map((p) => p.title)).toEqual(["S1", "CU", "U1"]);
-    expect(out.slice(0, 3).map((p) => p.direction_label)).toEqual(["Best fit", "More current", "Unexpected"]);
+    expect(out.slice(0, 3).map((p) => p.direction_label)).toEqual(["Best fit", "Recent", "Unexpected"]);
   });
   it("returns every distinct candidate when fewer than 15 (7 verified -> 7 picks)", () => {
     const out = diversify([

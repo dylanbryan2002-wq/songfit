@@ -100,7 +100,8 @@ export async function recommendSubmission(
   if (!sub) throw new PipelineError("recommend", "submission not found");
   const stored = await deps.getAnalysis(submissionId);
   if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
-  const { analysis, brief } = stored;
+  const { brief } = stored;
+  const analysis: VideoAnalysis = { ...stored.analysis, duration_seconds: sub.duration_seconds };
 
   // Reports ("couldn't find it in TikTok or Instagram") from two creators ban the song for everyone.
   let reported: NotFoundSong[] = [];

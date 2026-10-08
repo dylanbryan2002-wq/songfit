@@ -7,7 +7,7 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 
-export const PROMPT_VERSION = "explain-v2";
+export const PROMPT_VERSION = "explain-v3";
 
 const SYSTEM = `You write the two-sentence reasons under Songfit's song picks. Voice: a sharp friend who edits
 video. Second person. Exactly two sentences each. No hype, no emojis, no exclamation marks,
@@ -17,7 +17,8 @@ This text is shown to creators: never mention scores, numbers, model names, AI, 
 and use no jargon.
 Never claim a song is trending, viral, popular right now, or available on any platform.
 Mention the song's moment landing on a video moment ONLY for picks marked "aligned: the song's moment lands at …"
-(for example "the chorus lands right on your reveal at 0:08"). For picks marked "aligned: no", say nothing about timing alignment.`;
+(for example "the chorus lands around your reveal at 0:08"). For picks marked "aligned: no", say nothing about timing alignment.
+The person on camera is almost always the creator: address them as "you" throughout, never "the man", "a guy", "him" or "her". At most ONE pick in this batch may mention timing, even if several are marked aligned; phrase it as "around 0:02", never "right on". Never say a specific lyric, hook or vocal is heard unless the Section note names it and you are sure it falls inside the window; if the Section note says "approximate", describe the feel, not the moment. Each reason is at most 40 words. Do not start two reasons in this batch with the same words. Never contradict the video's pacing or energy.`;
 
 const Item = z.object({ rank: z.number().int(), explanation: z.string().min(1) });
 

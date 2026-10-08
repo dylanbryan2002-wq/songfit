@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { scoreCandidates } from "@/src/engine/scoring/scoreCandidates";
-import { modelScores, parseScores, PROMPT_VERSION } from "@/src/engine/scoring/modelScores";
+import { modelScores, parseScores, buildScoringPrompt, PROMPT_VERSION } from "@/src/engine/scoring/modelScores";
 import { DIMENSIONS, type VerifiedCandidate } from "@/src/shared/types";
 import { analysis, brief, ver } from "../fixtures";
 
@@ -52,6 +52,9 @@ describe("modelScores", () => {
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
-    expect(PROMPT_VERSION).toBe("scoring-v2");
+    expect(PROMPT_VERSION).toBe("scoring-v3");
+  });
+  it("states the video duration in the VIDEO block", () => {
+    expect(buildScoringPrompt({ ...analysis, duration_seconds: 4.5 }, brief, [vc("A", "1")])).toContain("Duration: 4.5s.");
   });
 });

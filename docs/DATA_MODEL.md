@@ -119,7 +119,7 @@ The ranked picks shown to the creator: up to 15 (at least 3), shown 5 at a time.
 | submission_id   | uuid        | → submissions ON DELETE CASCADE         |
 | candidate_id    | uuid        | → candidates ON DELETE SET NULL         |
 | rank            | int         | 1..15; unique per submission (0005)     |
-| direction_label | text        | "Best fit", "More current", "Unexpected" |
+| direction_label | text        | "Best fit", "Safe bet", "Recent" (older rows: "More current"), "Unexpected" |
 | title           | text        |                                         |
 | artist          | text        |                                         |
 | start_seconds   | numeric     |                                         |

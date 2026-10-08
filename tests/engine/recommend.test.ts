@@ -38,6 +38,20 @@ function makeDeps(over: Partial<RecommendDeps> = {}) {
 }
 
 describe("recommendSubmission", () => {
+  it("gives every stage the analysis with the submission's video duration", async () => {
+    const generated = [gen({ title: "V1" }), gen({ title: "V2" }), gen({ title: "V3" })];
+    const verified = generated.map((c, i) => ver({ ...c, deezer_id: String(i + 1) }));
+    const deps = makeDeps({
+      getSubmission: vi.fn(async () => ({ id: "sub-1", creator_id: "cre-1", duration_seconds: 4.5 }) as never),
+      generate: vi.fn(async () => generated),
+      verify: vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] })),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    const arg = (fn: unknown, i: number) => (fn as ReturnType<typeof vi.fn>).mock.calls[0]![i];
+    for (const a of [arg(deps.generate, 1), arg(deps.score, 0), arg(deps.sections, 1), arg(deps.explain, 1)]) {
+      expect(a).toMatchObject({ duration_seconds: 4.5, summary: analysis.summary });
+    }
+  });
   it("runs stages in order, persists unverified rows, links recs to candidate ids, logs creatorId", async () => {
     const generated = [gen({ title: "V1" }), gen({ title: "V2" }), gen({ title: "V3" }), gen({ title: "Missing" })];
     const verified = generated.slice(0, 3).map((c, i) => ver({ ...c, deezer_id: String(i + 1), deezer_url: `https://www.deezer.com/track/${i + 1}` }));
@@ -49,13 +63,13 @@ describe("recommendSubmission", () => {
     expect(deps.calls).toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
     expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_url: "https://cdn.deezer/1.mp3", preview_source: "deezer", itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v3", total_score: 0.7 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_url: "https://cdn.deezer/1.mp3", preview_source: "deezer", itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v4", total_score: 0.7 });
     expect(rows[3]).toMatchObject({ verified: false, deezer_id: null, canonical_title: null, total_score: null, component_scores: null });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
     const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string; explain_prompt_version: string; selected: boolean }[];
     expect(recRows.map((r) => r.candidate_id)).toEqual(["cand-0", "cand-1", "cand-2"]);
-    expect(recRows[0]).toMatchObject({ explain_prompt_version: "explain-v2", selected: false });
+    expect(recRows[0]).toMatchObject({ explain_prompt_version: "explain-v3", selected: false });
   });
 
   it("regenerates once, excludes seen keys, merges by deezer id, tags only new keys #2, persists all", async () => {
@@ -78,8 +92,8 @@ describe("recommendSubmission", () => {
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; verified: boolean; prompt_version: string }[];
     expect(rows).toHaveLength(6);
-    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v3");
-    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v3#2");
+    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v4");
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v4#2");
     expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
     expect(rows.find((r) => r.title === "Flaky")).toMatchObject({ verified: false });
   });

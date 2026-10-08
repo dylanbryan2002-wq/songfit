@@ -11,7 +11,7 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 
-export const PROMPT_VERSION = "candidates-v3";
+export const PROMPT_VERSION = "candidates-v4";
 
 export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
 
@@ -21,12 +21,13 @@ creators actually use on these platforms. You only ever name REAL, officially re
 the original artist that are very likely available in the Instagram and TikTok music libraries
 in the United States. Never invent songs. Never suggest AI-generated music, unreleased tracks,
 remixes by unknown accounts, or production-library stock music. Name the original studio
-recording, not a live, sped-up, slowed, acoustic or remix version.`;
+recording, not a live, sped-up, slowed, acoustic or remix version.
+When the caption or story names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
-  current: "Songs you believe have been popular on Instagram Reels and TikTok within the last 12 months, or trending-adjacent artists having a moment. Still real, released and easy to find. You are not told what is trending today; use your best knowledge.",
-  unexpected: "Less obvious: older songs, niche genres, deep cuts from known artists, genre-crossing picks that a tasteful editor would reach for. Must still be real, released and findable in the libraries.",
+  current: "Songs released or re-popularised in the most recent ~18 months you have knowledge of. Nothing released before 2024 unless it had a well-known 2024+ TikTok/Reels resurgence. Never older catalogue labelled as current.",
+  unexpected: "Less obvious: older songs, niche genres, deep cuts from known artists, genre-crossing picks that a tasteful editor would reach for. Must still be real, released and findable in the libraries. Not meme-standard ironic picks (Careless Whisper, Mad World, Eye of the Tiger, Hallelujah, All By Myself, My Heart Will Go On, I Will Always Love You); a creator has seen those used for this joke hundreds of times.",
 };
 
 const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
@@ -50,6 +51,7 @@ ${DIRECTION_BRIEF[direction]}
 
 VIDEO
 ${analysis.summary}
+Duration: ${analysis.duration_seconds != null ? `${analysis.duration_seconds.toFixed(1)}s` : "unknown"}
 Content type: ${analysis.content_type} (${analysis.content_category})
 Setting: ${analysis.setting ?? "unknown"}
 Story: ${analysis.story ?? "none"}
@@ -74,6 +76,7 @@ best ${LIMITS.sectionMin}–${LIMITS.sectionMax} second window of the ORIGINAL s
 - Do not list the same song twice.
 - section_is_vocal: true if lead vocals are singing during most of the window.
 - section_reason and fit_reason: at most 18 words each. Be specific, not flowery.
+- The creator only hears the first part of the window, roughly the video's length (see the brief). For videos under 10 s, the hook, vocal entry or riff must start within 2 s of proposed_start; never pick a window that opens on a long intro or verse. Only name a lyric in section_reason if you are certain it is sung inside the window. If you don't know where a song's chorus sits in the original recording, choose a different song.
 
 Return ONLY a compact JSON array on one line (no indentation, no line breaks), no prose, each item exactly:
 {

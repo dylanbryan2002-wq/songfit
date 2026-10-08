@@ -23,6 +23,9 @@ export const VideoAnalysis = z.object({
   pacing: Pacing,
   dialogue_present: z.boolean(),
   important_moments: z.array(ImportantMoment),
+  // Not produced by the analysis model: the recommend stage copies it from the submission row so every
+  // engine stage can reason about how much of a song the creator actually hears.
+  duration_seconds: z.number().nullable().optional(),
 });
 export type VideoAnalysis = z.infer<typeof VideoAnalysis>;
 
@@ -55,7 +58,7 @@ export type DirectionTag = z.infer<typeof DirectionTag>;
 /** Labels for ranks ≥ 2 by primary direction. Rank 1 is ALWAYS BEST_FIT_LABEL regardless of direction. */
 export const DIRECTION_LABEL: Record<DirectionTag, string> = {
   safe: "Safe bet",
-  current: "More current",
+  current: "Recent",
   unexpected: "Unexpected",
 };
 export const BEST_FIT_LABEL = "Best fit";
