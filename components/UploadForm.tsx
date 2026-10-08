@@ -7,7 +7,8 @@ import { readVideoDuration } from "./videoDuration";
 import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { checkVideoFile, TOO_LONG } from "./videoChecks";
-import { VibePicker, type Vibe } from "./VibePicker";
+import { VibePicker } from "./VibePicker";
+import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
 
 type Creator = { id: string; email: string };
@@ -35,22 +36,19 @@ async function blockedReason(res: Response): Promise<Blocked> {
 export function UploadForm({
   creator,
   initialFile,
-  initialVibe,
   onStarted,
 }: {
   creator: Creator;
   /** A file kept across sign-in (landing page). Nothing starts until the creator taps the button. */
   initialFile?: File;
-  /** The vibe picked on the landing page before sign-in. */
-  initialVibe?: Vibe;
   /** Called once when a submit actually starts (the landing stash is claimed here). */
   onStarted?: () => void;
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(initialFile ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [intent, setIntent] = useState("");
-  const [vibe, setVibe] = useState<Vibe>(initialVibe ?? { tags: [], note: "" });
+  const [intent, setIntent] = useState(""); // the "Anything else?" note
+  const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -150,8 +148,7 @@ export function UploadForm({
           path,
           ext,
           creatorIntent: intent.trim() || null,
-          vibe_tags: vibe.tags,
-          vibe_note: vibe.note.trim() || null,
+          vibe_tags: vibeTags,
         }),
       });
       if (createRes.status === 402) {
@@ -182,7 +179,7 @@ export function UploadForm({
     <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-4">
       <label
         htmlFor="video"
-        className="flex h-64 w-full cursor-pointer items-center justify-center overflow-hidden rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
+        className="flex h-[200px] w-full cursor-pointer items-center justify-center overflow-hidden rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
       >
         {previewUrl ? (
           <video src={previewUrl} muted playsInline autoPlay loop preload="auto" className="h-full w-full object-cover" />
@@ -197,44 +194,50 @@ export function UploadForm({
 
       {file && <p className="truncate text-center text-sm text-muted">{file.name}</p>}
 
-      <input
-        type="text"
-        value={intent}
-        onChange={(e) => setIntent(e.target.value)}
-        maxLength={300}
-        placeholder="What do you want this to feel like? (optional)"
-        className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base"
-        disabled={busy}
-      />
+      <VibePicker tags={vibeTags} onChange={setVibeTags} disabled={busy} />
 
-      <VibePicker value={vibe} onChange={setVibe} disabled={busy} />
+      <label className="flex flex-col gap-1">
+        <span className="text-sm font-semibold text-ink">Anything else?</span>
+        <input
+          type="text"
+          value={intent}
+          onChange={(e) => setIntent(e.target.value)}
+          maxLength={VIBE_NOTE_MAX}
+          placeholder="e.g. the song is the punchline"
+          className="min-h-11 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base"
+          disabled={busy}
+        />
+      </label>
 
-      {phase === "uploading" && (
-        <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-          <div className="steel-gradient h-full transition-[width]" style={{ width: `${progress}%` }} />
-        </div>
-      )}
+      {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step. */}
+      <div className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 bg-canvas px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
+        {phase === "uploading" && (
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="steel-gradient h-full transition-[width]" style={{ width: `${progress}%` }} />
+          </div>
+        )}
 
-      {error && <p className="text-center text-sm text-red-600">{error}</p>}
-      {blocked && (
-        <p className="text-center text-sm text-ink">
-          {BLOCKED_COPY[blocked]}{" "}
-          <Link href="/results/latest" className="font-semibold text-steel-dark underline underline-offset-2">
-            Open my latest result
-          </Link>
-        </p>
-      )}
+        {error && <p className="text-center text-sm text-red-600">{error}</p>}
+        {blocked && (
+          <p className="text-center text-sm text-ink">
+            {BLOCKED_COPY[blocked]}{" "}
+            <Link href="/results/latest" className="font-semibold text-steel-dark underline underline-offset-2">
+              Open my latest result
+            </Link>
+          </p>
+        )}
 
-      <button
-        type="submit"
-        disabled={busy}
-        className="steel-gradient w-full rounded-2xl px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
-      >
-        {phase === "checking" && "Checking your video"}
-        {phase === "uploading" && `Uploading ${progress}%`}
-        {phase === "creating" && "Almost there"}
-        {(phase === "idle" || phase === "error") && "Find my songs"}
-      </button>
+        <button
+          type="submit"
+          disabled={busy}
+          className="steel-gradient w-full rounded-2xl px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
+        >
+          {phase === "checking" && "Checking your video"}
+          {phase === "uploading" && `Uploading ${progress}%`}
+          {phase === "creating" && "Almost there"}
+          {(phase === "idle" || phase === "error") && "Find my songs"}
+        </button>
+      </div>
       <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>
     </form>
   );
