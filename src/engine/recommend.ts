@@ -17,6 +17,7 @@ import { getAnalysis } from "@/src/db/queries/analyses";
 import { getSubmission, setSubmissionStatus, type SubmissionRow } from "@/src/db/queries/submissions";
 import { replaceCandidates, type CandidateInsert, type CandidateRow } from "@/src/db/queries/candidates";
 import { replaceRecommendations, type RecommendationInsert, type RecommendationRow } from "@/src/db/queries/recommendations";
+import { listNotFoundSongs, type NotFoundSong } from "@/src/db/queries/notFound";
 import { logEvent } from "@/src/feedback/events";
 import type { StageCtx } from "@/src/pipeline/budget";
 
@@ -35,13 +36,14 @@ export type RecommendDeps = {
   replaceRecommendations: (submissionId: string, rows: RecommendationInsert[]) => Promise<RecommendationRow[]>;
   setStatus: (id: string, status: SubmissionStatus, error?: string | null) => Promise<void>;
   logEvent: typeof logEvent;
+  listNotFound: () => Promise<NotFoundSong[]>;
 };
 
 const defaultDeps: RecommendDeps = {
   getSubmission, getAnalysis,
   generate: generateCandidates, verify: verifyCandidates, score: scoreCandidates,
   diversify, sections: selectSections, explain: explainPicks,
-  replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent,
+  replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent, listNotFound: listNotFoundSongs,
 };
 
 const RETRY_NOTE =
@@ -97,14 +99,25 @@ export async function recommendSubmission(
   if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
   const { analysis, brief } = stored;
 
-  const gen1 = await deps.generate(brief, analysis, { ctx });
+  // A creator report ("couldn't find it in TikTok or Instagram") bans the song for everyone.
+  const reported = await deps.listNotFound();
+  const bannedNames = new Set(reported.map(keyOf));
+  const bannedCatalog = new Set(reported.flatMap((r) => (r.catalog_key ? [r.catalog_key] : [])));
+  let bannedDropped = 0;
+  const notBanned = (vs: VerifiedCandidate[]) => vs.filter((v) => {
+    const banned = bannedCatalog.has(v.catalog_key) || bannedNames.has(keyOf(v));
+    if (banned) bannedDropped += 1;
+    return !banned;
+  });
+
+  const gen1 = await deps.generate(brief, analysis, { ctx, ...(bannedNames.size ? { exclude: [...bannedNames] } : {}) });
   const v1 = await deps.verify(gen1, { ctx });
-  const verified = [...v1.verified];
+  const verified = notBanned(v1.verified);
   let unverified = [...v1.unverified];
   let lookupFailed = [...v1.lookupFailed];
   let generated = gen1.length;
   const firstSeen = new Set(gen1.map(keyOf));
-  const seenKeys = [...firstSeen];
+  const seenKeys = [...new Set([...firstSeen, ...bannedNames])];
 
   if (distinct(verified) < PICKS_MIN) {
     logger.warn("recommend.regenerate", { submissionId, verified: distinct(verified) });
@@ -112,10 +125,12 @@ export async function recommendSubmission(
     generated += gen2.length;
     const v2 = await deps.verify(gen2, { ctx });
     const have = new Set(verified.map((v) => v.catalog_key));
-    for (const v of v2.verified) if (!have.has(v.catalog_key)) { verified.push(v); have.add(v.catalog_key); }
+    for (const v of notBanned(v2.verified)) if (!have.has(v.catalog_key)) { verified.push(v); have.add(v.catalog_key); }
     unverified = [...unverified, ...v2.unverified];
     lookupFailed = [...lookupFailed, ...v2.lookupFailed];
   }
+
+  if (bannedDropped > 0) logger.info("recommend.banned_dropped", { submissionId, count: bannedDropped });
 
   const enough = distinct(verified) >= PICKS_MIN;
   const scored = enough ? await deps.score(analysis, brief, verified, { ctx }) : [];

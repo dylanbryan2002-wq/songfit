@@ -31,6 +31,7 @@ function makeDeps(over: Partial<RecommendDeps> = {}) {
     replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
     setStatus: vi.fn(async () => { calls.push("setStatus"); }),
     logEvent: vi.fn(async () => {}),
+    listNotFound: vi.fn(async () => []),
     ...over,
   };
   return Object.assign(deps, { calls });
@@ -81,6 +82,42 @@ describe("recommendSubmission", () => {
     expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v3#2");
     expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
     expect(rows.find((r) => r.title === "Flaky")).toMatchObject({ verified: false });
+  });
+
+  it("bans reported songs: excluded from generation, dropped after verification, logged", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const names = ["A", "B", "C", "D", "Banned1", "Banned2"];
+    const generate = vi.fn(async () => names.map((t) => gen({ title: t })));
+    const verify = vi.fn(async (cands: GeneratedCandidate[]) => ({
+      verified: cands.map((c, i) => ver({ ...c, deezer_id: c.title === "Banned2" ? "777" : String(i + 1) })),
+      unverified: [], lookupFailed: [],
+    }));
+    const deps = makeDeps({
+      generate, verify,
+      listNotFound: vi.fn(async () => [
+        { title: "Banned1", artist: "The Weeknd", catalog_key: null }, // banned by name
+        { title: "Something else", artist: "Nobody", catalog_key: "deezer:777" }, // banned by catalog key
+      ]),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    const opts = (generate.mock.calls[0] as unknown[])[2] as { exclude: string[] };
+    expect(opts.exclude).toEqual(expect.arrayContaining(["banned1|the weeknd", "something else|nobody"]));
+    const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
+    expect(scoredArg.map((v) => v.title)).toEqual(["A", "B", "C", "D"]);
+    expect(info).toHaveBeenCalledWith("recommend.banned_dropped", expect.objectContaining({ count: 2 }));
+    info.mockRestore();
+  });
+
+  it("keeps banned keys in the regeneration exclusions", async () => {
+    const generate = vi.fn(async () => [gen({ title: "X" })]);
+    const deps = makeDeps({
+      generate,
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [], lookupFailed: [] })),
+      listNotFound: vi.fn(async () => [{ title: "Banned1", artist: "The Weeknd", catalog_key: null }]),
+    });
+    await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow();
+    const second = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[] };
+    expect(second.exclude).toEqual(expect.arrayContaining(["x|the weeknd", "banned1|the weeknd"]));
   });
 
   it("fails with fewer than 3 distinct recordings after regeneration, still persisting what was seen", async () => {
