@@ -108,6 +108,22 @@ describe("recommendSubmission", () => {
     info.mockRestore();
   });
 
+  it("continues with no bans when the reports lookup fails", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const gen3 = ["A", "B", "C"].map((t) => gen({ title: t }));
+    const generate = vi.fn(async () => gen3);
+    const deps = makeDeps({
+      generate,
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x, i) => ver({ ...x, deezer_id: String(i + 1) })), unverified: [], lookupFailed: [] })),
+      listNotFound: vi.fn(async () => { throw new Error("db down"); }),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
+    expect((generate.mock.calls[0] as unknown[])[2]).not.toHaveProperty("exclude");
+    expect(warn).toHaveBeenCalledWith("recommend.not_found_lookup_failed", expect.objectContaining({ reason: expect.stringContaining("db down") }));
+    warn.mockRestore();
+  });
+
   it("keeps banned keys in the regeneration exclusions", async () => {
     const generate = vi.fn(async () => [gen({ title: "X" })]);
     const deps = makeDeps({

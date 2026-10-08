@@ -10,7 +10,7 @@ function secs(v: number | null) {
 
 export default async function MetricsPage() {
   await requireAdmin();
-  const [m, reports] = await Promise.all([getMetrics(), listNotFoundSongs()]);
+  const [m, reports] = await Promise.all([getMetrics(), listNotFoundSongs().catch(() => [])]);
   const reported = countReports(reports);
   const notFound = m.eventCounts.find((e) => e.name === "song_not_found")?.count ?? 0;
   return (
@@ -47,7 +47,7 @@ export default async function MetricsPage() {
             <tbody>
               {reported.length === 0 && <tr className="border-t"><td colSpan={3}>None yet</td></tr>}
               {reported.map((r) => (
-                <tr key={`${r.title}|${r.artist}`} className="border-t"><td>{r.title}</td><td>{r.artist}</td><td>{r.reports}</td></tr>
+                <tr key={r.key} className="border-t"><td>{r.title}</td><td>{r.artist}</td><td>{r.reports}</td></tr>
               ))}
             </tbody>
           </table>

@@ -27,25 +27,29 @@ describe("listNotFoundSongs", () => {
     tables.events = [
       { submission_id: "s1", metadata: { rank: 2 } },
       { submission_id: "s2", metadata: { rank: 1 } },
-      { submission_id: "s3", metadata: { rank: "2" } }, // bad rank: ignored
+      { submission_id: "s3", metadata: { rank: "2" } }, // numeric string: accepted
       { submission_id: "s4", metadata: null },
+      { submission_id: "s5", metadata: { rank: "abc" } }, // ignored
+      { submission_id: "s6", metadata: { rank: 0 } }, // out of range: ignored
     ];
     tables.recommendations = [
       { submission_id: "s1", rank: 1, title: "Wrong", artist: "X", candidate_id: "c0" },
       { submission_id: "s1", rank: 2, title: "Stay", artist: "Kid LAROI", candidate_id: "c1" },
       { submission_id: "s2", rank: 1, title: "Orphan", artist: "Y", candidate_id: null },
+      { submission_id: "s3", rank: 2, title: "Ghost", artist: "Z", candidate_id: "missing" }, // no candidate row
     ];
     tables.candidates = [{ id: "c1", deezer_id: "42" }, { id: "c0", deezer_id: "7" }];
     const rows = await listNotFoundSongs();
     expect(rows).toEqual([
       { title: "Stay", artist: "Kid LAROI", catalog_key: "deezer:42" },
       { title: "Orphan", artist: "Y", catalog_key: null },
+      { title: "Ghost", artist: "Z", catalog_key: null },
     ]);
     const ev = calls.find((c) => c.table === "events")!;
     expect(ev.ops).toContainEqual(["eq", "name", "song_not_found"]);
     expect(ev.ops).toContainEqual(["limit", 500]);
-    expect(calls.find((c) => c.table === "recommendations")!.ops).toContainEqual(["in", "submission_id", ["s1", "s2"]]);
-    expect(calls.find((c) => c.table === "candidates")!.ops).toContainEqual(["in", "id", ["c1"]]);
+    expect(calls.find((c) => c.table === "recommendations")!.ops).toContainEqual(["in", "submission_id", ["s1", "s2", "s3"]]);
+    expect(calls.find((c) => c.table === "candidates")!.ops).toContainEqual(["in", "id", ["c1", "missing"]]);
   });
 
   it("returns [] without further queries when there are no usable reports", async () => {
@@ -65,8 +69,8 @@ describe("countReports", () => {
       { title: "B", artist: "Z", catalog_key: null },
     ]);
     expect(out).toEqual([
-      { title: "B", artist: "Z", reports: 3 },
-      { title: "A", artist: "Z", reports: 2 },
+      { key: "b|z", title: "B", artist: "Z", reports: 3 },
+      { key: "deezer:1", title: "A", artist: "Z", reports: 2 },
     ]);
   });
 });

@@ -100,7 +100,12 @@ export async function recommendSubmission(
   const { analysis, brief } = stored;
 
   // A creator report ("couldn't find it in TikTok or Instagram") bans the song for everyone.
-  const reported = await deps.listNotFound();
+  let reported: NotFoundSong[] = [];
+  try {
+    reported = await deps.listNotFound();
+  } catch (err) {
+    logger.warn("recommend.not_found_lookup_failed", { submissionId, reason: String(err) });
+  }
   const bannedNames = new Set(reported.map(keyOf));
   const bannedCatalog = new Set(reported.flatMap((r) => (r.catalog_key ? [r.catalog_key] : [])));
   let bannedDropped = 0;

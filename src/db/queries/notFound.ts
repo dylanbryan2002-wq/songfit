@@ -9,7 +9,9 @@ const CHUNK = 100; // keeps the .in() URL well under PostgREST limits
 
 function rankOf(metadata: unknown): number | null {
   const r = (metadata as { rank?: unknown } | null)?.rank;
-  return typeof r === "number" && Number.isInteger(r) ? r : null;
+  if (typeof r !== "number" && typeof r !== "string") return null;
+  const n = typeof r === "string" && r.trim() === "" ? NaN : Number(r);
+  return Number.isInteger(n) && n >= 1 && n <= 15 ? n : null;
 }
 
 /** Songs creators reported as missing from TikTok/Instagram: events → (submission, rank) → recommendation → candidate. */
@@ -61,13 +63,13 @@ export async function listNotFoundSongs(limit = 500): Promise<NotFoundSong[]> {
 }
 
 /** Group reports by song (same identity the engine bans on), most reported first. */
-export function countReports(rows: NotFoundSong[]): { title: string; artist: string; reports: number }[] {
-  const by = new Map<string, { title: string; artist: string; reports: number }>();
+export function countReports(rows: NotFoundSong[]): { key: string; title: string; artist: string; reports: number }[] {
+  const by = new Map<string, { key: string; title: string; artist: string; reports: number }>();
   for (const r of rows) {
     const k = r.catalog_key ?? normalizeKey(r.title, r.artist);
     const cur = by.get(k);
     if (cur) cur.reports += 1;
-    else by.set(k, { title: r.title, artist: r.artist, reports: 1 });
+    else by.set(k, { key: k, title: r.title, artist: r.artist, reports: 1 });
   }
   return [...by.values()].sort((a, b) => b.reports - a.reports);
 }
