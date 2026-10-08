@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getCreator } from "@/src/auth/session";
 import { Logo } from "@/components/Logo";
 import { SignIn } from "@/components/SignIn";
@@ -18,9 +19,9 @@ export default async function HomePage() {
       </p>
       {creator ? <UploadForm creator={creator} /> : <SignIn />}
       {creator && (
-        <a href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
+        <Link href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
           Open my latest result →
-        </a>
+        </Link>
       )}
       <p className="mt-6 text-center text-xs text-neutral-500">
         Your video is stored by Songfit and analyzed with third-party AI services to find your songs.{" "}
