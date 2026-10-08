@@ -12,7 +12,7 @@ export function VideoIcon({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
-/** The chosen video as one compact row: an X to remove it, thumbnail, name, length · size, and "Change". */
+/** The chosen video: a reel-ratio preview with an X to remove it, then name, length · size, and "Change". */
 export function FileCard({
   file,
   durationSeconds,
@@ -43,26 +43,17 @@ export function FileCard({
   const seconds = durationSeconds ?? readSeconds;
 
   return (
-    <div className="relative flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-2">
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={disabled}
-        aria-label="Remove video"
-        className="absolute left-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-ink/90 text-white shadow disabled:opacity-50"
-      >
-        <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-        </svg>
-      </button>
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+    <div className="flex w-full flex-col gap-3">
+      {/* The video itself, at reel ratio, playing muted. iOS only paints a frame when the video plays. */}
+      <div className="relative mx-auto aspect-[9/16] h-64 max-w-full overflow-hidden rounded-2xl bg-gray-100">
         {url && !failed ? (
-          // "#t=0.1" makes mobile Safari paint the first frame instead of a blank box.
           <video
-            src={`${url}#t=0.1`}
+            src={url}
             muted
             playsInline
-            preload="metadata"
+            autoPlay
+            loop
+            preload="auto"
             onLoadedMetadata={(e) => {
               const d = e.currentTarget.duration;
               if (Number.isFinite(d)) setReadSeconds(d);
@@ -71,23 +62,38 @@ export function FileCard({
             className="h-full w-full object-cover"
           />
         ) : (
-          <VideoIcon />
+          <div className="flex h-full w-full items-center justify-center">
+            <VideoIcon />
+          </div>
         )}
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={disabled}
+          aria-label="Remove video"
+          className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-ink/80 text-white disabled:opacity-50"
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-ink">{file.name}</p>
-        <p className="text-xs text-muted">
-          {formatDuration(seconds)} · {formatFileSize(file.size)}
-        </p>
+      <div className="flex w-full items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">{file.name}</p>
+          <p className="text-xs text-muted">
+            {formatDuration(seconds)} · {formatFileSize(file.size)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onChange}
+          disabled={disabled}
+          className="min-h-11 shrink-0 rounded-xl px-3 text-sm font-semibold text-steel-dark disabled:opacity-50"
+        >
+          Change
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onChange}
-        disabled={disabled}
-        className="min-h-11 shrink-0 rounded-xl px-3 text-sm font-semibold text-steel-dark disabled:opacity-50"
-      >
-        Change
-      </button>
     </div>
   );
 }
