@@ -170,12 +170,14 @@ describe("batches of five", () => {
     s = pickerReducer(again, { type: "reveal", total: 15 });
     expect(s.wantedSent).toBe(true);
   });
-  it("moreControl: Show 5 more while rows remain; the box when none remain or every visible row is rejected", () => {
+  it("moreControl: Show 5 more while rows remain, even when every visible row is rejected; the box only when none remain", () => {
     const rows = fifteen();
     let s = initialPickerState(rows);
     expect(moreControl(s, rows)).toBe("more");
     for (const r of [1, 2, 3, 4, 5]) s = pickerReducer(s, { type: "reject", rank: r });
-    expect(moreControl(s, rows)).toBe("wanted");
+    expect(moreControl(s, rows)).toBe("more");
+    s = pickerReducer(s, { type: "reveal", total: 15 });
+    expect(s.visibleCount).toBe(10);
     s = initialPickerState(rows);
     s = pickerReducer(pickerReducer(s, { type: "reveal", total: 15 }), { type: "reveal", total: 15 });
     expect(moreControl(s, rows)).toBe("wanted");

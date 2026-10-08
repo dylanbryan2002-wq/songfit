@@ -101,10 +101,9 @@ export function nextBatch(s: PickerState): number {
   return Math.floor(s.visibleCount / PICKS_PER_BATCH) + 1;
 }
 
-/** Under the list: "Show 5 more" while rows remain, else the "None of these?" box (also once every visible row is rejected). */
+/** Under the list: "Show 5 more" while rows remain (rejections never hide them), then the "None of these?" box. */
 export function moreControl(s: PickerState, rows: PickerRow[]): "more" | "wanted" {
-  const visible = rows.slice(0, s.visibleCount).map((r) => r.rank);
-  return s.visibleCount < rows.length && !allRejected(s, visible) ? "more" : "wanted";
+  return s.visibleCount < rows.length ? "more" : "wanted";
 }
 
 /** True when every rank on screen has been turned down. */

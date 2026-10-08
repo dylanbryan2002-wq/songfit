@@ -15,7 +15,6 @@ import { MorePicks } from "./MorePicks";
 type UiEvent = "song_previewed" | "explanation_opened" | "title_copied" | "open_app" | "song_not_found";
 
 const SAVE_FAILED = "Couldn't save. Try again.";
-const ALL_REJECTED = "None of these? We'll do better next time.";
 const RETRY_NOTE = "Sample didn't load. Tap play to try again.";
 
 export function SongPicker({
@@ -152,7 +151,6 @@ export function SongPicker({
     save({ action: "reject", rank }).then(
       () => {
         if (!allRejected(next, rows.map((r) => r.rank))) return;
-        setMessage(ALL_REJECTED);
         onAllRejected?.();
         save({ action: "all_rejected" }).catch(() => undefined);
       },
