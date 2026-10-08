@@ -105,3 +105,12 @@ describe("generateCandidates", () => {
     expect(safe[1]!.timeoutMs!).toBeLessThanOrEqual(safe[0]!.timeoutMs!);
   });
 });
+
+describe("SYSTEM_PROMPT (candidates-v5)", () => {
+  it("covers the creator's note and named songs or artists", async () => {
+    const { SYSTEM_PROMPT: sp, PROMPT_VERSION: v } = await import("@/src/engine/candidates/generateCandidates");
+    expect(v).toBe("candidates-v5");
+    expect(sp).toContain("When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.");
+    expect(sp).toContain("If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.");
+  });
+});

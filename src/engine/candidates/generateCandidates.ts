@@ -11,7 +11,7 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 
-export const PROMPT_VERSION = "candidates-v4";
+export const PROMPT_VERSION = "candidates-v5";
 
 export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
 
@@ -22,7 +22,8 @@ the original artist that are very likely available in the Instagram and TikTok m
 in the United States. Never invent songs. Never suggest AI-generated music, unreleased tracks,
 remixes by unknown accounts, or production-library stock music. Name the original studio
 recording, not a live, sped-up, slowed, acoustic or remix version.
-When the caption or story names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.`;
+When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.
+If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
