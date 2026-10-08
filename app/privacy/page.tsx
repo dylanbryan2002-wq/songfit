@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pb-16 pt-10">
       <Link href="/" aria-label="Songfit home">
-        <Logo className="text-2xl" />
+        <Logo size="lg" />
       </Link>
       <h1 className="mt-10 text-3xl font-semibold tracking-tight">Privacy</h1>
       <p className="mt-2 text-sm text-muted">Last updated 7 October 2026</p>

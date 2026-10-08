@@ -9,7 +9,7 @@ export default async function HomePage() {
   const creator = await getCreator();
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center px-5 pb-16 pt-10">
-      <Logo className="text-2xl" />
+      <Logo size="lg" />
       <h1 className="mt-12 text-center text-4xl font-semibold leading-tight tracking-tight">
         Find the right song for your content.
       </h1>
