@@ -4,6 +4,7 @@ import { getSubmission } from "@/src/db/queries/submissions";
 import { ProviderError } from "@/src/engine/catalog/deezer";
 import { refreshPreview } from "@/src/feedback/picker";
 import { isUuid } from "@/src/shared/ids";
+import { PICKS_TOTAL } from "@/src/shared/config";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
 
   const { id, rank } = await ctx.params;
   const notFound = () => NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (!isUuid(id) || (rank !== "1" && rank !== "2" && rank !== "3")) return notFound();
+  // A plain integer 1..15: "01", "1.5" and "1e1" are rejected.
+  if (!isUuid(id) || !/^[1-9]\d?$/.test(rank) || Number(rank) > PICKS_TOTAL) return notFound();
   const submission = await getSubmission(id);
   if (!submission) return notFound();
   if (submission.creator_id !== creator.id && !isAdmin(creator)) return notFound();

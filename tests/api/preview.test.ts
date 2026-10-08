@@ -37,8 +37,8 @@ describe("GET /api/submissions/[id]/preview/[rank]", () => {
     m.getSubmission.mockResolvedValue({ id: ID, creator_id: "c1", status: "analyzing" });
     expect((await call()).status).toBe(404);
   });
-  it("404 for rank 7", async () => {
-    expect((await call(ID, "7")).status).toBe(404);
+  it("404 for a rank outside 1..15 or not a plain integer", async () => {
+    for (const r of ["0", "16", "01", "1.5", "1e1", " 2", "abc", ""]) expect((await call(ID, r)).status).toBe(404);
     expect(m.refreshPreview).not.toHaveBeenCalled();
   });
   it("200 with the fresh url", async () => {
@@ -46,6 +46,8 @@ describe("GET /api/submissions/[id]/preview/[rank]", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ preview_url: "https://fresh.mp3" });
     expect(m.refreshPreview).toHaveBeenCalledWith(ID, 2);
+    expect((await call(ID, "15")).status).toBe(200);
+    expect(m.refreshPreview).toHaveBeenLastCalledWith(ID, 15);
   });
   it("503 on ProviderError without leaking the message", async () => {
     m.refreshPreview.mockRejectedValue(new ProviderError("deezer 503 secret", 503));

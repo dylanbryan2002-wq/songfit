@@ -29,7 +29,10 @@ describe("POST /api/submissions/[id]/events", () => {
     for (const name of ["recommendation_selected", "paid", "all_rejected", "anything"]) {
       expect((await call({ name, rank: 1 })).status).toBe(400);
     }
-    expect((await call({ name: "song_previewed", rank: 5 })).status).toBe(400);
+    expect((await call({ name: "song_previewed", rank: 16 })).status).toBe(400);
+    expect((await call({ name: "song_previewed", rank: 1.5 })).status).toBe(400);
+    for (const batch of [1, 4, "2"]) expect((await call({ name: "more_requested", batch })).status).toBe(400);
+    for (const text of ["", "   ", "x".repeat(201), 5]) expect((await call({ name: "wanted_instead", text })).status).toBe(400);
     expect((await call({ name: "open_app", rank: 1 })).status).toBe(400); // destination required
     expect((await call({ name: "open_app", rank: 1, destination: "youtube" })).status).toBe(400);
     expect((await call("nope")).status).toBe(400);
@@ -51,9 +54,9 @@ describe("POST /api/submissions/[id]/events", () => {
 
   it("204 and logs { rank } for the four plain events", async () => {
     for (const name of ["song_previewed", "explanation_opened", "title_copied", "song_not_found"]) {
-      const res = await call({ name, rank: 2 });
+      const res = await call({ name, rank: 12 });
       expect(res.status).toBe(204);
-      expect(m.logEvent).toHaveBeenLastCalledWith({ name, creatorId: "c1", submissionId: ID, metadata: { rank: 2 } });
+      expect(m.logEvent).toHaveBeenLastCalledWith({ name, creatorId: "c1", submissionId: ID, metadata: { rank: 12 } });
     }
   });
 
@@ -66,5 +69,18 @@ describe("POST /api/submissions/[id]/events", () => {
       submissionId: ID,
       metadata: { rank: 1, destination: "instagram" },
     });
+  });
+
+  it("204 and logs { batch } for more_requested", async () => {
+    for (const batch of [2, 3]) {
+      expect((await call({ name: "more_requested", batch })).status).toBe(204);
+      expect(m.logEvent).toHaveBeenLastCalledWith({ name: "more_requested", creatorId: "c1", submissionId: ID, metadata: { batch } });
+    }
+  });
+
+  it("204 and logs the trimmed { text } for wanted_instead", async () => {
+    expect((await call({ name: "wanted_instead", text: "  slower, no vocals " })).status).toBe(204);
+    expect(m.logEvent).toHaveBeenLastCalledWith({ name: "wanted_instead", creatorId: "c1", submissionId: ID, metadata: { text: "slower, no vocals" } });
+    expect((await call({ name: "wanted_instead", text: "x".repeat(200) })).status).toBe(204);
   });
 });

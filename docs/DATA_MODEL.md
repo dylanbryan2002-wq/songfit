@@ -110,14 +110,14 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 RLS: service role only. Creators never read candidates.
 
 ## recommendations
-The final 3 shown to the creator.
+The ranked picks shown to the creator: up to 15 (at least 3), shown 5 at a time.
 
 | column          | type        | notes                                   |
 |-----------------|-------------|-----------------------------------------|
 | id              | uuid        |                                         |
 | submission_id   | uuid        | → submissions ON DELETE CASCADE         |
 | candidate_id    | uuid        | → candidates ON DELETE SET NULL         |
-| rank            | int         | 1, 2, 3; unique per submission          |
+| rank            | int         | 1..15; unique per submission (0005)     |
 | direction_label | text        | "Best fit", "More current", "Unexpected" |
 | title           | text        |                                         |
 | artist          | text        |                                         |
@@ -170,6 +170,8 @@ explanation_opened           metadata.rank
 title_copied                 metadata.rank
 open_app                     metadata.rank, metadata.destination (tiktok|instagram|spotify)
 song_not_found               metadata.rank  (creator could not find the song in TikTok/Instagram)
+more_requested               metadata.batch (2|3)  (creator tapped "Show 5 more")
+wanted_instead               metadata.text (≤ 200 chars)  ("None of these?" answer)
 ```
 
 RLS: service role only.
@@ -203,6 +205,9 @@ RLS: service role only.
   distinct creators per milestone), uploadToReadySeconds[], readyToSelectionSeconds[], byCategory
   (submissions aggregated before any event join), paidCreators (distinct creators with an active
   subscription), paidEvents, returningCreators (>= 2 submissions). Read by `src/db/queries/metrics.ts`.
+- `set_recommendation_feedback(p_submission_id uuid, p_rank int, p_selected boolean, p_rejected boolean) returns int`
+  — select or reject one recommendation by rank (1..15; the table check bounds it). Selecting clears
+  `rejected` on that row and `selected` on the others. Returns rows updated.
 - `exec_sql(sql text) returns void` — test helper that runs a SQL script (loads
   `supabase/seed/metrics_fixture.sql` in the integration test). Service role only.
 

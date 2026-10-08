@@ -4,10 +4,9 @@ import { getCreator } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
 import { isUuid } from "@/src/shared/ids";
+import { RankSchema as Rank } from "@/src/shared/types";
 
 export const dynamic = "force-dynamic";
-
-const Rank = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
 /** The only events the browser may log. Everything else is written server-side. */
 const UiEvent = z.discriminatedUnion("name", [
@@ -16,6 +15,8 @@ const UiEvent = z.discriminatedUnion("name", [
     rank: Rank,
   }),
   z.object({ name: z.literal("open_app"), rank: Rank, destination: z.enum(["tiktok", "instagram", "spotify"]) }),
+  z.object({ name: z.literal("more_requested"), batch: z.union([z.literal(2), z.literal(3)]) }),
+  z.object({ name: z.literal("wanted_instead"), text: z.string().trim().min(1).max(200) }),
 ]);
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -39,7 +40,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     name: e.name,
     creatorId: creator.id,
     submissionId: id,
-    metadata: e.name === "open_app" ? { rank: e.rank, destination: e.destination } : { rank: e.rank },
+    metadata:
+      e.name === "open_app" ? { rank: e.rank, destination: e.destination }
+      : e.name === "more_requested" ? { batch: e.batch }
+      : e.name === "wanted_instead" ? { text: e.text }
+      : { rank: e.rank },
   });
   return new Response(null, { status: 204 });
 }
