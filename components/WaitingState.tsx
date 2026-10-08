@@ -21,7 +21,10 @@ export function WaitingState({
   const [lineIdx, setLineIdx] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [retried, setRetried] = useState(false);
+  const [limited, setLimited] = useState(false);
+  const [restartFailed, setRestartFailed] = useState(false);
   const startedAt = useRef(Date.now());
+  const lastStatus = useRef<SubmissionStatus>(initialStatus);
   const view = waitingView(status, elapsed);
   const failed = view === "failed";
 
@@ -44,6 +47,11 @@ export function WaitingState({
           if (body.status === "ready") {
             router.refresh();
             return;
+          }
+          // Progress (or a server self-heal) restarts the clock: the give-up applies per stage.
+          if (body.status !== lastStatus.current) {
+            lastStatus.current = body.status;
+            startedAt.current = Date.now();
           }
           setStatus(body.status);
           if (body.status === "failed") return;
@@ -70,7 +78,12 @@ export function WaitingState({
     if (res && (res.status === 202 || res.status === 409)) {
       startedAt.current = Date.now();
       setElapsed(0);
+      lastStatus.current = "analyzing";
       setStatus("analyzing");
+    } else if (res?.status === 429) {
+      setLimited(true);
+    } else {
+      setRestartFailed(true);
     }
   }
 
@@ -78,7 +91,11 @@ export function WaitingState({
     return (
       <div className="flex flex-col items-center gap-4 text-center">
         <p className="text-lg font-medium text-neutral-900">
-          Something went wrong on our side. We&apos;re on it.
+          {limited
+            ? "This video keeps failing. Try another video."
+            : restartFailed
+              ? "Couldn't restart. Try another video."
+              : "Something went wrong on our side. We're on it."}
         </p>
         {!retried && (
           <button

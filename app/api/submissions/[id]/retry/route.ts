@@ -1,8 +1,10 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { getCreator } from "@/src/auth/session";
+import { countEventsForSubmission } from "@/src/db/queries/events";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { runSubmission } from "@/src/pipeline/run";
+import { LIMITS } from "@/src/shared/config";
 import { isUuid } from "@/src/shared/ids";
 import { isStaleInFlight } from "@/src/shared/inFlight";
 import { logger } from "@/src/shared/logger";
@@ -24,6 +26,10 @@ export async function POST(_request: Request, ctx: { params: Promise<{ id: strin
 
   if (submission.status !== "failed" && !isStaleInFlight(submission.status, submission.updated_at)) {
     return NextResponse.json({ error: "not_retryable" }, { status: 409 });
+  }
+
+  if ((await countEventsForSubmission(id, "pipeline_failed")) >= LIMITS.maxRetriesPerSubmission) {
+    return NextResponse.json({ error: "retry_limit" }, { status: 429 });
   }
 
   waitUntil(runSubmission(id).catch((err) => logger.error("pipeline.unhandled", { submissionId: id, err: String(err) })));

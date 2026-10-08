@@ -20,6 +20,16 @@ export async function listEventsForSubmission(submissionId: string): Promise<Eve
   return data;
 }
 
+export async function countEventsForSubmission(submissionId: string, name: string): Promise<number> {
+  const { count, error } = await createServiceClient()
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .eq("submission_id", submissionId)
+    .eq("name", name);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 /** Returns { name: count } across all events. Used by the admin metrics page. */
 export async function countEventsByName(): Promise<Record<string, number>> {
   const { data, error } = await createServiceClient().from("events").select("name");

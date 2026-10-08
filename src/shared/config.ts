@@ -21,6 +21,7 @@ export const LIMITS = {
   pipelineBudgetMs: 280_000,
   modelTimeoutMs: 120_000,
   inFlightStaleMinutes: 6,
+  maxRetriesPerSubmission: 3, // creator retries of one failing video
   dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
 } as const;
 

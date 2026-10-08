@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const m = vi.hoisted(() => ({ getCreator: vi.fn(), getSubmission: vi.fn(), runSubmission: vi.fn(), waitUntil: vi.fn() }));
+const m = vi.hoisted(() => ({ getCreator: vi.fn(), getSubmission: vi.fn(), runSubmission: vi.fn(), countEvents: vi.fn(), waitUntil: vi.fn() }));
 vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator }));
 vi.mock("@/src/db/queries/submissions", () => ({ getSubmission: m.getSubmission }));
+vi.mock("@/src/db/queries/events", () => ({ countEventsForSubmission: m.countEvents }));
 vi.mock("@/src/pipeline/run", () => ({ runSubmission: m.runSubmission }));
 vi.mock("@vercel/functions", () => ({ waitUntil: m.waitUntil }));
 
@@ -17,6 +18,7 @@ beforeEach(() => {
   m.getCreator.mockReset().mockResolvedValue({ id: "c1", email: "a@b.co" });
   m.getSubmission.mockReset().mockResolvedValue(sub("failed"));
   m.runSubmission.mockReset().mockResolvedValue(undefined);
+  m.countEvents.mockReset().mockResolvedValue(0);
   m.waitUntil.mockReset();
 });
 
@@ -46,6 +48,16 @@ describe("POST /api/submissions/[id]/retry", () => {
       expect(await res.json()).toEqual({ error: "not_retryable" });
     }
     expect(m.runSubmission).not.toHaveBeenCalled();
+  });
+  it("429 retry_limit once the submission has failed 3 times, 202 at 2", async () => {
+    m.countEvents.mockResolvedValueOnce(3);
+    const res = await call();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "retry_limit" });
+    expect(m.runSubmission).not.toHaveBeenCalled();
+    expect(m.countEvents).toHaveBeenCalledWith(ID, "pipeline_failed");
+    m.countEvents.mockResolvedValueOnce(2);
+    expect((await call()).status).toBe(202);
   });
   it("202 and runs in the background when failed or stale in flight", async () => {
     expect((await call()).status).toBe(202);
