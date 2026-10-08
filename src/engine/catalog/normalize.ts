@@ -96,3 +96,69 @@ export function artistsMatch(a: string, b: string): boolean {
   const nb = normalizeArtist(b);
   return !!na && !!nb && na === nb;
 }
+
+// Loose matching (C1). Deezer/iTunes titles often carry a descriptor ("Dreams (2004 Remaster)",
+// "Sunflower (Spider-Man: Into the Spider-Verse)") and credit only the lead artist. Measured on two
+// real submissions: 12 famous songs were dropped by the strict rules for exactly these reasons.
+const ARTIST_SPLIT_RE = /\s*(?:&|,|\s(?:and|x|with)\s|\b(?:feat\.?|ft\.?|featuring)(?=\s))\s*/i;
+const DESCRIPTOR_START_RE = /\s+[(\[]|\s+[-–—]\s+/;
+// "Soundtrack Version" is the original film recording, not a variant: the one exception to "version".
+export const DISQUALIFYING_DESCRIPTOR =
+  /\b(live|remix|mix|dub|edit|acoustic|instrumental|karaoke|cover|tribute|sped|slowed|nightcore|demo|outtakes?|sessions?|rehearsal|originally|ringtone|8-bit|lullaby|reprise|radio|club|extended|(?<!soundtrack )version)\b/i;
+
+/** Every credited artist, normalised: "Post Malone & Swae Lee" → ["post malone", "swae lee"]. */
+export function artistList(a: string): string[] {
+  return a.split(ARTIST_SPLIT_RE).map(normalizeArtist).filter(Boolean);
+}
+
+function splitDescriptor(t: string): [string, string] {
+  const m = DESCRIPTOR_START_RE.exec(t);
+  return m ? [t.slice(0, m.index), t.slice(m.index)] : [t, ""];
+}
+
+/** normalizeTitle of the text before the first " (", " [" or spaced dash. */
+export function coreTitle(t: string): string {
+  return normalizeTitle(splitDescriptor(t)[0]);
+}
+
+/** The text coreTitle removed, lower-cased and trimmed, or "". */
+export function titleDescriptor(t: string): string {
+  return splitDescriptor(t)[1].trim().toLowerCase();
+}
+
+/** Strict match, or (only when the candidate is the plain song) the found title's core plus a harmless descriptor. */
+export function titlesMatchLoose(cand: string, found: string): boolean {
+  if (titlesMatch(cand, found)) return true;
+  if (titleDescriptor(cand) !== "") return false;
+  const want = normalizeTitle(cand);
+  return !!want && coreTitle(found) === want && !DISQUALIFYING_DESCRIPTOR.test(titleDescriptor(found));
+}
+
+/** True when the two credits share at least one artist. */
+export function artistsMatchLoose(a: string, b: string): boolean {
+  if (artistsMatch(a, b)) return true;
+  const bs = new Set(artistList(b));
+  return artistList(a).some((x) => bs.has(x));
+}
+
+/**
+ * Highest-rank exact match (titlesMatch && artistsMatch), else highest-rank loose match, else null.
+ * Ties keep provider order. Shared by Deezer and iTunes so both verify by the same rules.
+ */
+export function pickBestMatch<T>(
+  cand: { title: string; artist: string }, items: T[], get: (r: T) => { title: string; artist: string; rank?: number },
+): T | null {
+  const best = (ok: (r: T) => boolean): T | null => {
+    let top: T | null = null;
+    let topRank = -Infinity;
+    for (const r of items) {
+      const rank = get(r).rank ?? 0;
+      if (rank > topRank && ok(r)) { top = r; topRank = rank; }
+    }
+    return top;
+  };
+  return (
+    best((r) => titlesMatch(cand.title, get(r).title) && artistsMatch(cand.artist, get(r).artist)) ??
+    best((r) => titlesMatchLoose(cand.title, get(r).title) && artistsMatchLoose(cand.artist, get(r).artist))
+  );
+}

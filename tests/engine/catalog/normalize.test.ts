@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeTitle, normalizeArtist, normalizeKey, titlesMatch, artistsMatch, versionTags,
+  artistList, coreTitle, titleDescriptor, titlesMatchLoose, artistsMatchLoose,
 } from "@/src/engine/catalog/normalize";
 
 describe("normalizeTitle", () => {
@@ -81,5 +82,54 @@ describe("matching (10 fixtures)", () => {
     expect(normalizeKey("Stay (Sped Up)", "The Kid LAROI")).toBe("stay|the kid laroi|sped up");
     expect(normalizeKey("Stay", "The Kid LAROI")).toBe("stay|the kid laroi");
     expect(normalizeKey("Stay (Live)", "The Kid LAROI")).not.toBe(normalizeKey("Stay", "The Kid LAROI"));
+  });
+});
+
+describe("loose matching (C1)", () => {
+  it("artistList splits credits into normalised artists", () => {
+    expect(artistList("Post Malone & Swae Lee")).toEqual(["post malone", "swae lee"]);
+    expect(artistList("A, B and C x D feat. E")).toEqual(["a", "b", "c", "d", "e"]);
+    expect(artistList("Drake ft. Rihanna")).toEqual(["drake", "rihanna"]);
+    expect(artistList("Drake featuring Rihanna")).toEqual(["drake", "rihanna"]);
+    expect(artistList("Drake with Rihanna")).toEqual(["drake", "rihanna"]);
+    expect(artistList("Daft Punk")).toEqual(["daft punk"]);
+  });
+  it("coreTitle and titleDescriptor split at the first bracket or spaced dash", () => {
+    expect(coreTitle("Dreams (2004 Remaster)")).toBe("dreams");
+    expect(titleDescriptor("Dreams (2004 Remaster)")).toBe("(2004 remaster)");
+    expect(coreTitle("Blinding Lights - Live at the O2")).toBe("blinding lights");
+    expect(titleDescriptor("Blinding Lights - Live at the O2")).toBe("- live at the o2");
+    expect(coreTitle("Song [Remix]")).toBe("song");
+    expect(coreTitle("Anti-Hero")).toBe("anti hero");
+    expect(titleDescriptor("Anti-Hero")).toBe("");
+  });
+  const titles: [string, string, boolean][] = [
+    ["Dreams", "Dreams (2004 Remaster)", true],
+    ["Running Up That Hill", "Running Up That Hill (A Deal With God)", true],
+    ["Let It Go", 'Let It Go (From "Frozen"/Soundtrack Version)', true],
+    ["Sunflower", "Sunflower (Spider-Man: Into the Spider-Verse)", true],
+    ["Blinding Lights", "Blinding Lights", true],
+    ["Mr. Brightside", "Mr. Brightside (Jacques Lu Cont's Thin White Duke Dub)", false],
+    ["The Sound of Silence", "The Sound of Silence (Reprise)", false],
+    ["Dreams", "Dreams (Live 1977)", false],
+    ["Dreams", "Dreams - Acoustic Version", false],
+    ["Dreams", "Dreams (Piano Version)", false],
+    ["Cupid - Twin Ver.", "Cupid (Twin Version)", false], // candidate has its own descriptor: strict only
+    ["Stay", "Stay With Me", false],
+  ];
+  it.each(titles)("titlesMatchLoose(%s, %s) = %s", (a, b, expected) => {
+    expect(titlesMatchLoose(a, b)).toBe(expected);
+  });
+  const artists: [string, string, boolean][] = [
+    ["Post Malone & Swae Lee", "Post Malone", true],
+    ["Mark Ronson & Bruno Mars", "Mark Ronson", true],
+    ["Lady Gaga & Bruno Mars", "Lady Gaga", true],
+    ["Kendrick Lamar & SZA", "Kendrick Lamar", true],
+    ["Beyoncé", "Beyonce", true],
+    ["Adele", "Hello I'm Adele", false],
+    ["Drake", "Rihanna", false],
+  ];
+  it.each(artists)("artistsMatchLoose(%s, %s) = %s", (a, b, expected) => {
+    expect(artistsMatchLoose(a, b)).toBe(expected);
   });
 });

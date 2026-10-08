@@ -3,7 +3,7 @@
 import { z } from "zod";
 import pLimit from "p-limit";
 import { LIMITS } from "@/src/shared/config";
-import { titlesMatch, artistsMatch } from "@/src/engine/catalog/normalize";
+import { pickBestMatch } from "@/src/engine/catalog/normalize";
 
 const DeezerTrackSchema = z.object({
   id: z.number(),
@@ -11,6 +11,7 @@ const DeezerTrackSchema = z.object({
   duration: z.number(),
   preview: z.string().nullable().optional().transform((v) => v || null),
   link: z.string(),
+  rank: z.number().optional(), // Deezer popularity; higher = more played
   artist: z.object({ name: z.string() }),
   album: z
     .object({ cover_medium: z.string().nullable().optional(), cover_big: z.string().nullable().optional() })
@@ -80,7 +81,7 @@ export async function deezerGet(
 
 
 async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]> {
-  const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`;
+  const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=15`;
   const body = await paced(() => deezerGet(url, fetchImpl));
   // Deezer reports quota/outage as HTTP 200 with { error: {...} }. That is a provider failure (I4),
   // not "no such song": check it FIRST so it can never be reported as an empty result.
@@ -91,18 +92,16 @@ async function query(q: string, fetchImpl: typeof fetch): Promise<DeezerTrack[]>
   throw new ProviderError("deezer: unexpected response shape");
 }
 
+/** Highest-rank exact match, else highest-rank loose match (C1): the popular original, not a stray upload. */
 export function pickDeezerMatch(cand: { title: string; artist: string }, results: DeezerTrack[]): DeezerTrack | null {
-  for (const r of results) {
-    if (titlesMatch(cand.title, r.title) && artistsMatch(cand.artist, r.artist.name)) return r;
-  }
-  return null;
+  return pickBestMatch(cand, results, (r) => ({ title: r.title, artist: r.artist.name, rank: r.rank }));
 }
 
 /**
  * Plain query FIRST, structured query only as a fallback. Smoke test finding: the structured query
  * `artist:"The Weeknd" track:"Blinding Lights"` returned ZERO results, while the plain query
  * `Blinding Lights The Weeknd` worked. The structured query is tried only when the plain results
- * contain no ACCEPTABLE match (titlesMatch && artistsMatch). Returns plain results followed by
+ * contain no acceptable match (pickDeezerMatch). Returns plain results followed by
  * structured results (when the fallback ran).
  */
 export async function searchDeezer(title: string, artist: string, fetchImpl: typeof fetch = fetch): Promise<DeezerTrack[]> {
@@ -113,7 +112,7 @@ export async function searchDeezer(title: string, artist: string, fetchImpl: typ
   return [...plain, ...structured].filter((t) => !seen.has(t.id) && !!seen.add(t.id));
 }
 
-/** First acceptable Deezer result, or null. Throws ProviderError on outage (distinct from no match). */
+/** Best acceptable Deezer result (pickDeezerMatch), or null. Throws ProviderError on outage (distinct from no match). */
 export async function findDeezerMatch(
   cand: { title: string; artist: string }, fetchImpl: typeof fetch = fetch,
 ): Promise<DeezerTrack | null> {

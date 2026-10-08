@@ -96,6 +96,12 @@ describe("searchDeezer", () => {
     expect(urls).toHaveLength(1);
     expect(urls[0]).toContain("q=Blinding%20Lights%20The%20Weeknd");
     expect(urls[0]).not.toContain("artist%3A");
+    expect(urls[0]).toContain("limit=15");
+  });
+  it("parses Deezer's rank field", async () => {
+    const fetchImpl = vi.fn(async () => json({ data: [{ ...track(), rank: 812345 }] }));
+    const out = await searchDeezer("Blinding Lights", "The Weeknd", fetchImpl as unknown as typeof fetch);
+    expect(out[0]?.rank).toBe(812345);
   });
   it("falls back to the structured query when plain has no acceptable match", async () => {
     const urls: string[] = [];
@@ -107,6 +113,7 @@ describe("searchDeezer", () => {
     expect(urls).toHaveLength(2);
     expect(urls[0]).not.toContain("artist%3A");
     expect(urls[1]).toContain("artist%3A");
+    expect(urls[1]).toContain("limit=15");
     expect(out.map((t) => t.id)).toContain(7);
   });
   it("dedupes plain and structured results by id", async () => {
@@ -118,16 +125,37 @@ describe("searchDeezer", () => {
 });
 
 describe("pickDeezerMatch", () => {
-  it("returns the first ACCEPTABLE result (same version, same primary artist)", () => {
+  it("returns the highest-rank EXACT result (same version, same primary artist)", () => {
     const results = [
-      track({ id: 9, title: "Blinding Lights", artist: { name: "Karaoke Hits" } }),
-      track({ id: 3, title: "Blinding Lights (Live)", artist: { name: "The Weeknd" } }),
-      track({ id: 2, title: "Blinding Lights - Remastered", artist: { name: "The Weeknd" } }),
+      track({ id: 9, title: "Blinding Lights", artist: { name: "Karaoke Hits" }, rank: 999999 }),
+      track({ id: 3, title: "Blinding Lights (Live)", artist: { name: "The Weeknd" }, rank: 900000 }),
+      track({ id: 2, title: "Blinding Lights - Remastered", artist: { name: "The Weeknd" }, rank: 1000 }),
+      track({ id: 4, title: "Blinding Lights", artist: { name: "The Weeknd" }, rank: 800000 }),
     ];
+    expect(pickDeezerMatch({ title: "Blinding Lights", artist: "The Weeknd" }, results)?.id).toBe(4);
+  });
+  it("prefers any exact match over a more popular loose one", () => {
+    const results = [
+      track({ id: 5, title: "Dreams (2004 Remaster)", artist: { name: "Fleetwood Mac" }, rank: 900000 }),
+      track({ id: 6, title: "Dreams", artist: { name: "Fleetwood Mac" }, rank: 10 }),
+    ];
+    expect(pickDeezerMatch({ title: "Dreams", artist: "Fleetwood Mac" }, results)?.id).toBe(6);
+  });
+  it("falls back to the highest-rank LOOSE match (descriptor, lead artist only)", () => {
+    const results = [
+      track({ id: 5, title: "Sunflower (Spider-Man: Into the Spider-Verse)", artist: { name: "Post Malone" }, rank: 900000 }),
+      track({ id: 6, title: "Sunflower (Remix)", artist: { name: "Post Malone" }, rank: 950000 }),
+      track({ id: 7, title: "Sunflower (Spider-Man: Into the Spider-Verse)", artist: { name: "Post Malone" }, rank: 500 }),
+    ];
+    expect(pickDeezerMatch({ title: "Sunflower", artist: "Post Malone & Swae Lee" }, results)?.id).toBe(5);
+  });
+  it("treats a missing rank as 0", () => {
+    const results = [track({ id: 1 }), track({ id: 2, rank: 5 })];
     expect(pickDeezerMatch({ title: "Blinding Lights", artist: "The Weeknd" }, results)?.id).toBe(2);
   });
   it("returns null when nothing is acceptable", () => {
     expect(pickDeezerMatch({ title: "Stay", artist: "The Kid LAROI" }, [track({ title: "Stay With Me", artist: { name: "The Kid LAROI" } })])).toBeNull();
+    expect(pickDeezerMatch({ title: "Dreams", artist: "Fleetwood Mac" }, [track({ title: "Dreams (Live 1977)", artist: { name: "Fleetwood Mac" } })])).toBeNull();
   });
 });
 
