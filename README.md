@@ -53,6 +53,7 @@ See `.env.example`. Summary:
 | `OPENAI_API_KEY` | Whisper transcription |
 | `STRIPE_PAYMENT_LINK_URL`, `STRIPE_WEBHOOK_SECRET` | subscription |
 | `ADMIN_EMAILS` | comma-separated, gates `/admin` |
+| `APPLE_TEAM_ID`, `APPLE_MUSICKIT_KEY_ID`, `APPLE_MUSICKIT_PRIVATE_KEY_B64` | Apple Music API developer token (catalogue search + 30 s previews); the key is the MusicKit `.p8` base64-encoded on one line |
 
 ## External accounts needed
 
