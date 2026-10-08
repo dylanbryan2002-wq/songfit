@@ -5,6 +5,7 @@ import { readVideoDuration } from "../videoDuration";
 import { durationVerdict } from "../durationVerdict";
 import { checkVideoFile, TOO_LONG } from "../videoChecks";
 import { SignIn } from "../SignIn";
+import { VibePicker, type Vibe } from "../VibePicker";
 import { FileCard } from "./FileCard";
 import { GoogleButton } from "./GoogleButton";
 import { InAppNotice, useInAppBrowser } from "./InAppNotice";
@@ -36,6 +37,7 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
   const selection = useRef(0); // bumps on every pick; an older async check never replaces a newer pick
   const starting = useRef(false);
   const [chosen, setChosen] = useState<Chosen | null>(null);
+  const [vibe, setVibe] = useState<Vibe>({ tags: [], note: "" });
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,10 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
       const mine = selection.current;
       readPendingUpload(id)
         .then((rec) => {
-          if (rec && selection.current === mine) setChosen({ file: rec.file, durationSeconds: rec.durationSeconds });
+          if (rec && selection.current === mine) {
+            setChosen({ file: rec.file, durationSeconds: rec.durationSeconds });
+            setVibe({ tags: rec.vibeTags, note: rec.vibeNote });
+          }
         })
         .catch(() => {});
     }
@@ -103,7 +108,12 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
     setNotice(null);
     const id = flowId.current;
     try {
-      await stashPendingUpload(chosen.file, { flowId: id, durationSeconds: chosen.durationSeconds });
+      await stashPendingUpload(chosen.file, {
+        flowId: id,
+        durationSeconds: chosen.durationSeconds,
+        vibeTags: vibe.tags,
+        vibeNote: vibe.note,
+      });
     } catch {
       starting.current = false;
       setBusy(false);
@@ -139,6 +149,7 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
             onChange={choose}
             disabled={busy || checking}
           />
+          <VibePicker value={vibe} onChange={setVibe} disabled={busy} />
           <GoogleButton onClick={onContinue} disabled={busy || checking} />
           <p className="text-center text-xs leading-relaxed text-muted">
             From Google we use your name and email. After sign-in you start the upload; your video is analysed to

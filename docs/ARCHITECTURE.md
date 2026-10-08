@@ -11,7 +11,7 @@ app/
   api/                      route handlers: upload, submissions (create, status, retry), feedback, events, preview
 src/
   media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track
-  analysis/     frames + transcript (+ creator intent) → VideoAnalysis + MusicBrief
+  analysis/     frames + transcript (+ creator intent, vibe tags + note) → VideoAnalysis + MusicBrief
   engine/
     candidates/ MusicBrief → Candidate[]           (model-backed today; catalog retrieval later)
     catalog/    Candidate → verified Candidate      (Deezer search; song identity, canonical names, duration, preview; no preview → dropped)

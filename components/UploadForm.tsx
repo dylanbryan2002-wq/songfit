@@ -7,6 +7,7 @@ import { readVideoDuration } from "./videoDuration";
 import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { checkVideoFile, TOO_LONG } from "./videoChecks";
+import { VibePicker, type Vibe } from "./VibePicker";
 import { LIMITS } from "@/src/shared/config";
 
 type Creator = { id: string; email: string };
@@ -34,11 +35,14 @@ async function blockedReason(res: Response): Promise<Blocked> {
 export function UploadForm({
   creator,
   initialFile,
+  initialVibe,
   onStarted,
 }: {
   creator: Creator;
   /** A file kept across sign-in (landing page). Nothing starts until the creator taps the button. */
   initialFile?: File;
+  /** The vibe picked on the landing page before sign-in. */
+  initialVibe?: Vibe;
   /** Called once when a submit actually starts (the landing stash is claimed here). */
   onStarted?: () => void;
 }) {
@@ -46,6 +50,7 @@ export function UploadForm({
   const [file, setFile] = useState<File | null>(initialFile ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [intent, setIntent] = useState("");
+  const [vibe, setVibe] = useState<Vibe>(initialVibe ?? { tags: [], note: "" });
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +145,14 @@ export function UploadForm({
       const createRes = await fetch("/api/submissions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ submissionId, path, ext, creatorIntent: intent.trim() || null }),
+        body: JSON.stringify({
+          submissionId,
+          path,
+          ext,
+          creatorIntent: intent.trim() || null,
+          vibe_tags: vibe.tags,
+          vibe_note: vibe.note.trim() || null,
+        }),
       });
       if (createRes.status === 402) {
         setBlocked(await blockedReason(createRes));
@@ -194,6 +206,8 @@ export function UploadForm({
         className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base"
         disabled={busy}
       />
+
+      <VibePicker value={vibe} onChange={setVibe} disabled={busy} />
 
       {phase === "uploading" && (
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
