@@ -32,8 +32,8 @@ export function SongPicker({
   const id = data.submission_id;
   const rows = data.rows;
   const videoDuration = data.video_duration_seconds;
-  const pb = useSyncedPlayback({ videoDurationSeconds: videoDuration });
   const [state, dispatch] = useReducer(pickerReducer, rows, initialPickerState);
+  const pb = useSyncedPlayback({ videoDurationSeconds: videoDuration, voice: state.voice, music: state.music });
   const [message, setMessage] = useState<string | null>(null);
   const [urls, setUrls] = useState<Partial<Record<Rank, string | null>>>(() =>
     Object.fromEntries(rows.map((r) => [r.rank, r.preview_url])),
@@ -201,6 +201,20 @@ export function SongPicker({
         />
 
         <SongSheet hint={!chosenMode}>
+          <div className="flex flex-col px-2 pb-2">
+            {pb.voiceControl && (
+              <MixSlider
+                label="Your voice"
+                value={state.voice}
+                onChange={(percent) => dispatch({ type: "mix", channel: "voice", percent })}
+              />
+            )}
+            <MixSlider
+              label="Music"
+              value={state.music}
+              onChange={(percent) => dispatch({ type: "mix", channel: "music", percent })}
+            />
+          </div>
           {vibeLine && <p className="px-2 pb-2 text-[13px] text-muted">{vibeLine}</p>}
           {playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
             <p className="px-2 pb-2 text-[13px] text-muted">
@@ -313,5 +327,22 @@ export function SongPicker({
 
       <Attribution href={deezerHref} />
     </div>
+  );
+}
+
+function MixSlider({ label, value, onChange }: { label: string; value: number; onChange: (percent: number) => void }) {
+  return (
+    <label className="flex items-center gap-3 text-sm text-ink">
+      <span className="w-20 shrink-0">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-11 min-w-0 flex-1 accent-ink"
+      />
+    </label>
   );
 }

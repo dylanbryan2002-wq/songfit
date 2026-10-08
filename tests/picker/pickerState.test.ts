@@ -33,6 +33,8 @@ describe("initialPickerState", () => {
       explanationOpen: null,
       visibleCount: 3,
       wantedSent: false,
+      voice: 100,
+      music: 50,
     });
   });
   it("seeds chosen and rejected from the server rows", () => {
@@ -182,5 +184,26 @@ describe("batches of five", () => {
     s = pickerReducer(pickerReducer(s, { type: "reveal", total: 15 }), { type: "reveal", total: 15 });
     expect(moreControl(s, rows)).toBe("wanted");
     expect(moreControl(initialPickerState([row(1), row(2), row(3)]), [row(1), row(2), row(3)])).toBe("wanted");
+  });
+});
+
+describe("mix sliders", () => {
+  it("default to voice 100 and music 50", () => {
+    expect(base()).toMatchObject({ voice: 100, music: 50 });
+  });
+  it("sets one channel, rounds, and clamps to 0..100", () => {
+    let s = pickerReducer(base(), { type: "mix", channel: "music", percent: 72.4 });
+    expect(s).toMatchObject({ voice: 100, music: 72 });
+    s = pickerReducer(s, { type: "mix", channel: "voice", percent: -5 });
+    expect(s).toMatchObject({ voice: 0, music: 72 });
+    s = pickerReducer(s, { type: "mix", channel: "music", percent: 140 });
+    expect(s.music).toBe(100);
+  });
+  it("survives auditioning, stopping and choosing", () => {
+    let s = pickerReducer(base(), { type: "mix", channel: "music", percent: 20 });
+    s = pickerReducer(s, { type: "audition", rank: 1 });
+    s = pickerReducer(s, { type: "stop" });
+    s = pickerReducer(s, { type: "choose", rank: 2 });
+    expect(s).toMatchObject({ voice: 100, music: 20 });
   });
 });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { logger } from "@/src/shared/logger";
 import type { Rank } from "@/src/shared/types";
+import { DEFAULT_MUSIC, DEFAULT_VOICE, percentToGain } from "@/src/picker/mix";
 
 export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "unavailable";
 export type SyncedPlayback = {
@@ -20,7 +21,72 @@ export type SyncedPlayback = {
   pause(): void;
   setSampleStart(seconds: number): void; // re-seeks audio and video; keeps playing if playing
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  /** False once Web Audio could not carry the video's sound: the voice slider has nothing to drive. */
+  voiceControl: boolean;
 };
+
+/**
+ * The voice + music graph. iOS Safari ignores `media.volume`, so both elements go through Web Audio:
+ * video → voice gain → out, sample audio → music gain → out. An element can be attached only once in
+ * its lifetime, so the nodes are kept and reused across tracks. A null gain means that element plays
+ * on its own (video stays muted; music falls back to `audio.volume`).
+ */
+export type Mix = {
+  ctx: AudioContext;
+  voice: GainNode | null;
+  music: GainNode | null;
+  videoEl: HTMLVideoElement | null;
+  audioEl: HTMLAudioElement | null;
+};
+
+/** MUST be called synchronously inside the tap: creates the context on first use and resumes it. */
+export function ensureMix(
+  mix: Mix | null,
+  video: HTMLVideoElement,
+  audio: HTMLAudioElement,
+  create: () => AudioContext | null,
+): Mix | null {
+  let m = mix;
+  if (!m) {
+    try {
+      const ctx = create();
+      if (!ctx) return null;
+      m = { ctx, voice: null, music: null, videoEl: null, audioEl: null };
+    } catch {
+      return null;
+    }
+  }
+  if (m.ctx.state !== "running") void m.ctx.resume().catch(() => undefined);
+  const route = (el: HTMLMediaElement): GainNode | null => {
+    try {
+      const gain = m.ctx.createGain();
+      m.ctx.createMediaElementSource(el).connect(gain);
+      gain.connect(m.ctx.destination);
+      return gain;
+    } catch {
+      return null;
+    }
+  };
+  if (m.audioEl !== audio) {
+    m.audioEl = audio;
+    m.music = route(audio);
+  }
+  if (m.videoEl !== video) {
+    m.videoEl = video;
+    m.voice = route(video);
+  }
+  return m;
+}
+
+function createAudioContext(): AudioContext | null {
+  const w = window as Window & { webkitAudioContext?: typeof AudioContext };
+  const Ctor = window.AudioContext ?? w.webkitAudioContext;
+  if (!Ctor) return null;
+  // iOS 16.4+: play through the silent switch like a plain media element does.
+  const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+  if (session) session.type = "playback";
+  return new Ctor();
+}
 
 export function loopLength(
   videoDuration: number | null,
@@ -51,7 +117,12 @@ export function playFailure(which: "audio" | "video", errorName: string): "ignor
   return which === "video" ? "audio_only" : "unavailable";
 }
 
-export function useSyncedPlayback(opts: { videoDurationSeconds: number | null }): SyncedPlayback {
+export function useSyncedPlayback(opts: {
+  videoDurationSeconds: number | null;
+  /** Slider levels, 0..100. */
+  voice?: number;
+  music?: number;
+}): SyncedPlayback {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const token = useRef(0);
@@ -64,6 +135,11 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   const videoFailLogged = useRef(false);
   const videoDurationRef = useRef(opts.videoDurationSeconds);
   videoDurationRef.current = opts.videoDurationSeconds;
+  const mixRef = useRef<Mix | null>(null);
+  const voiceLevel = opts.voice ?? DEFAULT_VOICE;
+  const musicLevel = opts.music ?? DEFAULT_MUSIC;
+  const levelsRef = useRef({ voice: voiceLevel, music: musicLevel });
+  levelsRef.current = { voice: voiceLevel, music: musicLevel };
 
   const [state, setStateRaw] = useState<PlaybackState>("idle");
   const [currentRank, setCurrentRank] = useState<Rank | null>(null);
@@ -72,6 +148,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
   const audioDurRef = useRef<number | null>(null);
   const [drift, setDrift] = useState(0);
+  const [voiceControl, setVoiceControl] = useState(true);
 
   const setState = useCallback((s: PlaybackState) => {
     stateRef.current = s;
@@ -82,10 +159,31 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   const getAudio = useCallback((): HTMLAudioElement => {
     if (!audioRef.current) {
       const a = new Audio();
+      // Before any src: an untagged cross-origin source plays silence through Web Audio.
+      a.crossOrigin = "anonymous";
       a.preload = "auto";
       audioRef.current = a;
     }
     return audioRef.current;
+  }, []);
+
+  // The page never plays the creator's voice by itself: muted unless a sample is auditioning.
+  const silenceVoice = useCallback(() => {
+    if (videoRef.current) videoRef.current.muted = true;
+    if (mixRef.current?.voice) mixRef.current.voice.gain.value = 0;
+  }, []);
+
+  // Levels follow the sliders. The voice is heard only while the sample is actually playing.
+  const applyLevels = useCallback(() => {
+    const m = mixRef.current;
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    const s = stateRef.current;
+    const voiceOn = !!m?.voice && !videoFailed.current;
+    if (video && !(voiceOn && (s === "playing" || s === "loading"))) video.muted = true;
+    if (m?.voice) m.voice.gain.value = voiceOn && s === "playing" ? percentToGain(levelsRef.current.voice) : 0;
+    if (m?.music) m.music.gain.value = percentToGain(levelsRef.current.music);
+    if (audio) audio.volume = m?.music ? 1 : percentToGain(levelsRef.current.music);
   }, []);
 
   const recomputeLoop = useCallback(() => {
@@ -152,6 +250,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       token.current++;
       audio.pause();
       videoRef.current?.pause();
+      silenceVoice();
       if (stateRef.current === "playing" || stateRef.current === "loading") setState("paused");
     };
     const onHidden = () => {
@@ -177,8 +276,16 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       window.removeEventListener("pagehide", stopNow);
       audio.src = "";
       tokenRef.current++;
+      // This element is tied to the closing context for good: the next mount gets a fresh one.
+      if (mixRef.current) {
+        void mixRef.current.ctx.close().catch(() => undefined);
+        mixRef.current = null;
+        audioRef.current = null;
+      }
     };
-  }, [getAudio, setState, tick, recomputeLoop]);
+  }, [getAudio, setState, tick, recomputeLoop, silenceVoice]);
+
+  useEffect(applyLevels, [state, voiceLevel, musicLevel, applyLevels]);
 
   // rAF nudge while playing and visible.
   useEffect(() => {
@@ -199,9 +306,15 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       if (!video) return;
       const mine = ++token.current;
       videoFailed.current = false;
+      const mix = ensureMix(mixRef.current, video, audio, createAudioContext);
+      mixRef.current = mix;
+      setVoiceControl(!!mix?.voice);
+      // iOS unmutes only inside a gesture. The voice gain stays at 0 until the sample is playing.
+      if (mix?.voice) video.muted = false;
       sampleStartRef.current = sampleStart;
       setCurrentRank(rank);
       setState("loading");
+      applyLevels();
       setPosition(0);
 
       const changed = audio.getAttribute("src") !== src;
@@ -237,6 +350,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
           videoFailed.current = true;
           if (!videoFailLogged.current) logger.warn("picker.play_failed", { rank, which, reason: name });
           videoFailLogged.current = true;
+          silenceVoice();
           results[1] = true;
           if (results[0]) setState("playing");
           return;
@@ -244,6 +358,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
         logger.warn("picker.play_failed", { rank, which, reason: name });
         audio.pause();
         video.pause();
+        silenceVoice();
         setState("unavailable");
       };
       void audioP.then(
@@ -270,15 +385,16 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
         });
       });
     },
-    [getAudio, setState, recomputeLoop],
+    [getAudio, setState, recomputeLoop, silenceVoice, applyLevels],
   );
 
   const pause = useCallback(() => {
     token.current++;
     audioRef.current?.pause();
     videoRef.current?.pause();
+    silenceVoice();
     setState("paused");
-  }, [setState]);
+  }, [setState, silenceVoice]);
 
   const setSampleStart = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -295,5 +411,17 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     video.currentTime = 0;
   }, [recomputeLoop]);
 
-  return { state, currentRank, position, loopLength: loop, previewDuration, drift, play, pause, setSampleStart, videoRef };
+  return {
+    state,
+    currentRank,
+    position,
+    loopLength: loop,
+    previewDuration,
+    drift,
+    play,
+    pause,
+    setSampleStart,
+    videoRef,
+    voiceControl,
+  };
 }

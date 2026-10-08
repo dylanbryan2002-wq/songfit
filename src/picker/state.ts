@@ -1,5 +1,6 @@
 import type { PickerRow, Rank } from "@/src/shared/types";
 import { PICKS_PER_BATCH } from "@/src/shared/config";
+import { DEFAULT_MUSIC, DEFAULT_VOICE, clampPercent } from "./mix";
 
 export type PickerMode = "list" | "chosen";
 
@@ -21,6 +22,9 @@ export type PickerState = {
   visibleCount: number;
   /** The "None of these?" answer was sent. */
   wantedSent: boolean;
+  /** Slider levels, 0..100, for this view only (not saved). */
+  voice: number;
+  music: number;
 };
 
 export type PickerAction =
@@ -33,7 +37,8 @@ export type PickerAction =
   | { type: "toggleExplanation"; rank: Rank }
   | { type: "serverState"; selected: Rank | null; rejected: Rank[] }
   | { type: "reveal"; total: number }
-  | { type: "wantedSent" };
+  | { type: "wantedSent" }
+  | { type: "mix"; channel: "voice" | "music"; percent: number };
 
 export function initialPickerState(rows: PickerRow[]): PickerState {
   const chosen = rows.find((r) => r.selected)?.rank ?? null;
@@ -49,6 +54,8 @@ export function initialPickerState(rows: PickerRow[]): PickerState {
     explanationOpen: null,
     visibleCount: Math.min(through, rows.length),
     wantedSent: false,
+    voice: DEFAULT_VOICE,
+    music: DEFAULT_MUSIC,
   };
 }
 
@@ -93,6 +100,8 @@ export function pickerReducer(s: PickerState, a: PickerAction): PickerState {
       return { ...s, visibleCount: Math.min(s.visibleCount + PICKS_PER_BATCH, a.total) };
     case "wantedSent":
       return { ...s, wantedSent: true };
+    case "mix":
+      return { ...s, [a.channel]: clampPercent(a.percent) };
   }
 }
 

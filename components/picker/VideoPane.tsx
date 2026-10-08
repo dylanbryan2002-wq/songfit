@@ -26,6 +26,8 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
     <div className="relative mx-auto aspect-[9/16] h-[62dvh] max-w-full overflow-hidden rounded-3xl bg-black">
       <video
         ref={attach}
+        // Before src: the creator's voice goes through Web Audio, which plays an untagged cross-origin video as silence.
+        crossOrigin="anonymous"
         src={src}
         muted
         playsInline

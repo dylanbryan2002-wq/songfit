@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loopLength, needsNudge, playFailure, videoTimeFor } from "@/components/picker/useSyncedPlayback";
+import { ensureMix, loopLength, needsNudge, playFailure, videoTimeFor } from "@/components/picker/useSyncedPlayback";
 
 describe("loopLength", () => {
   it("is the min of the two durations", () => {
@@ -61,5 +61,81 @@ describe("playFailure", () => {
   it("is unavailable only when the audio fails", () => {
     expect(playFailure("audio", "NotSupportedError")).toBe("unavailable");
     expect(playFailure("audio", "unknown")).toBe("unavailable");
+  });
+});
+
+// A minimal Web Audio stand-in: records the graph, never makes sound.
+class FakeNode {
+  out: unknown[] = [];
+  connect(n: unknown) {
+    this.out.push(n);
+    return n;
+  }
+}
+class FakeGain extends FakeNode {
+  gain = { value: 1 };
+}
+class FakeContext {
+  state: "suspended" | "running" = "suspended";
+  destination = new FakeNode();
+  resumed = 0;
+  sources = new Map<unknown, FakeNode>();
+  failFor = new Set<unknown>();
+  resume() {
+    this.resumed++;
+    this.state = "running";
+    return Promise.resolve();
+  }
+  createGain() {
+    return new FakeGain();
+  }
+  createMediaElementSource(el: unknown) {
+    if (this.failFor.has(el) || this.sources.has(el)) throw new Error("InvalidStateError");
+    const n = new FakeNode();
+    this.sources.set(el, n);
+    return n;
+  }
+}
+const asCtx = (c: FakeContext) => c as unknown as AudioContext;
+const video = {} as HTMLVideoElement;
+const audio = {} as HTMLAudioElement;
+
+describe("ensureMix", () => {
+  it("routes video → voice gain and audio → music gain, and resumes inside the tap", () => {
+    const ctx = new FakeContext();
+    const m = ensureMix(null, video, audio, () => asCtx(ctx));
+    expect(m).not.toBeNull();
+    expect(ctx.resumed).toBe(1);
+    expect(ctx.sources.get(video)?.out).toEqual([m!.voice]);
+    expect(ctx.sources.get(audio)?.out).toEqual([m!.music]);
+    expect((m!.voice as unknown as FakeGain).out).toEqual([ctx.destination]);
+    expect((m!.music as unknown as FakeGain).out).toEqual([ctx.destination]);
+  });
+  it("attaches each element once and reuses the graph on later taps", () => {
+    const ctx = new FakeContext();
+    let made = 0;
+    const create = () => (made++, asCtx(ctx));
+    const m1 = ensureMix(null, video, audio, create);
+    ctx.state = "suspended";
+    const m2 = ensureMix(m1, video, audio, create);
+    expect(m2).toBe(m1);
+    expect(made).toBe(1);
+    expect(ctx.sources.size).toBe(2);
+    expect(ctx.resumed).toBe(2);
+  });
+  it("is null when there is no Web Audio (old browser)", () => {
+    expect(ensureMix(null, video, audio, () => null)).toBeNull();
+    expect(
+      ensureMix(null, video, audio, () => {
+        throw new Error("no");
+      }),
+    ).toBeNull();
+  });
+  it("leaves the voice out when the video cannot be attached, keeping music", () => {
+    const ctx = new FakeContext();
+    ctx.failFor.add(video);
+    const m = ensureMix(null, video, audio, () => asCtx(ctx));
+    expect(m?.voice).toBeNull();
+    expect(m?.music).not.toBeNull();
   });
 });
