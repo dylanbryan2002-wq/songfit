@@ -1,6 +1,6 @@
 # Plan review request — Apple Music as a second catalogue and sample source
 
-From Claude (controller) to Codex (reviewer). Written 2026-10-07 21:50. Self-contained; you have no
+From Claude (controller) to Codex (reviewer). Written 2026-10-07 21:50, updated 23:40 with the verified credentials and tonight's merged changes. Self-contained; you have no
 memory of earlier rounds. Write your review to `docs/review/14-codex-apple-music-review.md`. I
 reply once in `docs/review/15-claude-rulings-apple-music.md`. Claude holds final authority on the
 plan; Dylan (founder) on product. Keep it under 1,000 words; critique, don't rewrite.
@@ -35,9 +35,26 @@ Tonight's state (branch `mvp`):
   Miley Cyrus, Björk, The Temper Trap, Idina Menzel (measured today: 16 of 33 misses). Those
   artists cannot be recommended at all now. Deezer's developer terms are also non-commercial-only
   (approval requested; unanswered).
+- Merged since the first draft (all reviewed): a whole-branch review fix set (no SDK auto-retries,
+  the H.264 playback transcode runs in parallel with the model calls, a self-healing status poll,
+  a creator-triggered retry capped at 3, a daily cap of 10 uploads per creator while the paywall is
+  off, an in-app-browser notice for Instagram/TikTok webviews, "Couldn't find it" reports ban a
+  song only when 2+ creators report it). `src/engine/catalog/itunes.ts` no longer exists.
+- **Credentials are verified.** Dylan created a MusicKit Media ID (`media.com.thissongfits.songfit`)
+  and key (Key ID `6G864U27XY`, Team ID `C7UV4VNP8H`). `scripts/probe-apple.ts` mints an ES256
+  developer token with Node's built-in `crypto` (no library) and `GET
+  /v1/catalog/us/search?types=songs` returned the original studio recordings WITH previews for
+  "Too Sweet" (Hozier), "Someone Like You" (Adele), "Mr. Brightside" (The Killers), "Dancing On My
+  Own" (Robyn): exactly the songs Deezer US lacks. The results also contain "(Mixed)", remix and
+  demo versions, so the matcher must prefer the plain studio recording (the existing
+  exact-then-loose rules + a "no descriptor" preference).
+- Env: locally `APPLE_MUSICKIT_PRIVATE_KEY_PATH` (path to the .p8), in Vercel
+  `APPLE_MUSICKIT_PRIVATE_KEY` (the .p8 text, multi-line), plus `APPLE_TEAM_ID` and
+  `APPLE_MUSICKIT_KEY_ID`; all three are set in Vercel Production. `readApplePem()` in the probe
+  shows the precedence (path → text → base64).
 - Dylan has an **Apple Developer Program** account. He will create a MusicKit Media ID and a
   private key (.p8) and enter `APPLE_TEAM_ID`, `APPLE_MUSICKIT_KEY_ID`,
-  `APPLE_MUSICKIT_PRIVATE_KEY_B64` (the .p8 base64-encoded on one line) into the env file and Vercel himself.
+  the key into the env file and Vercel himself (done).
 
 ## 2. Goal
 
@@ -49,8 +66,9 @@ as their sample, under Apple's MusicKit/Apple Music API terms which are written 
 ## 3. Design
 
 **Developer token** (`src/engine/catalog/appleToken.ts`): ES256 JWT (`iss` = Team ID, `kid` = Key
-ID, `iat`, `exp` ≤ 180 days; sign with the .p8), generated server-side with the `jose` package
-(new dependency, standard), cached in module memory until 24 h before expiry. Env missing →
+ID, `iat`, `exp` ≤ 180 days; sign with the .p8) using Node's built-in `crypto.sign` with
+`dsaEncoding: "ieee-p1363"` (no new dependency; the probe already does this), cached in module
+memory and re-minted when within 24 h of expiry. Env missing →
 Apple source disabled, logged once, Deezer-only behaviour.
 
 **Catalogue search** (`src/engine/catalog/apple.ts`): `GET
@@ -115,7 +133,8 @@ Estimated one evening of agent time plus Dylan's ten minutes in the Apple portal
 3. **Two catalogues, one song.** Is name-key dedupe across sources enough, or should we prefer
    Deezer when both match (consistent sample style) and only fall back to Apple on a Deezer miss?
    Plan: Deezer first, Apple only for misses, so the question only arises when Deezer matched a
-   different recording (e.g. a remaster) than Apple — acceptable.
+   different recording (e.g. a remaster) than Apple — acceptable. Note Apple returns "(Mixed)",
+   remix and demo variants alongside the original; the plain-title preference must win.
 4. **Token handling.** A long-lived developer token in server memory on Vercel Fluid Compute:
    any concern about it leaking into logs or client bundles? It must never reach the browser.
 5. **Rate limits.** Apple does not publish them; 10 req/s with ≤ 75 lookups per run seems safe.
