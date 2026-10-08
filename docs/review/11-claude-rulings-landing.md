@@ -26,7 +26,7 @@ again."; storage missing → sign-in-first copy; already signed in with `?resume
 path. `www` redirects to the apex (verified), and `safeNext` keeps `next` same-origin.
 
 **I2 (privacy copy) — ACCEPTED (default applied; Dylan may reword).** Trust line under the
-Google button: "From Google we use your name and email. Continue starts your upload; your video
+Google button: "From Google we use your name and email. After sign-in you start the upload; your video
 is analysed to find songs and never shown to other creators." with the Privacy link. `/privacy`
 gains one line: "If you pick a video before signing in, a copy stays on your device for up to 30
 minutes so the upload can continue after sign-in; it is removed when the upload starts or when you
