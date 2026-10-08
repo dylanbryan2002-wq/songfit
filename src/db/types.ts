@@ -455,6 +455,7 @@ export type Database = {
           duration_seconds: number | null
           error: string | null
           id: string
+          playback_path: string | null
           recommended_at: string | null
           status: string
           updated_at: string
@@ -470,6 +471,7 @@ export type Database = {
           duration_seconds?: number | null
           error?: string | null
           id?: string
+          playback_path?: string | null
           recommended_at?: string | null
           status?: string
           updated_at?: string
@@ -485,6 +487,7 @@ export type Database = {
           duration_seconds?: number | null
           error?: string | null
           id?: string
+          playback_path?: string | null
           recommended_at?: string | null
           status?: string
           updated_at?: string
@@ -629,6 +632,7 @@ export type Database = {
           duration_seconds: number | null
           error: string | null
           id: string
+          playback_path: string | null
           recommended_at: string | null
           status: string
           updated_at: string
@@ -658,6 +662,7 @@ export type Database = {
           duration_seconds: number | null
           error: string | null
           id: string
+          playback_path: string | null
           recommended_at: string | null
           status: string
           updated_at: string
