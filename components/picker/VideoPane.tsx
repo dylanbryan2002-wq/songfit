@@ -23,7 +23,7 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
   );
 
   return (
-    <div className="relative aspect-[9/16] max-h-[62dvh] w-full overflow-hidden rounded-3xl bg-black">
+    <div className="relative mx-auto aspect-[9/16] h-[62dvh] max-w-full overflow-hidden rounded-3xl bg-black">
       <video
         ref={attach}
         src={src}
