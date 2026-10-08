@@ -97,7 +97,7 @@ export function artistsMatch(a: string, b: string): boolean {
   return !!na && !!nb && na === nb;
 }
 
-// Loose matching (C1). Deezer/iTunes titles often carry a descriptor ("Dreams (2004 Remaster)",
+// Loose matching (C1). Deezer titles often carry a descriptor ("Dreams (2004 Remaster)",
 // "Sunflower (Spider-Man: Into the Spider-Verse)") and credit only the lead artist. Measured on two
 // real submissions: 12 famous songs were dropped by the strict rules for exactly these reasons.
 const ARTIST_SPLIT_RE = /\s*(?:&|,|\s(?:and|with)\s|\b(?:feat\.?|ft\.?|featuring)(?=\s))\s*/i;
@@ -149,7 +149,7 @@ export function artistsMatchLoose(a: string, b: string): boolean {
 
 /**
  * Highest-rank exact match (titlesMatch && artistsMatch), else highest-rank loose match, else null.
- * Ties keep provider order. Shared by Deezer and iTunes so both verify by the same rules.
+ * Ties keep provider order. Used for every Deezer match so both verify by the same rules.
  */
 export function pickBestMatch<T>(
   cand: { title: string; artist: string }, items: T[], get: (r: T) => { title: string; artist: string; rank?: number },

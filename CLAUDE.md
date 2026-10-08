@@ -116,7 +116,7 @@ Test the guard with `python3 -I .claude/hooks/guard-secrets.test.py` (25 cases).
 - Spotify Web API: no preview_url / audio features for apps made after Nov 2024,
   dev-mode quotas. Do not add a Spotify dependency. Deep link via search URL only.
 - Deezer public API ~50 req / 5 s per IP. Throttle candidate verification.
-- iTunes Search API ~20 req / min. Only call it for the final 3.
+- iTunes is not used (2026-10-07 rule: only songs with a Deezer sample are recommended).
 - `vercel link` and `vercel env pull` OVERWRITE `.env.local` with Vercel's env. The project is already linked
   (`.vercel/`); never run either again. Back up `.env.local` before any Vercel CLI command that touches env.
 - Recovery: VS Code keeps local history of edited files under
