@@ -9,7 +9,7 @@ import { runSubmission } from "@/src/pipeline/run";
 import { LIMITS } from "@/src/shared/config";
 import { PaywallError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
-import { VibeInput, hasVibe } from "@/src/shared/vibe";
+import { VibeNote, VibeTags } from "@/src/shared/vibe";
 
 // The pipeline runs inside this request via waitUntil, so this route needs the full budget.
 export const maxDuration = 300;
@@ -19,8 +19,9 @@ const Body = z.object({
   submissionId: z.string().uuid(),
   path: z.string().min(1).max(200),
   ext: z.enum(["mp4", "mov", "webm", "m4v"]),
-  creatorIntent: z.string().trim().max(300).nullable().optional(),
-}).merge(VibeInput);
+  creatorIntent: VibeNote, // the "Anything else?" note
+  vibe_tags: VibeTags,
+});
 
 export async function POST(request: Request) {
   const creator = await getCreator();
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
-  const { submissionId, path, ext, creatorIntent, vibe_tags, vibe_note } = parsed.data;
+  const { submissionId, path, ext, creatorIntent, vibe_tags } = parsed.data;
 
   // Idempotent: a retried POST for an id this creator already owns returns it unchanged.
   const existing = await getSubmission(submissionId);
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       id: submissionId,
       creatorId: creator.id,
       videoPath: path,
-      creatorIntent: creatorIntent?.length ? creatorIntent : null,
+      creatorIntent,
     });
   } catch (err) {
     if (err instanceof PaywallError) return NextResponse.json({ reason: err.reason }, { status: 402 });
@@ -61,15 +62,15 @@ export async function POST(request: Request) {
 
   await logEvent({ name: "submission_created", creatorId: creator.id, submissionId: submission.id });
   await logEvent({ name: "upload_completed", creatorId: creator.id, submissionId: submission.id });
-  if (hasVibe({ vibe_tags, vibe_note })) {
+  if (vibe_tags.length > 0 || creatorIntent) {
     try {
       // Before the pipeline starts, so analysis reads it. Optional input: a failed write must not fail the upload.
-      await setSubmissionVibe(submission.id, { vibe_tags, vibe_note });
+      if (vibe_tags.length > 0) await setSubmissionVibe(submission.id, vibe_tags);
       await logEvent({
         name: "vibe_set",
         creatorId: creator.id,
         submissionId: submission.id,
-        metadata: { tags: vibe_tags, has_note: vibe_note !== null },
+        metadata: { tags: vibe_tags, has_note: creatorIntent !== null },
       });
     } catch (err) {
       logger.error("submission.vibe_failed", { submissionId, err: String(err) });
