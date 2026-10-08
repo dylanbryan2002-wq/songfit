@@ -23,20 +23,11 @@ const PendingRecord = z.object({
   type: z.string(),
   size: z.number().int().nonnegative(),
   durationSeconds: z.number().nonnegative().nullable(),
-  // The "What's the vibe?" answer; records stashed before this field existed read as skipped.
-  vibeTags: z.array(z.string()).default([]),
-  vibeNote: z.string().default(""),
   savedAt: z.number(),
 });
 type PendingRecord = z.infer<typeof PendingRecord>;
 
-export type PendingUpload = {
-  flowId: string;
-  file: File;
-  durationSeconds: number | null;
-  vibeTags: string[];
-  vibeNote: string;
-};
+export type PendingUpload = { flowId: string; file: File; durationSeconds: number | null };
 
 function isFresh(savedAt: number, now: number): boolean {
   const age = now - savedAt;
@@ -110,7 +101,7 @@ function sweep(store: IDBObjectStore, now: number, onRecord?: (key: IDBValidKey,
 /** Stores the file and resolves with its flowId once the write has committed. */
 export function stashPendingUpload(
   file: File,
-  meta: { flowId?: string; durationSeconds: number | null; vibeTags?: string[]; vibeNote?: string },
+  meta: { flowId?: string; durationSeconds: number | null },
 ): Promise<string> {
   const flowId = meta.flowId ?? crypto.randomUUID();
   const now = Date.now();
@@ -121,8 +112,6 @@ export function stashPendingUpload(
     type: file.type,
     size: file.size,
     durationSeconds: meta.durationSeconds,
-    vibeTags: meta.vibeTags ?? [],
-    vibeNote: meta.vibeNote ?? "",
     savedAt: now,
   };
   return withTimeout(
@@ -146,13 +135,7 @@ export function readPendingUpload(flowId: string, now = Date.now()): Promise<Pen
         const rec = found as PendingRecord | null;
         if (!rec) return null;
         const file = rec.blob instanceof File ? rec.blob : new File([rec.blob], rec.name, { type: rec.type });
-        return {
-          flowId: rec.flowId,
-          file,
-          durationSeconds: rec.durationSeconds,
-          vibeTags: rec.vibeTags,
-          vibeNote: rec.vibeNote,
-        };
+        return { flowId: rec.flowId, file, durationSeconds: rec.durationSeconds };
       };
     }),
   );

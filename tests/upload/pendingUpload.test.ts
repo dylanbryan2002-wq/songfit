@@ -62,31 +62,6 @@ describe("pendingUpload", () => {
     expect((await readPendingUpload(id))!.durationSeconds).toBeNull();
   });
 
-  it("round-trips the vibe tags and note, and reads them as skipped when not given", async () => {
-    await stashPendingUpload(clip(), {
-      flowId: A,
-      durationSeconds: 9,
-      vibeTags: ["Funny", "Day in the Life"],
-      vibeNote: "the song is the punchline",
-    });
-    const got = await readPendingUpload(A);
-    expect(got!.vibeTags).toEqual(["Funny", "Day in the Life"]);
-    expect(got!.vibeNote).toBe("the song is the punchline");
-
-    await stashPendingUpload(clip(), { flowId: B, durationSeconds: 9 });
-    const plain = await readPendingUpload(B);
-    expect(plain!.vibeTags).toEqual([]);
-    expect(plain!.vibeNote).toBe("");
-  });
-
-  it("reads a record stashed before vibe fields existed as skipped", async () => {
-    const old = { flowId: A, blob: clip(), name: "clip.mov", type: "video/quicktime", size: 4, durationSeconds: 3, savedAt: Date.now() };
-    await raw("readwrite", (s) => s.put(old, A));
-    const got = await readPendingUpload(A);
-    expect(got!.vibeTags).toEqual([]);
-    expect(got!.vibeNote).toBe("");
-  });
-
   it("returns null for a missing id", async () => {
     expect(await readPendingUpload(B)).toBeNull();
   });

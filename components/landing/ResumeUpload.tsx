@@ -1,12 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { UploadForm } from "../UploadForm";
-import type { Vibe } from "../VibePicker";
 import { sendLandingEvent } from "./landingEvent";
 import { FLOW_ID_KEY, clearPendingUpload, readPendingUpload } from "@/src/upload/pendingUpload";
 
 type Creator = { id: string; email: string };
-type State = { kind: "loading" } | { kind: "found"; file: File; vibe: Vibe } | { kind: "missing" };
+type State = { kind: "loading" } | { kind: "found"; file: File } | { kind: "missing" };
 
 /** Back from Google with ?resume=<flowId>: offer the kept file. Nothing uploads until "Find my songs". */
 export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: string }) {
@@ -18,7 +17,7 @@ export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: st
       .then((rec) => {
         if (!live) return;
         if (!rec) return setState({ kind: "missing" });
-        setState({ kind: "found", file: rec.file, vibe: { tags: rec.vibeTags, note: rec.vibeNote } });
+        setState({ kind: "found", file: rec.file });
         // Once per flow per browser, not on every reload of /?resume=.
         const sent = `songfit.signInCompleted:${flowId}`;
         try {
@@ -48,7 +47,6 @@ export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: st
     <UploadForm
       creator={creator}
       initialFile={state.file}
-      initialVibe={state.vibe}
       onStarted={() => {
         // Claim the kept copy: one tap, one upload. A failed upload retries from the file still on screen.
         clearPendingUpload(flowId).catch(() => {});
