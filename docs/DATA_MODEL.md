@@ -8,17 +8,23 @@ Conventions (all tables): `id uuid default gen_random_uuid() primary key`,
 RLS enabled on every table.
 
 ## creators
-One row per Google sign-in. Mirrors `auth.users`.
+One row per sign-in (Google or anonymous). Mirrors `auth.users`.
 
 | column        | type        | notes                              |
 |---------------|-------------|------------------------------------|
 | id            | uuid        | = auth.users.id                    |
-| email         | text        | unique                             |
+| email         | text        | unique, nullable since 0009: null = anonymous visitor (Supabase anonymous sign-in) |
+| claim_token_hash | text     | nullable, unique; sha256 hex of the one-time `sf_claim` cookie token set by `POST /api/claim` on an anonymous row; nulled by `claim_anonymous()` |
 | display_name  | text        | nullable                           |
 | preferences   | jsonb       | nullable, future CreatorPreference |
 | created_at    | timestamptz |                                    |
 
 RLS: creator reads/updates own row.
+
+Anonymous creators (email null) upload and run like any creator, capped at
+`LIMITS.dailyUploadsAnonymous` (3) per 24 h, and never see the picker: the results page shows a
+sign-in gate. On Google sign-in the callback moves their submissions and events to the Google
+creator with `claim_anonymous()`. The emptied anonymous row stays.
 
 ## submissions
 A creator's upload and its pipeline state.
@@ -179,13 +185,17 @@ video_chosen                 metadata.flow_id  (creator_id null; a valid video c
 sign_in_started              metadata.flow_id  (creator_id null; "Continue with Google" tapped, file kept on device)
 sign_in_completed            metadata.flow_id  (creator set; back from Google and the kept file was found)
 vibe_set                     metadata.tags, metadata.has_note  (at submission creation, only when tags or creator_intent are non-empty; has_note = creator_intent non-empty)
+anon_session_started         metadata.flow_id  (creator = the new anonymous id; landing page signed in anonymously after a valid pick)
+results_gate_viewed          (creator = anonymous id, submission set; anonymous viewer shown the sign-in gate on a ready result)
+results_gate_signed_in       metadata.moved  (creator = Google creator; back from Google with an sf_claim cookie, moved = submissions claimed)
 ```
 
 RLS: service role only.
 
 The four landing events are written by `POST /api/landing-events` (body `{ name, flow_id }` only,
 ≤ 200 bytes, 30/min per IP). `flow_id` is a random UUID per browser tab; no filename, size or
-duration is ever sent. `sign_in_completed` requires a session.
+duration is ever sent. `sign_in_completed` requires a session. `anon_session_started` uses the same
+route and requires an anonymous session.
 
 ## stripe_events
 Idempotency record for the Stripe webhook. A row is written only AFTER the
@@ -213,12 +223,18 @@ RLS: service role only.
   runner resumes from stored outputs). Never touches `ready`. Returns the
   row, or null when nothing was claimed.
 - `metrics_summary() returns jsonb` — one jsonb: eventCounts, funnel (distinct submissions and
-  distinct creators per milestone), uploadToReadySeconds[], readyToSelectionSeconds[], byCategory
+  distinct creators per milestone; since 0009 a creator counts only when `creators.email is not null`,
+  and the creator of a submission event is `submissions.creator_id`, so events logged under the
+  anonymous id before a claim still count for the real creator and unclaimed runs never count as creators), uploadToReadySeconds[], readyToSelectionSeconds[], byCategory
   (submissions aggregated before any event join), paidCreators (distinct creators with an active
-  subscription), paidEvents, returningCreators (>= 2 submissions). Read by `src/db/queries/metrics.ts`.
+  subscription), paidEvents, returningCreators (>= 2 submissions, email not null). Read by `src/db/queries/metrics.ts`.
 - `set_recommendation_feedback(p_submission_id uuid, p_rank int, p_selected boolean, p_rejected boolean) returns int`
   — select or reject one recommendation by rank (1..15; the table check bounds it). Selecting clears
   `rejected` on that row and `selected` on the others. Returns rows updated.
+- `claim_anonymous(p_token_hash text, p_creator_id uuid) returns int` (0009) — locks the anonymous
+  creator row with that `claim_token_hash` (email null, id ≠ p_creator_id), moves its submissions and
+  events to `p_creator_id`, nulls the hash, returns submissions moved (0 when no row matches, so a
+  second call is a no-op). Called by `/auth/callback` with the service role.
 - `exec_sql(sql text) returns void` — test helper that runs a SQL script (loads
   `supabase/seed/metrics_fixture.sql` in the integration test). Service role only.
 
