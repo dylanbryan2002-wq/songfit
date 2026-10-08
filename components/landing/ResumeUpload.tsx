@@ -18,6 +18,14 @@ export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: st
         if (!live) return;
         if (!rec) return setState({ kind: "missing" });
         setState({ kind: "found", file: rec.file });
+        // Once per flow per browser, not on every reload of /?resume=.
+        const sent = `songfit.signInCompleted:${flowId}`;
+        try {
+          if (sessionStorage.getItem(sent)) return;
+          sessionStorage.setItem(sent, "1");
+        } catch {
+          // no sessionStorage: send anyway
+        }
         sendLandingEvent("sign_in_completed", flowId);
       })
       .catch(() => live && setState({ kind: "missing" }));

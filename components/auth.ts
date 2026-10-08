@@ -18,7 +18,7 @@ export async function signOut(): Promise<void> {
   try {
     const flowId = sessionStorage.getItem(FLOW_ID_KEY);
     sessionStorage.removeItem(FLOW_ID_KEY);
-    if (flowId) await clearPendingUpload(flowId).catch(() => {});
+    if (flowId) clearPendingUpload(flowId).catch(() => {}); // never wait on IndexedDB to sign out
   } catch {
     // storage unavailable: nothing was kept
   }

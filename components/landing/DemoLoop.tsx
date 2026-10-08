@@ -35,7 +35,7 @@ export function DemoLoop() {
   }
 
   return (
-    <div className="relative mx-auto aspect-[9/19.5] h-[46dvh] max-h-[46dvh] max-w-full overflow-hidden rounded-[28px] bg-ink ring-1 ring-ink/10">
+    <div className="relative mx-auto aspect-[9/19.5] h-[46vh] max-h-[46vh] supports-[height:1dvh]:h-[46dvh] supports-[height:1dvh]:max-h-[46dvh] max-w-full overflow-hidden rounded-[28px] bg-ink ring-1 ring-ink/10">
       {mode === "video" && (
         <>
           <video

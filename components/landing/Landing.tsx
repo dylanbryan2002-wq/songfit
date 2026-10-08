@@ -136,8 +136,8 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
           />
           <GoogleButton onClick={onContinue} disabled={busy || checking} />
           <p className="text-center text-xs leading-relaxed text-muted">
-            From Google we use your name and email. Continue starts your upload; your video is analysed to find songs
-            and never shown to other creators.{" "}
+            From Google we use your name and email. After sign-in you start the upload; your video is analysed to
+            find songs and never shown to other creators.{" "}
             <a href="/privacy" className="underline underline-offset-2">
               Privacy
             </a>

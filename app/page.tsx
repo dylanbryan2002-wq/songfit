@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getCreator } from "@/src/auth/session";
 import { isUuid } from "@/src/shared/ids";
 import { Logo } from "@/components/Logo";
@@ -20,9 +19,12 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       <h1 className="mt-5 text-center text-3xl font-semibold leading-tight tracking-tight">
         We find the perfect song to help your video go viral.
       </h1>
-      <div className="mt-5 w-full">
-        <DemoLoop />
-      </div>
+      {/* Back from Google with a kept file: the clip and "Find my songs" come first, no demo. */}
+      {!(creator && resume) && (
+        <div className="mt-5 w-full">
+          <DemoLoop />
+        </div>
+      )}
       <div className="mt-5 flex w-full flex-col items-center">
         {!creator ? (
           <Landing authFailed={params.auth === "failed"} />
@@ -33,14 +35,9 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         )}
       </div>
       {creator && (
-        <>
-          <Link href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
-            Open my latest result →
-          </Link>
-          <p className="mt-2 text-center text-xs text-neutral-500">
-            Your video is stored by Songfit and analyzed with third-party AI services to find your songs.
-          </p>
-        </>
+        <p className="mt-2 text-center text-xs text-neutral-500">
+          Your video is stored by Songfit and analyzed with third-party AI services to find your songs.
+        </p>
       )}
       <footer className="mt-auto pt-8 text-center text-xs text-muted">
         <a href="/privacy" className="inline-block min-h-11 py-3 underline underline-offset-2">
