@@ -17,6 +17,11 @@ export default async function HomePage() {
         Upload your Reel and Songfit will find the songs that fit it best, and exactly which part to use.
       </p>
       {creator ? <UploadForm creator={creator} /> : <SignIn />}
+      {creator && (
+        <a href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
+          Open my latest result →
+        </a>
+      )}
       <p className="mt-6 text-center text-xs text-neutral-500">
         Your video is stored by Songfit and analyzed with third-party AI services to find your songs.{" "}
         <a href="/privacy" className="underline underline-offset-2">
