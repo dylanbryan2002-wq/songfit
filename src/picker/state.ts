@@ -1,6 +1,4 @@
-import type { PickerRow } from "@/src/shared/types";
-
-type Rank = 1 | 2 | 3;
+import type { PickerRow, Rank } from "@/src/shared/types";
 
 export type PickerMode = "list" | "chosen";
 

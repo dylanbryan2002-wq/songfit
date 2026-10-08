@@ -51,13 +51,17 @@ export type AnalysisResult = z.infer<typeof AnalysisResult>;
 
 export const DirectionTag = z.enum(["safe", "current", "unexpected"]);
 export type DirectionTag = z.infer<typeof DirectionTag>;
-/** Labels for ranks 2–3 by primary direction. Rank 1 is ALWAYS BEST_FIT_LABEL regardless of direction. */
+/** Labels for ranks ≥ 2 by primary direction. Rank 1 is ALWAYS BEST_FIT_LABEL regardless of direction. */
 export const DIRECTION_LABEL: Record<DirectionTag, string> = {
   safe: "Safe bet",
   current: "More current",
   unexpected: "Unexpected",
 };
 export const BEST_FIT_LABEL = "Best fit";
+
+/** A recommendation's position, 1..15 (PICKS_TOTAL). */
+export const RankSchema = z.number().int().min(1).max(15);
+export type Rank = number;
 
 export const GeneratedCandidate = z.object({
   title: z.string(),
@@ -107,8 +111,8 @@ export const ScoredCandidate = VerifiedCandidate.extend({
 export type ScoredCandidate = z.infer<typeof ScoredCandidate>;
 
 export const Pick = ScoredCandidate.extend({
-  rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  direction_label: z.string(), // rank 1 is always "Best fit"; ranks 2–3 get DIRECTION_LABEL of their primary direction
+  rank: RankSchema,
+  direction_label: z.string(), // rank 1 is always "Best fit"; ranks ≥ 2 get DIRECTION_LABEL of their primary direction
   start_seconds: z.number(),
   end_seconds: z.number(),
   aligned_to_moment: z.number().nullable(), // video time T the anchor was aligned to, or null when no alignment was claimed
@@ -124,7 +128,7 @@ export type FinalRecommendation = z.infer<typeof FinalRecommendation>;
 
 /** The ONLY shape sent to the browser. No scores, reasons, directions or provider internals. */
 export const RecommendationView = z.object({
-  rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  rank: RankSchema,
   direction_label: z.string(),
   title: z.string(),
   artist: z.string(),
@@ -141,7 +145,7 @@ export type RecommendationView = z.infer<typeof RecommendationView>;
 
 /** Song-picker row. `preview_url` is filled per request by loadPicker and never stored (Deezer terms). */
 export const PickerRow = z.object({
-  rank: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  rank: RankSchema,
   direction_label: z.string(),
   title: z.string(),
   artist: z.string(),

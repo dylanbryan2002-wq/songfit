@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { recommendSubmission, type RecommendDeps } from "@/src/engine/recommend";
+import { diversify } from "@/src/engine/diversify/diversify";
 import type { GeneratedCandidate, VerifiedCandidate, FinalRecommendation, ScoredCandidate, Pick as SPick } from "@/src/shared/types";
 import { analysis, brief, gen, ver, scored, pick } from "./fixtures";
 
@@ -52,7 +53,7 @@ describe("recommendSubmission", () => {
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
     const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string; explain_prompt_version: string; selected: boolean }[];
     expect(recRows.map((r) => r.candidate_id)).toEqual(["cand-0", "cand-1", "cand-2"]);
-    expect(recRows[0]).toMatchObject({ explain_prompt_version: "explain-v1", selected: false });
+    expect(recRows[0]).toMatchObject({ explain_prompt_version: "explain-v2", selected: false });
   });
 
   it("regenerates once, excludes seen keys, merges by deezer id, tags only new keys #2, persists all", async () => {
@@ -122,6 +123,19 @@ describe("recommendSubmission", () => {
     expect(generate).toHaveBeenCalledTimes(1); // 3 distinct catalog keys: no regeneration
   });
 
+  it("persists all fifteen picks, ranks 1..15, from twenty verified recordings", async () => {
+    const generated = Array.from({ length: 20 }, (_, i) => gen({ title: `T${i}`, artist: `A${i}`, directions: [(["safe", "current", "unexpected"] as const)[i % 3]!] }));
+    const verified = generated.map((c, i) => ver({ ...c, canonical_artist: c.artist, deezer_id: String(i + 1) }));
+    const deps = makeDeps({
+      generate: vi.fn(async () => generated),
+      verify: vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] })),
+      score: vi.fn(async (_a, _b, vs: VerifiedCandidate[]) => vs.map((v, i) => scored({ ...v, total_score: 0.9 - i * 0.01 }))),
+      diversify: (s) => diversify(s),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { rank: number }[];
+    expect(recRows.map((r) => r.rank)).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
+  });
   it("fails when no analysis is stored", async () => {
     const deps = makeDeps({ getAnalysis: vi.fn(async () => null) });
     await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/no analysis stored/);

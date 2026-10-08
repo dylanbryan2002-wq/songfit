@@ -25,6 +25,11 @@ export const LIMITS = {
   inFlightStaleMinutes: 6,
 } as const;
 
+/** Ranked picks per submission, shown PICKS_PER_BATCH at a time; fewer than PICKS_MIN verified fails the stage. */
+export const PICKS_TOTAL = 15;
+export const PICKS_PER_BATCH = 5;
+export const PICKS_MIN = 3;
+
 /** C8 ruling: previews need Dylan's go. He enabled them on 2026-10-07 (song-picker spec, option a). */
 export const PREVIEWS_ENABLED = true;
 

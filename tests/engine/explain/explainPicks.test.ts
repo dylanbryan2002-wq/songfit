@@ -40,6 +40,33 @@ describe("explainPicks", () => {
     const out = await explainPicks(three(), analysis, brief, { call });
     expect(out).toHaveLength(3);
   });
+  it("explains 15 picks in three parallel calls of five, each listing only its own picks", async () => {
+    const picks = Array.from({ length: 15 }, (_, i) => pick({ rank: i + 1, deezer_id: String(i + 1), title: `Song ${i + 1}`, canonical_title: `Song ${i + 1}` }));
+    const call = vi.fn(async ({ user }: { user: string }) => {
+      const ranks = [...user.matchAll(/^#(\d+) /gm)].map((m) => Number(m[1]));
+      return JSON.stringify(ranks.map((rank) => ({ rank, explanation: `E${rank}.` })));
+    });
+    const out = await explainPicks(picks, analysis, brief, { call });
+    expect(call).toHaveBeenCalledTimes(3);
+    const users = call.mock.calls.map((c) => c[0].user);
+    expect(users[1]).toMatch(/these 5 picks/);
+    expect(users[1]).toMatch(/^#6 /m);
+    expect(users[1]).not.toMatch(/^#5 /m);
+    expect(out.map((r) => r.explanation)).toEqual(picks.map((p) => `E${p.rank}.`));
+  });
+  it("retries only the batch that missed a rank", async () => {
+    const picks = Array.from({ length: 10 }, (_, i) => pick({ rank: i + 1, deezer_id: String(i + 1) }));
+    let secondBatchTries = 0;
+    const call = vi.fn(async ({ user }: { user: string }) => {
+      const ranks = [...user.matchAll(/^#(\d+) /gm)].map((m) => Number(m[1]));
+      if (ranks[0] === 6 && ++secondBatchTries === 1) ranks.pop();
+      return JSON.stringify(ranks.map((rank) => ({ rank, explanation: `E${rank}.` })));
+    });
+    const out = await explainPicks(picks, analysis, brief, { call });
+    expect(call).toHaveBeenCalledTimes(3);
+    expect(secondBatchTries).toBe(2);
+    expect(out).toHaveLength(10);
+  });
   it("tells the model about alignment only where it happened", () => {
     const p = buildExplainPrompt(three(), analysis, brief);
     expect(p).toMatch(/#1 .*aligned: the song's moment lands at 0:07/);

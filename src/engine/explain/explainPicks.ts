@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { DIMENSIONS, type FinalRecommendation, type MusicBrief, type Pick, type VideoAnalysis } from "@/src/shared/types";
-import { MODELS } from "@/src/shared/config";
+import { MODELS, PICKS_PER_BATCH } from "@/src/shared/config";
 import { callClaude, type ClaudeCall } from "@/src/shared/anthropic";
 import { extractJson } from "@/src/shared/json";
 import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 
-export const PROMPT_VERSION = "explain-v1";
+export const PROMPT_VERSION = "explain-v2";
 
 const SYSTEM = `You write the two-sentence reasons under Songfit's song picks. Voice: a sharp friend who edits
 video. Second person. Exactly two sentences each. No hype, no emojis, no exclamation marks,
@@ -45,7 +45,7 @@ BRIEF: ${brief.text}
 PICKS
 ${list}
 
-Return ONLY a JSON array with all ${picks.length} ranks: [{ "rank": 1, "explanation": "..." }, ...]`;
+Return ONLY a JSON array for these ${picks.length} picks, one item per rank: [{ "rank": ${picks[0]?.rank ?? 1}, "explanation": "..." }, ...]`;
 }
 
 export function spotifySearchUrl(title: string, artist: string): string {
@@ -68,20 +68,18 @@ export function parseExplanations(
   return { ok: true, byRank };
 }
 
-export async function explainPicks(
-  picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief,
-  deps: { call?: ClaudeCall; ctx?: StageCtx } = {},
-): Promise<FinalRecommendation[]> {
-  const call = deps.call ?? callClaude;
+/** One model call (plus one retry) for up to PICKS_PER_BATCH picks. */
+async function explainBatch(
+  picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, call: ClaudeCall, ctx?: StageCtx,
+): Promise<Map<number, string>> {
   const ranks = picks.map((p) => p.rank);
   const user = buildExplainPrompt(picks, analysis, brief);
-  const timeoutMs = () => remainingBudget(deps.ctx);
+  const timeoutMs = () => remainingBudget(ctx);
 
-  const started = Date.now();
   const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs: timeoutMs() });
   let parsed = parseExplanations(first, ranks);
   if (!parsed.ok) {
-    logger.warn("explain.retry", { error: parsed.error.slice(0, 300) });
+    logger.warn("explain.retry", { ranks, error: parsed.error.slice(0, 300) });
     const second = await call({
       model: MODELS.explain, system: SYSTEM,
       user: `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${parsed.error.slice(0, 1000)}\nReturn the full corrected JSON array.`,
@@ -90,10 +88,23 @@ export async function explainPicks(
     parsed = parseExplanations(second, ranks);
     if (!parsed.ok) throw new PipelineError("recommend", `explanation output invalid: ${parsed.error.slice(0, 200)}`, second);
   }
-  logger.info("explain", { ms: Date.now() - started, promptVersion: PROMPT_VERSION });
+  return parsed.byRank;
+}
+
+export async function explainPicks(
+  picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief,
+  deps: { call?: ClaudeCall; ctx?: StageCtx } = {},
+): Promise<FinalRecommendation[]> {
+  const call = deps.call ?? callClaude;
+  const batches: Pick[][] = [];
+  for (let i = 0; i < picks.length; i += PICKS_PER_BATCH) batches.push(picks.slice(i, i + PICKS_PER_BATCH));
+
+  const started = Date.now();
+  const maps = await Promise.all(batches.map((b) => explainBatch(b, analysis, brief, call, deps.ctx)));
+  logger.info("explain", { ms: Date.now() - started, calls: batches.length, promptVersion: PROMPT_VERSION });
 
   // Previews are Deezer-only (C1 ruling): preview_url and itunes_id come from verification as-is.
-  const byRank = parsed.byRank;
+  const byRank = new Map(maps.flatMap((m) => [...m]));
   return picks.map((p) => ({
     ...p,
     explanation: byRank.get(p.rank)!,

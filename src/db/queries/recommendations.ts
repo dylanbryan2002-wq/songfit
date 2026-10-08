@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "../client";
 import type { Database } from "../types";
+import type { Rank } from "@/src/shared/types";
 
 export type RecommendationRow = Database["public"]["Tables"]["recommendations"]["Row"];
 export type RecommendationInsert = Database["public"]["Tables"]["recommendations"]["Insert"];
@@ -40,7 +41,7 @@ export async function listRecommendations(submissionId: string): Promise<Recomme
  */
 export async function markRecommendationFeedback(
   submissionId: string,
-  rank: 1 | 2 | 3,
+  rank: Rank,
   patch: { selected?: boolean; rejected?: boolean },
 ): Promise<number> {
   const { data, error } = await createServiceClient().rpc("set_recommendation_feedback", {

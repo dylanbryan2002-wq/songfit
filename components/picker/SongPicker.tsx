@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { PickerData } from "@/src/shared/types";
+import type { PickerData, Rank } from "@/src/shared/types";
 import { formatTime } from "@/src/shared/format";
 import { allRejected, initialPickerState, pickerReducer, type PickerAction } from "@/src/picker/state";
 import { useSyncedPlayback } from "./useSyncedPlayback";
@@ -11,7 +11,6 @@ import { SongRow } from "./SongRow";
 import { UseItPanel, type Destination } from "./UseItPanel";
 import { Attribution } from "./Attribution";
 
-type Rank = 1 | 2 | 3;
 type UiEvent = "song_previewed" | "explanation_opened" | "title_copied" | "open_app" | "song_not_found";
 
 const SAVE_FAILED = "Couldn't save. Try again.";

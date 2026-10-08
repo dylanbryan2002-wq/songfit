@@ -3,7 +3,7 @@ import { PREVIEWS_ENABLED } from "@/src/shared/config";
 import { getDeezerTrack, ProviderError } from "@/src/engine/catalog/deezer";
 import { listPickerRows, type PickerRecommendationRow } from "@/src/db/queries/recommendations";
 import { getSubmission } from "@/src/db/queries/submissions";
-import { PickerData, PickerRow } from "@/src/shared/types";
+import { PickerData, PickerRow, type Rank } from "@/src/shared/types";
 import { logger } from "@/src/shared/logger";
 
 /** The ONLY row shape the picker sends to the browser. `previewUrl` is passed in, never read from the stored column. */
@@ -67,7 +67,7 @@ export async function loadPicker(submissionId: string, deps: { lookup?: Lookup }
  * One fresh preview url for the refresh route. null = none available (or previews off).
  * Unlike loadPicker, a ProviderError propagates so the route can answer 503.
  */
-export async function refreshPreview(submissionId: string, rank: 1 | 2 | 3): Promise<string | null> {
+export async function refreshPreview(submissionId: string, rank: Rank): Promise<string | null> {
   const row = (await listPickerRows(submissionId)).find((r) => r.rank === rank);
   return row ? previewFor(row, getDeezerTrack) : null;
 }

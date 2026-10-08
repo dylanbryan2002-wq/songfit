@@ -21,7 +21,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   if (submission.status !== "ready") return notFound();
 
   try {
-    return NextResponse.json({ preview_url: await refreshPreview(id, Number(rank) as 1 | 2 | 3) });
+    return NextResponse.json({ preview_url: await refreshPreview(id, Number(rank)) });
   } catch (e) {
     if (e instanceof ProviderError) return NextResponse.json({ error: "provider" }, { status: 503 });
     throw e;

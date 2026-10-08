@@ -1,14 +1,13 @@
 import { z } from "zod";
 import { markRecommendationFeedback } from "@/src/db/queries/recommendations";
 import { logEvent } from "@/src/feedback/events";
-
-const Rank = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+import { RankSchema, type Rank } from "@/src/shared/types";
 
 export const FeedbackAction = z.discriminatedUnion("action", [
-  z.object({ action: z.enum(["select", "reject"]), rank: Rank }),
+  z.object({ action: z.enum(["select", "reject"]), rank: RankSchema }),
   z.object({ action: z.literal("all_rejected") }),
 ]);
-export type FeedbackAction = { action: "select" | "reject"; rank: 1 | 2 | 3 } | { action: "all_rejected" };
+export type FeedbackAction = { action: "select" | "reject"; rank: Rank } | { action: "all_rejected" };
 
 /**
  * Writes the creator's choice, then logs the event. The event only follows a successful write,

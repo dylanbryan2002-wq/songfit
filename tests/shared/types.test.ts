@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL } from "@/src/shared/types";
+import { VideoAnalysis, MusicBrief, GeneratedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL, RankSchema } from "@/src/shared/types";
 
 const validAnalysis = {
   summary: "Creator walks through NYC at night and reveals an outfit.",
@@ -107,5 +107,9 @@ describe("DIRECTION_LABEL", () => {
     });
     expect(BEST_FIT_LABEL).toBe("Best fit");
     expect(Object.values(DIRECTION_LABEL)).not.toContain(BEST_FIT_LABEL);
+  });
+  it("ranks run 1..15, integers only", () => {
+    for (const r of [1, 8, 15]) expect(RankSchema.safeParse(r).success).toBe(true);
+    for (const r of [0, 16, 1.5, "1"]) expect(RankSchema.safeParse(r).success).toBe(false);
   });
 });

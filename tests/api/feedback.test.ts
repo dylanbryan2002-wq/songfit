@@ -27,7 +27,7 @@ describe("POST /api/submissions/[id]/feedback", () => {
   });
 
   it("400 on a bad body", async () => {
-    for (const body of ["not json", { action: "select" }, { action: "select", rank: 4 }, { action: "love", rank: 1 }]) {
+    for (const body of ["not json", { action: "select" }, { action: "select", rank: 16 }, { action: "select", rank: 0 }, { action: "select", rank: 1.5 }, { action: "love", rank: 1 }]) {
       const res = await call(body);
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "bad_request" });
@@ -56,6 +56,8 @@ describe("POST /api/submissions/[id]/feedback", () => {
     const res = await call({ action: "reject", rank: 2 });
     expect(res.status).toBe(204);
     expect(m.applyFeedback).toHaveBeenCalledWith("c1", ID, { action: "reject", rank: 2 });
+    expect((await call({ action: "select", rank: 15 })).status).toBe(204);
+    expect(m.applyFeedback).toHaveBeenLastCalledWith("c1", ID, { action: "select", rank: 15 });
     expect((await call({ action: "all_rejected" })).status).toBe(204);
     expect(m.applyFeedback).toHaveBeenLastCalledWith("c1", ID, { action: "all_rejected" });
   });

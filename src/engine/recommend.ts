@@ -4,6 +4,7 @@ import type {
 } from "@/src/shared/types";
 import type { Json } from "@/src/db/types";
 import { PipelineError } from "@/src/shared/errors";
+import { PICKS_MIN } from "@/src/shared/config";
 import { logger } from "@/src/shared/logger";
 import { generateCandidates, PROMPT_VERSION as CANDIDATES_VERSION, type GenerateOpts } from "@/src/engine/candidates/generateCandidates";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
@@ -44,7 +45,6 @@ const defaultDeps: RecommendDeps = {
 };
 
 const RETRY_NOTE = "previous suggestions could not be found on Deezer; propose different, well-known songs";
-const MIN_VERIFIED = 3;
 
 export function toCandidateInsert(
   submissionId: string, c: GeneratedCandidate | ScoredCandidate | VerifiedCandidate, verified: boolean, promptVersion: string,
@@ -105,7 +105,7 @@ export async function recommendSubmission(
   const firstSeen = new Set(gen1.map(keyOf));
   const seenKeys = [...firstSeen];
 
-  if (distinct(verified) < MIN_VERIFIED) {
+  if (distinct(verified) < PICKS_MIN) {
     logger.warn("recommend.regenerate", { submissionId, verified: distinct(verified) });
     const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude: seenKeys, ctx });
     generated += gen2.length;
@@ -116,7 +116,7 @@ export async function recommendSubmission(
     lookupFailed = [...lookupFailed, ...v2.lookupFailed];
   }
 
-  const enough = distinct(verified) >= MIN_VERIFIED;
+  const enough = distinct(verified) >= PICKS_MIN;
   const scored = enough ? await deps.score(analysis, brief, verified, { ctx }) : [];
   const version = (c: { title: string; artist: string }) =>
     firstSeen.has(keyOf(c)) ? CANDIDATES_VERSION : `${CANDIDATES_VERSION}#2`;

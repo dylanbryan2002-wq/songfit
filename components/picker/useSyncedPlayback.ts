@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { logger } from "@/src/shared/logger";
+import type { Rank } from "@/src/shared/types";
 
 export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "unavailable";
 export type SyncedPlayback = {
   state: PlaybackState;
-  currentRank: 1 | 2 | 3 | null;
+  currentRank: Rank | null;
   /** audio.currentTime − sampleStart, clamped to [0, loopLength] — for a progress ruler */
   position: number;
   loopLength: number | null; // min(videoDuration, loadedPreviewDuration − sampleStart)
@@ -15,7 +16,7 @@ export type SyncedPlayback = {
   /** Video time minus expected video time, seconds. For the spike status line. */
   drift: number;
   /** MUST be called synchronously inside a user-gesture handler (tap). */
-  play(rank: 1 | 2 | 3, src: string, sampleStart?: number): void;
+  play(rank: Rank, src: string, sampleStart?: number): void;
   pause(): void;
   setSampleStart(seconds: number): void; // re-seeks audio and video; keeps playing if playing
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -53,7 +54,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   videoDurationRef.current = opts.videoDurationSeconds;
 
   const [state, setStateRaw] = useState<PlaybackState>("idle");
-  const [currentRank, setCurrentRank] = useState<1 | 2 | 3 | null>(null);
+  const [currentRank, setCurrentRank] = useState<Rank | null>(null);
   const [position, setPosition] = useState(0);
   const [loop, setLoop] = useState<number | null>(null);
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
@@ -180,7 +181,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   }, [state, tick]);
 
   const play = useCallback(
-    (rank: 1 | 2 | 3, src: string, sampleStart = 0) => {
+    (rank: Rank, src: string, sampleStart = 0) => {
       const audio = getAudio();
       const video = videoRef.current;
       if (!video) return;
