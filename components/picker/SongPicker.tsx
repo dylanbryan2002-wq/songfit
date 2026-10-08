@@ -91,6 +91,7 @@ export function SongPicker({
   }, [pb.state, pb.currentRank, postEvent]);
 
   // A sample that will not play: fetch a fresh url once, then wait for the next tap. A second failure hides Play.
+  // `unavailable` is set only for AUDIO failures; a video that will not play leaves an audio-only audition.
   useEffect(() => {
     const rank = pb.currentRank;
     if (pb.state !== "unavailable" || !rank) return;

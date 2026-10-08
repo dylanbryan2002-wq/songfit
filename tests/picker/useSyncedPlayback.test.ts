@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loopLength, needsNudge, videoTimeFor } from "@/components/picker/useSyncedPlayback";
+import { loopLength, needsNudge, playFailure, videoTimeFor } from "@/components/picker/useSyncedPlayback";
 
 describe("loopLength", () => {
   it("is the min of the two durations", () => {
@@ -46,5 +46,20 @@ describe("needsNudge", () => {
   it("honours a custom threshold", () => {
     expect(needsNudge(1, 1.3, 0.5)).toBe(false);
     expect(needsNudge(1, 1.6, 0.5)).toBe(true);
+  });
+});
+
+describe("playFailure", () => {
+  it("ignores an AbortError from either element (a newer tap superseded it)", () => {
+    expect(playFailure("audio", "AbortError")).toBe("ignore");
+    expect(playFailure("video", "AbortError")).toBe("ignore");
+  });
+  it("keeps audio going when only the video cannot play", () => {
+    expect(playFailure("video", "NotSupportedError")).toBe("audio_only");
+    expect(playFailure("video", "NotAllowedError")).toBe("audio_only");
+  });
+  it("is unavailable only when the audio fails", () => {
+    expect(playFailure("audio", "NotSupportedError")).toBe("unavailable");
+    expect(playFailure("audio", "unknown")).toBe("unavailable");
   });
 });

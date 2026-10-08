@@ -7,6 +7,7 @@ import { checkVideoFile, TOO_LONG } from "../videoChecks";
 import { SignIn } from "../SignIn";
 import { FileCard } from "./FileCard";
 import { GoogleButton } from "./GoogleButton";
+import { InAppNotice, useInAppBrowser } from "./InAppNotice";
 import { sendLandingEvent } from "./landingEvent";
 import { FLOW_ID_KEY, clearPendingUpload, readPendingUpload, stashPendingUpload } from "@/src/upload/pendingUpload";
 
@@ -40,6 +41,7 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [storageFailed, setStorageFailed] = useState(false);
+  const inApp = useInAppBrowser();
 
   useEffect(() => {
     const { id, existing } = tabFlowId();
@@ -123,7 +125,10 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-3">
       <input ref={input} type="file" accept="video/*" className="sr-only" tabIndex={-1} onChange={onPick} />
-      {storageFailed ? (
+      {inApp ? (
+        // A file chosen here cannot carry over to the real browser, so no choose/stash step either.
+        <InAppNotice />
+      ) : storageFailed ? (
         <SignIn message="Sign in, then upload your video." />
       ) : chosen ? (
         <>

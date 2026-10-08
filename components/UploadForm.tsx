@@ -7,6 +7,7 @@ import { readVideoDuration } from "./videoDuration";
 import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { checkVideoFile, TOO_LONG } from "./videoChecks";
+import { LIMITS } from "@/src/shared/config";
 
 type Creator = { id: string; email: string };
 type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
@@ -16,6 +17,7 @@ type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
 type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string; uploaded: boolean };
 
 const FAILED = "Upload didn't finish. Try again.";
+const DAILY_LIMIT = `You've used today's ${LIMITS.dailyUploadsPerCreator} uploads. Come back tomorrow.`;
 
 /** Why the server said 402 (src/billing/paywall.ts). The create step only knows "needs_subscription". */
 type Blocked = "needs_subscription" | "in_flight";
@@ -79,7 +81,10 @@ export function UploadForm({
       body: JSON.stringify({ ext, sizeBytes }),
     });
     if (urlRes.status === 402) return blockedReason(urlRes);
-    if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
+    if (urlRes.status === 429) {
+      const body = (await urlRes.json().catch(() => null)) as { error?: unknown } | null;
+      throw new Error(body?.error === "daily_limit" ? DAILY_LIMIT : "Give it a minute and try again.");
+    }
     if (!urlRes.ok) throw new Error(FAILED);
     const issued = (await urlRes.json()) as Omit<UploadTarget, "ext" | "uploaded">;
     const next: UploadTarget = { ...issued, ext, uploaded: false };
@@ -153,7 +158,7 @@ export function UploadForm({
     } catch (err) {
       setPhase("error");
       const msg = err instanceof Error ? err.message : "";
-      setError(msg.startsWith("Give it") || msg === FAILED ? msg : FAILED);
+      setError(msg.startsWith("Give it") || msg === DAILY_LIMIT || msg === FAILED ? msg : FAILED);
     } finally {
       running.current = false;
     }

@@ -42,6 +42,15 @@ export function needsNudge(videoTime: number, expected: number, threshold = 0.15
   return Math.abs(videoTime - expected) > threshold;
 }
 
+/**
+ * What a rejected play() means. The song is the product: a video that will not play (e.g. an HEVC
+ * .mov on Android Chrome) leaves an audio-only audition; only an audio failure is `unavailable`.
+ */
+export function playFailure(which: "audio" | "video", errorName: string): "ignore" | "audio_only" | "unavailable" {
+  if (errorName === "AbortError") return "ignore";
+  return which === "video" ? "audio_only" : "unavailable";
+}
+
 export function useSyncedPlayback(opts: { videoDurationSeconds: number | null }): SyncedPlayback {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -50,6 +59,9 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
   const pendingStart = useRef<number | null>(null);
   const loopRef = useRef<number | null>(null);
   const stateRef = useRef<PlaybackState>("idle");
+  // The video would not play this audition: do not retry it every frame. Logged once per view.
+  const videoFailed = useRef(false);
+  const videoFailLogged = useRef(false);
   const videoDurationRef = useRef(opts.videoDurationSeconds);
   videoDurationRef.current = opts.videoDurationSeconds;
 
@@ -92,7 +104,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
     const L = loopRef.current;
     if (!audio || !video || L === null || pendingStart.current !== null) return;
     const start = sampleStartRef.current;
-    if (stateRef.current === "playing" && video.paused) void video.play().catch(() => undefined);
+    if (stateRef.current === "playing" && video.paused && !videoFailed.current) void video.play().catch(() => undefined);
     if (audio.currentTime - start >= L) {
       audio.currentTime = start;
       video.currentTime = 0;
@@ -129,7 +141,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       audio.currentTime = sampleStartRef.current;
       if (videoRef.current) videoRef.current.currentTime = 0;
       void audio.play().catch(() => setState("unavailable"));
-      void videoRef.current?.play().catch(() => undefined);
+      if (!videoFailed.current) void videoRef.current?.play().catch(() => undefined);
     };
     const onError = () => {
       logger.warn("picker.audio_error", { code: audio.error?.code ?? null });
@@ -186,6 +198,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       const video = videoRef.current;
       if (!video) return;
       const mine = ++token.current;
+      videoFailed.current = false;
       sampleStartRef.current = sampleStart;
       setCurrentRank(rank);
       setState("loading");
@@ -211,13 +224,23 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       }
 
       // Both play() calls back to back inside the gesture: no await between them.
-      const results = [false, false];
+      // results: audio ok, video settled (played or gave up), video ok.
+      const results = [false, false, false];
       const audioP = audio.play();
       const videoP = video.play();
-      const fail = (which: string, e: unknown) => {
+      const fail = (which: "audio" | "video", e: unknown) => {
         if (mine !== token.current) return;
         const name = e instanceof Error ? e.name : "unknown";
-        if (name === "AbortError") return;
+        const outcome = playFailure(which, name);
+        if (outcome === "ignore") return;
+        if (outcome === "audio_only") {
+          videoFailed.current = true;
+          if (!videoFailLogged.current) logger.warn("picker.play_failed", { rank, which, reason: name });
+          videoFailLogged.current = true;
+          results[1] = true;
+          if (results[0]) setState("playing");
+          return;
+        }
         logger.warn("picker.play_failed", { rank, which, reason: name });
         audio.pause();
         video.pause();
@@ -233,6 +256,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
       void videoP.then(
         () => {
           results[1] = true;
+          results[2] = true;
           if (mine === token.current && results[0]) setState("playing");
         },
         (e: unknown) => fail("video", e),
@@ -241,7 +265,7 @@ export function useSyncedPlayback(opts: { videoDurationSeconds: number | null })
         logger.info("picker.play", {
           rank,
           audio: results[0],
-          video: results[1],
+          video: results[2],
           ...(mine !== token.current ? { superseded: true } : {}),
         });
       });

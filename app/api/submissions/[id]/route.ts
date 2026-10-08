@@ -1,10 +1,16 @@
+import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { getCreator, isAdmin } from "@/src/auth/session";
 import { listRecommendations } from "@/src/db/queries/recommendations";
 import { getSubmission } from "@/src/db/queries/submissions";
-import { isUuid } from "@/src/shared/ids";
 import { toRecommendationView } from "@/src/feedback/recommendationView";
+import { runSubmission } from "@/src/pipeline/run";
+import { isUuid } from "@/src/shared/ids";
+import { isStaleInFlight } from "@/src/shared/inFlight";
+import { logger } from "@/src/shared/logger";
 
+// A stale run is restarted inside this request via waitUntil, so the poll needs the full budget.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -17,6 +23,12 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   if (!submission) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (submission.creator_id !== creator.id && !isAdmin(creator)) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // Self-heal: the run died (function killed, deploy). The atomic claim makes a concurrent second run a no-op.
+  if (isStaleInFlight(submission.status, submission.updated_at)) {
+    logger.warn("pipeline.stale_restart", { submissionId: id, status: submission.status });
+    waitUntil(runSubmission(id).catch((err) => logger.error("pipeline.unhandled", { submissionId: id, err: String(err) })));
   }
 
   const recommendations =

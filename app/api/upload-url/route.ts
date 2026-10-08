@@ -23,9 +23,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
-  if (!(await checkUploadRate(creator.id))) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-  }
+  const rate = await checkUploadRate(creator.id);
+  if (rate !== "ok") return NextResponse.json({ error: rate }, { status: 429 });
 
   const gate = await canSubmit(creator.id);
   if (!gate.ok) return NextResponse.json({ reason: gate.reason }, { status: 402 });

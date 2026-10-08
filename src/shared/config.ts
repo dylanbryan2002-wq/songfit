@@ -21,6 +21,7 @@ export const LIMITS = {
   pipelineBudgetMs: 280_000,
   modelTimeoutMs: 120_000,
   inFlightStaleMinutes: 6,
+  dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
 } as const;
 
 /** Ranked picks per submission, shown PICKS_PER_BATCH at a time; fewer than PICKS_MIN verified fails the stage. */

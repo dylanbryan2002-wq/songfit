@@ -11,6 +11,8 @@ import { CandidatesTable } from "@/components/admin/CandidatesTable";
 import { retrySubmission } from "./actions";
 
 export const dynamic = "force-dynamic";
+// The retry server action (./actions.ts) runs the whole pipeline synchronously inside this page's function.
+export const maxDuration = 300;
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
