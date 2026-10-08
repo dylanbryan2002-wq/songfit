@@ -213,3 +213,18 @@ distinct songs were dropped as unverified, most of them famous.
   recommended-sound counts unverified.
 - Decision (Dylan, 2026-10-07): 5 first, "Show 5 more" twice, cap 15, each batch mixed across
   directions; log `more_requested` and the selected rank; revisit after the first 100 creators.
+
+## 2026-10-07 — First screen: sign-in wall or try-first?
+
+- NN/g "Login Walls": forcing an account before any value is "only justified in rare cases"; ask for
+  login when a feature needs it. Baymard: ~19 % abandon checkout when forced to create an account
+  (nearest hard number; different context). No published A/B for upload tools; Remove.bg/Clipdrop let
+  you process first and ask at download.
+- Google branding guidelines (developers.google.com/identity/branding-guidelines): approved labels
+  "Sign in with Google" / "Continue with Google", standard multicolour G, prescribed light/dark
+  themes, no recolouring; compliance is checked at app/brand verification. Our custom steel-gradient
+  button is non-compliant → switch to the official treatment.
+- Landing anatomy that works for consumer AI tools: one-line promise, a demo of the product doing its
+  thing, one primary CTA, a short trust line under it, policy links in the footer.
+- Decision pending (Dylan): "pick your video first, sign in at Find my songs" (file stashed in the
+  browser across the OAuth redirect; zero server cost before sign-in) vs keep sign-in-first plus demo.
