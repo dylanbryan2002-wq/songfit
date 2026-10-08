@@ -35,6 +35,8 @@ export const PREVIEWS_ENABLED = true;
 
 /** Must match the literal in the create_submission() SQL function (supabase/migrations/0001_init.sql). */
 export const FREE_RESULTS_PER_CREATOR = 1;
+/** Dylan, 2026-10-07: no gate until Stripe ships. Migration 0006 lifts the database rule too. */
+export const PAYWALL_ENABLED = false;
 
 export const CONTENT_CATEGORIES = [
   "fashion",

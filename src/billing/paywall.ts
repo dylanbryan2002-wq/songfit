@@ -1,6 +1,6 @@
 import { countInFlightSubmissions, countReadySubmissions } from "@/src/db/queries/submissions";
 import { getActiveSubscription } from "@/src/db/queries/subscriptions";
-import { FREE_RESULTS_PER_CREATOR, LIMITS } from "@/src/shared/config";
+import { FREE_RESULTS_PER_CREATOR, LIMITS, PAYWALL_ENABLED } from "@/src/shared/config";
 
 /** in_flight: the allowance is only taken by a run still being worked on (the client says so). */
 export type CanSubmit = { ok: true } | { ok: false; reason: "needs_subscription" | "in_flight" };
@@ -18,6 +18,7 @@ export function decideCanSubmit(readyCount: number, inFlightCount: number, hasAc
 }
 
 export async function canSubmit(creatorId: string): Promise<CanSubmit> {
+  if (!PAYWALL_ENABLED) return { ok: true };
   const [readyCount, inFlight, sub] = await Promise.all([
     countReadySubmissions(creatorId),
     countInFlightSubmissions(creatorId, LIMITS.inFlightStaleMinutes),

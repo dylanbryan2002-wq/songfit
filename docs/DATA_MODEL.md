@@ -260,3 +260,10 @@ RLS on all three: service role only.
 ## Storage
 Bucket `videos`, private. Path `{creator_id}/{submission_id}.{ext}`.
 Max upload 50 MB (Supabase free-tier per-object limit; bucket limit in 0001 is higher but the global cap wins), max duration 180 s. Signed URLs for admin playback.
+
+## Paywall status (2026-10-07)
+
+Dylan lifted the one-free-result gate until Stripe ships: `0006_paywall_off.sql` redefines
+`create_submission()` with the free limit raised to 1000 per creator, and `PAYWALL_ENABLED = false`
+in `src/shared/config.ts` skips the UX pre-check. Re-tighten both when the paywall ships (Phase 4
+Task 4.3).
