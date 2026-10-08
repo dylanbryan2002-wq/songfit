@@ -1,0 +1,95 @@
+/* Google's "gsi-material-button" (light theme) from the Sign in with Google branding guidelines
+   HTML configurator, with Google Sans Medium 14/20 first in the stack. The outer .hit button adds
+   2 px of transparent padding so the touch target is 44 px while the drawn button stays 40 px. */
+.hit {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hit:disabled {
+  cursor: default;
+}
+.button {
+  user-select: none;
+  background-color: #ffffff;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: #1f1f1f;
+  display: block;
+  font-family: "Google Sans", Roboto, -apple-system, BlinkMacSystemFont, arial, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  height: 40px;
+  letter-spacing: 0.25px;
+  overflow: hidden;
+  padding: 0 12px;
+  position: relative;
+  text-align: center;
+  transition: background-color 0.218s, border-color 0.218s, box-shadow 0.218s;
+  white-space: nowrap;
+  width: 100%;
+}
+.icon {
+  height: 20px;
+  margin-right: 10px;
+  min-width: 20px;
+  width: 20px;
+}
+.wrapper {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 100%;
+  justify-content: space-between;
+  position: relative;
+  width: 100%;
+}
+.contents {
+  flex-grow: 1;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.state {
+  transition: opacity 0.218s;
+  bottom: 0;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.hit:disabled .button {
+  background-color: #ffffff61;
+  border-color: #1f1f1f1f;
+}
+.hit:disabled .contents,
+.hit:disabled .icon {
+  opacity: 38%;
+}
+.hit:not(:disabled):active .state,
+.hit:not(:disabled):focus-visible .state {
+  background-color: #303030;
+  opacity: 12%;
+}
+.hit:focus-visible {
+  outline: none;
+}
+.hit:focus-visible .button {
+  outline: 2px solid #0b57d0;
+  outline-offset: 1px;
+}
+.hit:not(:disabled):hover .button {
+  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+}
+.hit:not(:disabled):hover .state {
+  background-color: #303030;
+  opacity: 8%;
+}

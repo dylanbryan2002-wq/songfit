@@ -1,34 +1,54 @@
 import Link from "next/link";
 import { getCreator } from "@/src/auth/session";
+import { isUuid } from "@/src/shared/ids";
 import { Logo } from "@/components/Logo";
-import { SignIn } from "@/components/SignIn";
 import { UploadForm } from "@/components/UploadForm";
+import { DemoLoop } from "@/components/landing/DemoLoop";
+import { Landing } from "@/components/landing/Landing";
+import { ResumeUpload } from "@/components/landing/ResumeUpload";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const creator = await getCreator();
+type Search = { resume?: string | string[]; auth?: string | string[] };
+
+export default async function HomePage({ searchParams }: { searchParams: Promise<Search> }) {
+  const [creator, params] = await Promise.all([getCreator(), searchParams]);
+  const resume = typeof params.resume === "string" && isUuid(params.resume) ? params.resume : null;
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center px-5 pb-16 pt-10">
+    <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col items-center px-5 pb-10 pt-6">
       <Logo size="lg" />
-      <h1 className="mt-12 text-center text-4xl font-semibold leading-tight tracking-tight">
-        Find the right song for your content.
+      <h1 className="mt-5 text-center text-3xl font-semibold leading-tight tracking-tight">
+        We find the perfect song to help your video go viral.
       </h1>
-      <p className="mt-4 max-w-sm text-center text-base text-muted">
-        Upload your Reel and Songfit will find the songs that fit it best, and exactly which part to use.
-      </p>
-      {creator ? <UploadForm creator={creator} /> : <SignIn />}
+      <div className="mt-5 w-full">
+        <DemoLoop />
+      </div>
+      <div className="mt-5 flex w-full flex-col items-center">
+        {!creator ? (
+          <Landing authFailed={params.auth === "failed"} />
+        ) : resume ? (
+          <ResumeUpload creator={creator} flowId={resume} />
+        ) : (
+          <UploadForm creator={creator} />
+        )}
+      </div>
       {creator && (
-        <Link href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
-          Open my latest result →
-        </Link>
+        <>
+          <Link href="/results/latest" className="mt-4 min-h-11 py-3 text-sm font-semibold text-steel-dark">
+            Open my latest result →
+          </Link>
+          <p className="mt-2 text-center text-xs text-neutral-500">
+            Your video is stored by Songfit and analyzed with third-party AI services to find your songs.
+          </p>
+        </>
       )}
-      <p className="mt-6 text-center text-xs text-neutral-500">
-        Your video is stored by Songfit and analyzed with third-party AI services to find your songs.{" "}
-        <a href="/privacy" className="underline underline-offset-2">
-          How we handle it, and how to delete it.
+      <footer className="mt-auto pt-8 text-center text-xs text-muted">
+        <a href="/privacy" className="inline-block min-h-11 py-3 underline underline-offset-2">
+          Privacy
         </a>
-      </p>
+        <span aria-hidden> · </span>
+        <span>Samples via Deezer</span>
+      </footer>
     </main>
   );
 }

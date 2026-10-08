@@ -1,5 +1,6 @@
 "use client";
 import { createBrowserClient } from "@/src/db/browser";
+import { FLOW_ID_KEY, clearPendingUpload } from "@/src/upload/pendingUpload";
 
 export async function signInWithGoogle(next: string): Promise<void> {
   const supabase = createBrowserClient();
@@ -13,6 +14,14 @@ export async function signInWithGoogle(next: string): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
+  // Drop a video still kept on this device from the landing page, and this tab's flow id.
+  try {
+    const flowId = sessionStorage.getItem(FLOW_ID_KEY);
+    sessionStorage.removeItem(FLOW_ID_KEY);
+    if (flowId) await clearPendingUpload(flowId).catch(() => {});
+  } catch {
+    // storage unavailable: nothing was kept
+  }
   const supabase = createBrowserClient();
   await supabase.auth.signOut();
   window.location.assign("/");

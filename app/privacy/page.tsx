@@ -38,6 +38,10 @@ export default function PrivacyPage() {
             train on your content. Song details and 30-second samples come from Deezer. Your video is stored on
             Supabase and the site runs on Vercel.
           </p>
+          <p className="mt-2">
+            If you pick a video before signing in, a copy stays on your device for up to 30 minutes so the upload can
+            continue after sign-in; it is removed when the upload starts or when you change the file.
+          </p>
         </div>
 
         <div>
