@@ -37,7 +37,7 @@ Tonight's state (branch `mvp`):
   (approval requested; unanswered).
 - Dylan has an **Apple Developer Program** account. He will create a MusicKit Media ID and a
   private key (.p8) and enter `APPLE_TEAM_ID`, `APPLE_MUSICKIT_KEY_ID`,
-  `APPLE_MUSICKIT_PRIVATE_KEY` into the env file and Vercel himself.
+  `APPLE_MUSICKIT_PRIVATE_KEY_B64` (the .p8 base64-encoded on one line) into the env file and Vercel himself.
 
 ## 2. Goal
 
