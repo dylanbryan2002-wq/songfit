@@ -459,6 +459,7 @@ export type Database = {
           recommended_at: string | null
           status: string
           updated_at: string
+          vibe_tags: string[]
           video_path: string
           viewed_at: string | null
         }
@@ -475,6 +476,7 @@ export type Database = {
           recommended_at?: string | null
           status?: string
           updated_at?: string
+          vibe_tags?: string[]
           video_path: string
           viewed_at?: string | null
         }
@@ -491,6 +493,7 @@ export type Database = {
           recommended_at?: string | null
           status?: string
           updated_at?: string
+          vibe_tags?: string[]
           video_path?: string
           viewed_at?: string | null
         }
@@ -636,6 +639,7 @@ export type Database = {
           recommended_at: string | null
           status: string
           updated_at: string
+          vibe_tags: string[]
           video_path: string
           viewed_at: string | null
         }
@@ -666,6 +670,7 @@ export type Database = {
           recommended_at: string | null
           status: string
           updated_at: string
+          vibe_tags: string[]
           video_path: string
           viewed_at: string | null
         }
