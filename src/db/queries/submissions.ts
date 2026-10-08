@@ -95,7 +95,7 @@ export async function updateSubmission(
 /** Columns from 0008_vibe.sql. Not yet in the generated types: drop this after `pnpm db:types`. */
 export type SubmissionVibeColumns = { vibe_tags: string[] };
 
-/** Stores the creator's "What's the vibe?" chips on the submission. */
+/** Stores the creator's "How should it feel?" chips on the submission. */
 export async function setSubmissionVibe(id: string, vibeTags: string[]): Promise<void> {
   const { error } = await createServiceClient()
     .from("submissions")

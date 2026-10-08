@@ -31,7 +31,7 @@ A creator's upload and its pipeline state.
 | playback_path     | text        | nullable, storage path of the H.264 mp4 playback copy (`<creator>/<submission>.playback.mp4`, next to the original); null when the transcode failed, was skipped, or has not run. Results page plays it when set |
 | duration_seconds  | numeric     | nullable until probed                             |
 | creator_intent    | text        | nullable, the "Anything else?" note (trimmed, ≤ 140 chars since 0008; older rows ≤ 300, "what do you want this to feel like") |
-| vibe_tags         | text[]      | not null default '{}'; "What's the vibe?" chips, 0–3, each one of VIBE_TAGS (`src/shared/vibe.ts`) |
+| vibe_tags         | text[]      | not null default '{}'; "How should it feel?" chips, 0–3, each one of VIBE_TAGS (`src/shared/vibe.ts`) |
 | content_category  | text        | nullable, set by analysis; used for niche metrics |
 | status            | text        | see Status                                        |
 | error             | text        | nullable, last failure message                    |

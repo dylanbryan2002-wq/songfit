@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { VIBE_GROUPS, VIBE_MAX_TAGS } from "@/src/shared/vibe";
 import { toggleVibeTag } from "./vibeTags";
 
-/** "What's the vibe?": optional chips, up to 3. Skipping changes nothing. */
+/** "How should it feel?": optional chips, up to 3. Skipping changes nothing. */
 export function VibePicker({
   tags,
   onChange,
@@ -31,7 +31,7 @@ export function VibePicker({
   return (
     <fieldset className="flex w-full flex-col" disabled={disabled}>
       <legend className="mb-3">
-        <span className="block text-base font-semibold text-ink">What&apos;s the vibe?</span>
+        <span className="block text-base font-semibold text-ink">How should it feel?</span>
         <span className="block text-sm text-muted">Tap up to 3. Optional.</span>
       </legend>
       <div className="flex flex-col gap-4">

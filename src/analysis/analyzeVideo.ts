@@ -26,7 +26,7 @@ export type AnalyzeInput = {
   frames: { time: number; base64: string }[];
   transcript: string;
   transcriptSegments: TranscriptSegment[];
-  /** The creator's "What's the vibe?" chips and "Anything else?" note; null when both were skipped. */
+  /** The creator's "How should it feel?" chips and "Anything else?" note; null when both were skipped. */
   creatorVibe: { tags: string[]; note: string | null } | null;
   durationSeconds: number;
 };

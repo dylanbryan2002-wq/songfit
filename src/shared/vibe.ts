@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** "What's the vibe?" chips in display order, in groups separated by spacing only. Stored verbatim. */
+/** "How should it feel?" chips in display order, in groups separated by spacing only. Stored verbatim. */
 export const VIBE_GROUPS = [
   ["Funny", "Emotional", "Motivational", "Energetic", "Romantic", "Deep", "Nostalgic"],
   ["Day in the Life", "Travel", "Educational", "Challenge"],
