@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getSubmission, updateSubmission, type SubmissionVibeColumns } from "../db/queries/submissions";
+import { getSubmission, updateSubmission, type SubmissionRow, type SubmissionVibeColumns } from "../db/queries/submissions";
 import { upsertAnalysis } from "../db/queries/analyses";
 import { downloadToTmp, playbackPathFor, uploadPlayback } from "../media/storage";
 import { extractMedia } from "../media/extract";
 import { transcodeForPlayback } from "../media/transcode";
 import { transcribe } from "./transcribe";
-import { analyzeVideo } from "./analyzeVideo";
+import { analyzeVideo, type AnalyzeInput } from "./analyzeVideo";
 import { logEvent } from "../feedback/events";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
@@ -41,6 +41,14 @@ const defaultDeps: AnalyzeDeps = {
   logEvent,
   removeDir: async (dir) => fs.rm(dir, { recursive: true, force: true }),
 };
+
+/** Tags (0008) plus the "Anything else?" note (creator_intent); null when the creator gave neither. */
+function creatorVibe(sub: SubmissionRow): AnalyzeInput["creatorVibe"] {
+  // Cast until `pnpm db:types` includes 0008_vibe.sql; rows before 0008 have no tags.
+  const tags = (sub as SubmissionRow & Partial<SubmissionVibeColumns>).vibe_tags ?? [];
+  const note = sub.creator_intent?.trim() || null;
+  return tags.length > 0 || note ? { tags, note } : null;
+}
 
 /**
  * Stage 1 of the pipeline: media → transcript → Claude analysis → video_analyses row.
@@ -80,10 +88,7 @@ export async function analyzeSubmission(
         frames,
         transcript: transcript.text,
         transcriptSegments: transcript.segments,
-        creatorIntent: sub.creator_intent ?? null,
-        // Optional until `pnpm db:types` includes 0008_vibe.sql; rows before 0008 have neither.
-        vibeTags: (sub as Partial<SubmissionVibeColumns>).vibe_tags ?? [],
-        vibeNote: (sub as Partial<SubmissionVibeColumns>).vibe_note ?? null,
+        creatorVibe: creatorVibe(sub),
         durationSeconds: media.durationSeconds,
       },
       { deadlineAt: ctx.deadlineAt },

@@ -64,7 +64,7 @@ describe("analyzeSubmission", () => {
         frames: [{ time: 0, base64: "QUJD" }],
         transcript: "",
         transcriptSegments: [],
-        creatorIntent: "make it feel luxurious",
+        creatorVibe: { tags: [], note: "make it feel luxurious" },
         durationSeconds: 12.3,
       }),
       { deadlineAt: 1_000_000 },
@@ -100,18 +100,24 @@ describe("analyzeSubmission", () => {
     expect(d.removeDir).toHaveBeenCalledWith("/tmp/x");
   });
 
-  it("passes the creator's vibe into analysis, and nothing when the row has none", async () => {
-    const d = deps();
-    await analyzeSubmission("sub-1", ctx, d);
-    expect(d.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ vibeTags: [], vibeNote: null }), ctx);
-
+  it("passes tags and the creator_intent note as the vibe; null when the row has neither", async () => {
     const v = deps();
-    v.getSubmission.mockResolvedValue({ ...submission, vibe_tags: ["Funny", "Chill"], vibe_note: "the song is the punchline" });
+    v.getSubmission.mockResolvedValue({ ...submission, vibe_tags: ["Funny", "Travel"], creator_intent: " the song is the punchline " });
     await analyzeSubmission("sub-1", ctx, v);
     expect(v.analyzeVideo).toHaveBeenCalledWith(
-      expect.objectContaining({ vibeTags: ["Funny", "Chill"], vibeNote: "the song is the punchline" }),
+      expect.objectContaining({ creatorVibe: { tags: ["Funny", "Travel"], note: "the song is the punchline" } }),
       ctx,
     );
+
+    const none = deps();
+    none.getSubmission.mockResolvedValue({ ...submission, creator_intent: null });
+    await analyzeSubmission("sub-1", ctx, none);
+    expect(none.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ creatorVibe: null }), ctx);
+
+    const tagsOnly = deps();
+    tagsOnly.getSubmission.mockResolvedValue({ ...submission, vibe_tags: ["Deep"], creator_intent: "  " });
+    await analyzeSubmission("sub-1", ctx, tagsOnly);
+    expect(tagsOnly.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ creatorVibe: { tags: ["Deep"], note: null } }), ctx);
   });
 
   it("cleans up the work dir even when analysis throws", async () => {

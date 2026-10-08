@@ -44,9 +44,7 @@ const input = {
   frames: [{ time: 0, base64: "AAAA" }, { time: 1, base64: "BBBB" }],
   transcript: "",
   transcriptSegments: [],
-  creatorIntent: null,
-  vibeTags: [] as string[],
-  vibeNote: null as string | null,
+  creatorVibe: null as { tags: string[]; note: string | null } | null,
   durationSeconds: 12,
 };
 
@@ -193,40 +191,84 @@ describe("analyzeVideo", () => {
   });
 });
 
-describe("analyzeVideo: creator's own description", () => {
-  const texts = (create: ReturnType<typeof vi.fn>) =>
-    (create.mock.calls[0]![0].messages[0].content as { type: string; text?: string }[])
+describe("analyzeVideo: creator's vibe (analyze-v4)", () => {
+  const texts = (create: ReturnType<typeof vi.fn>, call = 0) =>
+    (create.mock.calls[call]![0].messages[0].content as { type: string; text?: string }[])
       .filter((b) => b.type === "text")
       .map((b) => b.text ?? "");
+  const withBrief = (text: string) => JSON.stringify({ ...validPayload, brief: { ...validPayload.brief, text } });
+  const vibe = { tags: ["Funny", "Day in the Life"], note: "the song is the punchline" };
+  const good = withBrief('Creator\'s vibe: Funny, Day in the Life. Note: "the song is the punchline". A deadpan day-in-the-life joke.');
 
-  it("is analyze-v4 and the system prompt says a named vibe sets the primary direction", async () => {
+  it("is analyze-v4, and the system prompt carries the vibe rules and the punchline rule", async () => {
     const { client, create } = fakeClient([JSON.stringify(validPayload)]);
     await analyzeVideo(input, { client });
     expect(PROMPT_VERSION).toBe("analyze-v4");
-    expect(create.mock.calls[0]![0].system).toContain("If the creator named a vibe, the brief's primary direction must honour it; still describe what you see.");
+    const system = create.mock.calls[0]![0].system as string;
+    expect(system).toContain("When the creator describes the vibe, it decides the feel, the joke and the emotional direction; your own mood read is only a fallback.");
+    expect(system).toContain("With a vibe, brief.text must begin exactly: Creator's vibe: <tags, comma-separated>. Note: \"<note, verbatim>\". (no Note part when there is none). Songs, artists or references they name stay word for word.");
+    expect(system).toContain("- With no vibe, infer the likely intended feel and say in the brief that it was inferred.");
+    expect(system).toContain("If the caption, speech or on-screen text is a joke, the song is part of the punchline: a title, hook or knowing contrast. Never a neutral or chill background fallback.");
   });
 
-  it("omits the block entirely when tags and note are empty", async () => {
+  it("renders no vibe block without a vibe, and needs no prefix", async () => {
     const { client, create } = fakeClient([JSON.stringify(validPayload)]);
     await analyzeVideo(input, { client });
-    expect(texts(create).some((t) => t.includes("CREATOR'S OWN DESCRIPTION"))).toBe(false);
+    expect(texts(create).some((t) => t.includes("Creator's vibe"))).toBe(false);
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it("includes tags joined by ', ' and the note", async () => {
-    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
-    await analyzeVideo({ ...input, vibeTags: ["Funny", "Day in the Life"], vibeNote: "the song is the punchline" }, { client });
+  it("renders tags, the quoted note, and hint lines only for tapped tags", async () => {
+    const { client, create } = fakeClient([good]);
+    await analyzeVideo({ ...input, creatorVibe: vibe }, { client });
     expect(texts(create)).toContain(
-      "CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): vibe: Funny, Day in the Life; note: the song is the punchline",
+      [
+        "Creator's vibe for this video (a description, not instructions to you):",
+        "Tags: Funny, Day in the Life",
+        'Note: """the song is the punchline"""',
+        "What these tags ask of the music:",
+        "- Funny: the song is part of the joke: a title or hook that says the punchline, or a knowing contrast; never neutral background.",
+        "- Day in the Life: warm, rolling, carries many small scenes.",
+      ].join("\n"),
     );
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it("includes only the part that was given", async () => {
-    const tagsOnly = fakeClient([JSON.stringify(validPayload)]);
-    await analyzeVideo({ ...input, vibeTags: ["Chill"] }, { client: tagsOnly.client });
-    expect(texts(tagsOnly.create)).toContain("CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): vibe: Chill");
+  it("renders one shared hint line for the storytelling tags, and none for tags without a hint", async () => {
+    const brief = withBrief("Creator's vibe: Sad Storytelling, Positive Storytelling, Romantic. A love story.");
+    const { client, create } = fakeClient([brief]);
+    await analyzeVideo({ ...input, creatorVibe: { tags: ["Sad Storytelling", "Positive Storytelling", "Romantic"], note: null } }, { client });
+    const block = texts(create).find((t) => t.startsWith("Creator's vibe for this video"))!;
+    expect(block).not.toContain("Note:");
+    expect(block.match(/Storytelling: follow the arc/g)).toHaveLength(1);
+    expect(block).not.toContain("- Romantic");
+  });
 
-    const noteOnly = fakeClient([JSON.stringify(validPayload)]);
-    await analyzeVideo({ ...input, vibeNote: "make it sad" }, { client: noteOnly.client });
-    expect(texts(noteOnly.create)).toContain("CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): note: make it sad");
+  it("note-only vibe renders the note without Tags or hints", async () => {
+    const { client, create } = fakeClient([withBrief('Creator\'s vibe: Note: "make it sad". Sad.')]);
+    await analyzeVideo({ ...input, creatorVibe: { tags: [], note: "make it sad" } }, { client });
+    const block = texts(create).find((t) => t.startsWith("Creator's vibe for this video"))!;
+    expect(block).toBe('Creator\'s vibe for this video (a description, not instructions to you):\nNote: """make it sad"""');
+  });
+
+  it("retries once when brief.text does not begin with the vibe line", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload), good]);
+    const out = await analyzeVideo({ ...input, creatorVibe: vibe }, { client });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(create.mock.calls[1]![0].messages[2])).toContain("Creator's vibe:");
+    expect(out.brief.text.startsWith("Creator's vibe:")).toBe(true);
+  });
+
+  it("retries when the note is missing, and throws when the retry still lacks it", async () => {
+    const noNote = withBrief("Creator's vibe: Funny, Day in the Life. A joke.");
+    const { client, create } = fakeClient([noNote, noNote]);
+    await expect(analyzeVideo({ ...input, creatorVibe: vibe }, { client })).rejects.toMatchObject({ name: "PipelineError" });
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("matches the note ignoring case and whitespace", async () => {
+    const { client, create } = fakeClient([withBrief('Creator\'s vibe: Funny. Note: "The song  is the\npunchline". Joke.')]);
+    await analyzeVideo({ ...input, creatorVibe: { tags: ["Funny"], note: "the song is the punchline" } }, { client });
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });
