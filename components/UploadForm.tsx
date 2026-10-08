@@ -8,12 +8,15 @@ import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { checkVideoFile, TOO_LONG } from "./videoChecks";
 import { VibePicker } from "./VibePicker";
+import { WaitingState } from "./WaitingState";
+import { ResultsHeader, WAITING_MAIN } from "./ResultsHeader";
 import { FileCard, VideoIcon } from "./landing/FileCard";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
 
 type Creator = { id: string; email: string };
-type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
+/** uploading/creating/error draw the waiting screen over the form; idle is the form. */
+type Phase = "idle" | "uploading" | "creating" | "error";
 
 /** The server-issued upload target. Held in state so a retry reuses the SAME path and
  *  submission id; a new one is requested only when none is held or the server rejected it. */
@@ -37,16 +40,22 @@ async function blockedReason(res: Response): Promise<Blocked> {
 export function UploadForm({
   creator,
   initialFile,
+  initialDurationSeconds = null,
   onStarted,
 }: {
   creator: Creator;
   /** A file kept across sign-in (landing page). Nothing starts until the creator taps the button. */
   initialFile?: File;
+  /** Its length, already checked on the landing page. */
+  initialDurationSeconds?: number | null;
   /** Called once when a submit actually starts (the landing stash is claimed here). */
   onStarted?: () => void;
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(initialFile ?? null);
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(initialDurationSeconds);
+  const [checking, setChecking] = useState(false); // reading the chosen file's length
+  const selection = useRef(0); // the latest pick wins when two duration reads overlap
   const [intent, setIntent] = useState(""); // the "Anything else?" note
   const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -74,12 +83,32 @@ export function UploadForm({
     setNoteFlash(true);
   }
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+  /** The length is checked here, when the file is chosen, so tapping "Find my songs" has nothing left to check. */
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0] ?? null;
+    const mine = ++selection.current;
     setError(null);
     setBlocked(null);
     setPhase("idle");
     setTarget(null); // a different file gets a fresh target
-    setFile(e.target.files?.[0] ?? null);
+    setDurationSeconds(null);
+    if (!picked) {
+      setChecking(false);
+      setFile(null);
+      return;
+    }
+    setChecking(true);
+    const seconds = await readVideoDuration(picked);
+    if (selection.current !== mine) return;
+    setChecking(false);
+    if (durationVerdict(seconds) === "too_long") {
+      setError(TOO_LONG);
+      setFile(null);
+      if (videoInput.current) videoInput.current.value = "";
+      return;
+    }
+    setFile(picked);
+    setDurationSeconds(seconds);
   }
 
   /** Reuse the held target when it matches this file's extension; otherwise ask the server for one. */
@@ -104,7 +133,7 @@ export function UploadForm({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (running.current) return;
+    if (running.current || checking) return;
     setError(null);
     setBlocked(null);
 
@@ -121,15 +150,10 @@ export function UploadForm({
 
     running.current = true;
     onStarted?.();
+    // The waiting screen comes up on the tap; the upload is its first stage.
+    setPhase("uploading");
+    setProgress(0);
     try {
-      setPhase("checking");
-      const duration = await readVideoDuration(file);
-      if (durationVerdict(duration) === "too_long") {
-        setError(TOO_LONG);
-        setPhase("idle");
-        return;
-      }
-
       const issued = await getTarget(ext, file.size);
       if (issued === "needs_subscription" || issued === "in_flight") {
         setBlocked(issued);
@@ -138,14 +162,13 @@ export function UploadForm({
       }
       const { submissionId, path, token, signedUrl } = issued;
 
-      setPhase("uploading");
-      setProgress(0);
       if (!issued.uploaded) {
         await uploadVideo({ file, path, token, signedUrl, onProgress: setProgress });
         // The object now exists; a retry must not upload to it again (x-upsert is false).
         setTarget({ ...issued, uploaded: true });
       }
 
+      setProgress(100);
       setPhase("creating");
       const createRes = await fetch("/api/submissions", {
         method: "POST",
@@ -170,7 +193,8 @@ export function UploadForm({
       }
       if (!createRes.ok) throw new Error(FAILED);
       const { id } = (await createRes.json()) as { id: string };
-      router.push(`/results/${id}`);
+      // Stays on the waiting screen; the results page draws the same one and takes over.
+      router.replace(`/results/${id}`);
     } catch (err) {
       setPhase("error");
       const msg = err instanceof Error ? err.message : "";
@@ -180,17 +204,47 @@ export function UploadForm({
     }
   }
 
-  const busy = phase === "checking" || phase === "uploading" || phase === "creating";
+  const busy = phase !== "idle";
 
   return (
     <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-8">
-      <input ref={videoInput} id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
+      {/* The waiting screen, drawn over the form from the tap on; the form keeps its state underneath. */}
+      {busy && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-canvas">
+          <main className={WAITING_MAIN}>
+            <ResultsHeader />
+            <WaitingState
+              submissionId={null}
+              upload={{
+                progress,
+                error: phase === "error" ? error : null,
+                // Back to the form with the same file, chosen vibes and note.
+                onRetry: () => {
+                  setError(null);
+                  setPhase("idle");
+                },
+              }}
+            />
+          </main>
+        </div>
+      )}
+      <input
+        ref={videoInput}
+        id="video"
+        type="file"
+        accept="video/*"
+        className="sr-only"
+        onChange={(e) => void onPick(e)}
+        disabled={busy}
+      />
       {file ? (
         <FileCard
           file={file}
+          durationSeconds={durationSeconds}
           onChange={() => videoInput.current?.click()}
           onRemove={() => {
             setFile(null);
+            setDurationSeconds(null);
             setError(null);
             setBlocked(null);
             if (videoInput.current) videoInput.current.value = "";
@@ -230,12 +284,6 @@ export function UploadForm({
 
       {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step. */}
       <div className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 bg-canvas px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
-        {phase === "uploading" && (
-          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div className="steel-gradient h-full transition-[width]" style={{ width: `${progress}%` }} />
-          </div>
-        )}
-
         {error && <p className="text-center text-sm text-red-600">{error}</p>}
         {blocked && (
           <p className="text-center text-sm text-ink">
@@ -248,13 +296,10 @@ export function UploadForm({
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || checking}
           className="w-full rounded-2xl bg-ink px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
         >
-          {phase === "checking" && "Checking your video"}
-          {phase === "uploading" && `Uploading ${progress}%`}
-          {phase === "creating" && "Almost there"}
-          {(phase === "idle" || phase === "error") && "Find my songs"}
+          {checking ? "Checking your video" : "Find my songs"}
         </button>
       </div>
       <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>

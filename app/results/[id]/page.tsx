@@ -6,8 +6,7 @@ import { loadPicker } from "@/src/feedback/picker";
 import { getSignedPlaybackUrl } from "@/src/media/storage";
 import { SubmissionStatus } from "@/src/shared/types";
 import { isUuid } from "@/src/shared/ids";
-import Link from "next/link";
-import { Logo } from "@/components/Logo";
+import { ResultsHeader, WAITING_MAIN } from "@/components/ResultsHeader";
 import { WaitingState } from "@/components/WaitingState";
 import { SongPicker } from "@/components/picker/SongPicker";
 import { vibeLine } from "@/components/vibeTags";
@@ -38,17 +37,10 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
       className={
         picker && videoUrl
           ? "mx-auto flex min-h-dvh w-full max-w-md flex-col gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]"
-          : "mx-auto flex min-h-dvh w-full max-w-md flex-col items-center gap-10 px-4 pb-10 pt-10"
+          : WAITING_MAIN
       }
     >
-      <header className="flex w-full items-center justify-between">
-        <Link href="/" aria-label="Songfit home">
-          <Logo />
-        </Link>
-        <Link href="/" className="min-h-11 rounded-full px-3 text-sm font-semibold text-steel-dark">
-          ← Upload another
-        </Link>
-      </header>
+      <ResultsHeader />
       {picker && videoUrl ? (
         <SongPicker
           data={picker}
