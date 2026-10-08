@@ -1,8 +1,14 @@
 import { requireAdmin } from "@/src/auth/session";
-import { getMetrics } from "@/src/db/queries/metrics";
+import { getMetrics, getVibeMetrics, type VibeMetrics } from "@/src/db/queries/metrics";
 import { countReports, listNotFoundReports } from "@/src/db/queries/notFound";
 
 export const dynamic = "force-dynamic";
+
+const pct = (part: number, whole: number) => (whole ? `${Math.round((100 * part) / whole)}%` : "—");
+
+function vibeRow(v: VibeMetrics) {
+  return `Vibe: ${pct(v.tagged.n, v.total)} of submissions tagged · picked a song ${pct(v.tagged.picked, v.tagged.n)} (n=${v.tagged.n}) tagged vs ${pct(v.untagged.picked, v.untagged.n)} (n=${v.untagged.n}) untagged`;
+}
 
 function secs(v: number | null) {
   return v === null ? "—" : `${Math.round(v)} s`;
@@ -10,7 +16,7 @@ function secs(v: number | null) {
 
 export default async function MetricsPage() {
   await requireAdmin();
-  const [m, reports] = await Promise.all([getMetrics(), listNotFoundReports().catch(() => [])]);
+  const [m, reports, vibe] = await Promise.all([getMetrics(), listNotFoundReports().catch(() => []), getVibeMetrics()]);
   const reported = countReports(reports);
   const notFound = m.eventCounts.find((e) => e.name === "song_not_found")?.count ?? 0;
   return (
@@ -73,6 +79,7 @@ export default async function MetricsPage() {
 
       <section>
         <p className="text-sm">Returning creators (≥2 uploads): <strong>{m.returningCreators}</strong></p>
+        <p className="text-sm">{vibeRow(vibe)}</p>
       </section>
 
       <section>
