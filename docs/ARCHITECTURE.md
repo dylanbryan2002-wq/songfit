@@ -20,7 +20,7 @@ src/
     sections/   pick start/end for each pick       (model-proposed today; temporal model later)
     recommend.ts orchestrates: candidates → catalog → scoring → diversify → sections → persist
   pipeline/     run.ts: runSubmission(id) — analyze → recommend with status handling and retry-from-stage
-  auth/         session.ts: getCreator(), requireAdmin()
+  auth/         session.ts: getViewer() (Google or anonymous), getCreator() (Google only), requireAdmin(); gate.ts, claim.ts
   feedback/     selections, rejections, more-like-this, event log
   billing/      paywall pre-check, upload rate + daily cap (Stripe not built yet)
   db/           Supabase clients (anon, server, service-role), typed query fns, generated types

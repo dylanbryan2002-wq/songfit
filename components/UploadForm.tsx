@@ -14,7 +14,8 @@ import { FileCard, VideoIcon } from "./landing/FileCard";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
 
-type Creator = { id: string; email: string };
+/** email null = anonymous visitor (landing page, before Google sign-in). */
+type Creator = { email: string | null };
 /** uploading/creating/error draw the waiting screen over the form; idle is the form. */
 type Phase = "idle" | "uploading" | "creating" | "error";
 
@@ -24,6 +25,7 @@ type UploadTarget = { submissionId: string; path: string; token: string; signedU
 
 const FAILED = "Upload didn't finish. Try again.";
 const DAILY_LIMIT = `You've used today's ${LIMITS.dailyUploadsPerCreator} uploads. Come back tomorrow.`;
+const DAILY_LIMIT_ANONYMOUS = "Sign in to upload more.";
 
 /** Why the server said 402 (src/billing/paywall.ts). The create step only knows "needs_subscription". */
 type Blocked = "needs_subscription" | "in_flight";
@@ -68,6 +70,7 @@ export function UploadForm({
   const videoInput = useRef<HTMLInputElement>(null);
   const noteInput = useRef<HTMLInputElement>(null);
   const [noteFlash, setNoteFlash] = useState(false); // "Something else…" points at the note
+  const dailyLimit = creator.email ? DAILY_LIMIT : DAILY_LIMIT_ANONYMOUS;
 
   useEffect(() => {
     if (!noteFlash) return;
@@ -122,7 +125,7 @@ export function UploadForm({
     if (urlRes.status === 402) return blockedReason(urlRes);
     if (urlRes.status === 429) {
       const body = (await urlRes.json().catch(() => null)) as { error?: unknown } | null;
-      throw new Error(body?.error === "daily_limit" ? DAILY_LIMIT : "Give it a minute and try again.");
+      throw new Error(body?.error === "daily_limit" ? dailyLimit : "Give it a minute and try again.");
     }
     if (!urlRes.ok) throw new Error(FAILED);
     const issued = (await urlRes.json()) as Omit<UploadTarget, "ext" | "uploaded">;
@@ -186,6 +189,7 @@ export function UploadForm({
         setPhase("idle");
         return;
       }
+      if (createRes.status === 429) throw new Error(dailyLimit);
       if (createRes.status === 400 || createRes.status === 403) {
         // The server rejected this target (path/size/id mismatch). Drop it so the retry gets a new one.
         setTarget(null);
@@ -198,7 +202,7 @@ export function UploadForm({
     } catch (err) {
       setPhase("error");
       const msg = err instanceof Error ? err.message : "";
-      setError(msg.startsWith("Give it") || msg === DAILY_LIMIT || msg === FAILED ? msg : FAILED);
+      setError(msg.startsWith("Give it") || msg === dailyLimit || msg === FAILED ? msg : FAILED);
     } finally {
       running.current = false;
     }
@@ -300,7 +304,7 @@ export function UploadForm({
           {checking ? "Checking your video" : "Find my songs"}
         </button>
       </div>
-      <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>
+      {creator.email && <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>}
     </form>
   );
 }

@@ -5,10 +5,13 @@ import { readVideoDuration } from "../videoDuration";
 import { durationVerdict } from "../durationVerdict";
 import { checkVideoFile, TOO_LONG } from "../videoChecks";
 import { SignIn } from "../SignIn";
+import { UploadForm } from "../UploadForm";
+import { ensureAnonSession } from "./anonSession";
 import { FileCard } from "./FileCard";
 import { GoogleButton } from "./GoogleButton";
 import { InAppNotice, useInAppBrowser } from "./InAppNotice";
 import { sendLandingEvent } from "./landingEvent";
+import { createBrowserClient } from "@/src/db/browser";
 import { FLOW_ID_KEY, clearPendingUpload, readPendingUpload, stashPendingUpload } from "@/src/upload/pendingUpload";
 
 type Chosen = { file: File; durationSeconds: number | null };
@@ -29,13 +32,15 @@ function tabFlowId(): { id: string; existing: boolean } {
   }
 }
 
-/** Signed-out first screen: choose a video first, then sign in with Google to upload it. */
+/** Signed-out first screen: choose a video, then the upload form runs under an anonymous session
+ *  (Google sign-in comes at the results). If anonymous sign-in fails, sign in with Google first. */
 export function Landing({ authFailed }: { authFailed: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const flowId = useRef("");
   const selection = useRef(0); // bumps on every pick; an older async check never replaces a newer pick
   const starting = useRef(false);
   const [chosen, setChosen] = useState<Chosen | null>(null);
+  const [anonFile, setAnonFile] = useState<File | null>(null); // set once an anonymous session exists
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,8 +96,17 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
       return;
     }
     clearPendingUpload(flowId.current).catch(() => {}); // a replaced file must not come back after sign-in
-    setChosen({ file, durationSeconds });
     sendLandingEvent("video_chosen", flowId.current);
+    setChecking(true);
+    const session = await ensureAnonSession(createBrowserClient().auth);
+    if (selection.current !== mine) return;
+    setChecking(false);
+    if (session === "failed") {
+      setChosen({ file, durationSeconds }); // fallback: Google first, as before
+      return;
+    }
+    if (session === "started") sendLandingEvent("anon_session_started", flowId.current);
+    setAnonFile(file);
   }
 
   async function onContinue() {
@@ -125,7 +139,14 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-3">
       <input ref={input} type="file" accept="video/*" className="sr-only" tabIndex={-1} onChange={onPick} />
-      {inApp ? (
+      {anonFile ? (
+        <>
+          <UploadForm creator={{ email: null }} initialFile={anonFile} />
+          <p className="text-center text-xs text-muted">
+            Your video is stored by Songfit and analyzed with third-party AI services to find your songs.
+          </p>
+        </>
+      ) : inApp ? (
         // A file chosen here cannot carry over to the real browser, so no choose/stash step either.
         <InAppNotice />
       ) : storageFailed ? (

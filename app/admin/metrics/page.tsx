@@ -18,7 +18,8 @@ export default async function MetricsPage() {
   await requireAdmin();
   const [m, reports, vibe] = await Promise.all([getMetrics(), listNotFoundReports().catch(() => []), getVibeMetrics()]);
   const reported = countReports(reports);
-  const notFound = m.eventCounts.find((e) => e.name === "song_not_found")?.count ?? 0;
+  const count = (name: string) => m.eventCounts.find((e) => e.name === name)?.count ?? 0;
+  const notFound = count("song_not_found");
   return (
     <main className="mx-auto max-w-4xl space-y-10 p-6">
       <h1 className="text-2xl font-semibold">Metrics</h1>
@@ -80,6 +81,10 @@ export default async function MetricsPage() {
       <section>
         <p className="text-sm">Returning creators (≥2 uploads): <strong>{m.returningCreators}</strong></p>
         <p className="text-sm">{vibeRow(vibe)}</p>
+        {/* Creators above count Google sign-ins only (email not null, 0009); unclaimed runs never do. */}
+        <p className="text-sm">
+          Anonymous runs: {count("anon_session_started")} started · {count("results_gate_signed_in")} claimed
+        </p>
       </section>
 
       <section>
