@@ -136,6 +136,10 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
             file={chosen.file}
             durationSeconds={chosen.durationSeconds}
             onChange={choose}
+            onRemove={() => {
+              clearPendingUpload(flowId.current).catch(() => {});
+              setChosen(null);
+            }}
             disabled={busy || checking}
           />
           <GoogleButton onClick={onContinue} disabled={busy || checking} />

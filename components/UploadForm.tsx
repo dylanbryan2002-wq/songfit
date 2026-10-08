@@ -186,7 +186,17 @@ export function UploadForm({
     <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-8">
       <input ref={videoInput} id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
       {file ? (
-        <FileCard file={file} onChange={() => videoInput.current?.click()} disabled={busy} />
+        <FileCard
+          file={file}
+          onChange={() => videoInput.current?.click()}
+          onRemove={() => {
+            setFile(null);
+            setError(null);
+            setBlocked(null);
+            if (videoInput.current) videoInput.current.value = "";
+          }}
+          disabled={busy}
+        />
       ) : (
         <label
           htmlFor="video"

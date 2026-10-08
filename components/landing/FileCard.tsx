@@ -12,17 +12,20 @@ export function VideoIcon({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
-/** The chosen video as one compact row: thumbnail, name, length · size, and "Change". */
+/** The chosen video as one compact row: an X to remove it, thumbnail, name, length · size, and "Change". */
 export function FileCard({
   file,
   durationSeconds,
   onChange,
+  onRemove,
   disabled,
 }: {
   file: File;
   /** Known length; otherwise read from the thumbnail's metadata. */
   durationSeconds?: number | null;
   onChange: () => void;
+  /** Drops the chosen video and shows the empty upload box again. */
+  onRemove: () => void;
   disabled?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -40,7 +43,18 @@ export function FileCard({
   const seconds = durationSeconds ?? readSeconds;
 
   return (
-    <div className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-2">
+    <div className="relative flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-2">
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        aria-label="Remove video"
+        className="absolute left-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-ink/90 text-white shadow disabled:opacity-50"
+      >
+        <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+        </svg>
+      </button>
       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
         {url && !failed ? (
           // "#t=0.1" makes mobile Safari paint the first frame instead of a blank box.
