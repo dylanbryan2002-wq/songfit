@@ -76,14 +76,15 @@ async function explainBatch(
   const user = buildExplainPrompt(picks, analysis, brief);
   const timeoutMs = () => remainingBudget(ctx);
 
-  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs: timeoutMs() });
+  // Low effort and a 3000-token cap: hidden reasoning counts against max_tokens, and a truncation fails the stage.
+  const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 3000, effort: "low", timeoutMs: timeoutMs() });
   let parsed = parseExplanations(first, ranks);
   if (!parsed.ok) {
     logger.warn("explain.retry", { ranks, error: parsed.error.slice(0, 300) });
     const second = await call({
       model: MODELS.explain, system: SYSTEM,
       user: `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${parsed.error.slice(0, 1000)}\nReturn the full corrected JSON array.`,
-      maxTokens: 1500, timeoutMs: timeoutMs(),
+      maxTokens: 3000, effort: "low", timeoutMs: timeoutMs(),
     });
     parsed = parseExplanations(second, ranks);
     if (!parsed.ok) throw new PipelineError("recommend", `explanation output invalid: ${parsed.error.slice(0, 200)}`, second);

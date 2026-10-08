@@ -46,6 +46,9 @@ const defaultDeps: RecommendDeps = {
   replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent, listNotFound: listNotFoundSongs,
 };
 
+/** Banned names sent to the model as exclusions; the post-verification drop still uses the full set. */
+const EXCLUDE_CAP = 50;
+
 const RETRY_NOTE =
   "previous suggestions could not be found with a playable sample; propose different, well-known studio recordings (original releases, not live versions, covers or remixes)";
 
@@ -99,7 +102,7 @@ export async function recommendSubmission(
   if (!stored) throw new PipelineError("recommend", "no analysis stored for submission");
   const { analysis, brief } = stored;
 
-  // A creator report ("couldn't find it in TikTok or Instagram") bans the song for everyone.
+  // Reports ("couldn't find it in TikTok or Instagram") from two creators ban the song for everyone.
   let reported: NotFoundSong[] = [];
   try {
     reported = await deps.listNotFound();
@@ -107,6 +110,9 @@ export async function recommendSubmission(
     logger.warn("recommend.not_found_lookup_failed", { submissionId, reason: String(err) });
   }
   const bannedNames = new Set(reported.map(keyOf));
+  const reportsByName = new Map<string, number>();
+  for (const r of reported) reportsByName.set(keyOf(r), (reportsByName.get(keyOf(r)) ?? 0) + 1);
+  const excludeBanned = [...reportsByName.entries()].sort((a, b) => b[1] - a[1]).slice(0, EXCLUDE_CAP).map(([k]) => k);
   const bannedCatalog = new Set(reported.flatMap((r) => (r.catalog_key ? [r.catalog_key] : [])));
   let bannedDropped = 0;
   const notBanned = (vs: VerifiedCandidate[]) => vs.filter((v) => {
@@ -115,14 +121,14 @@ export async function recommendSubmission(
     return !banned;
   });
 
-  const gen1 = await deps.generate(brief, analysis, { ctx, ...(bannedNames.size ? { exclude: [...bannedNames] } : {}) });
+  const gen1 = await deps.generate(brief, analysis, { ctx, ...(excludeBanned.length ? { exclude: excludeBanned } : {}) });
   const v1 = await deps.verify(gen1, { ctx });
   const verified = notBanned(v1.verified);
   let unverified = [...v1.unverified];
   let lookupFailed = [...v1.lookupFailed];
   let generated = gen1.length;
   const firstSeen = new Set(gen1.map(keyOf));
-  const seenKeys = [...new Set([...firstSeen, ...bannedNames])];
+  const seenKeys = [...new Set([...firstSeen, ...excludeBanned])];
 
   if (distinct(verified) < PICKS_MIN) {
     logger.warn("recommend.regenerate", { submissionId, verified: distinct(verified) });

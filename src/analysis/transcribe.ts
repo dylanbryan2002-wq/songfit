@@ -12,7 +12,7 @@ const WHISPER_TIMEOUT_MS = 60_000;
 
 let singleton: OpenAI | null = null;
 function defaultClient(): OpenAI {
-  if (!singleton) singleton = new OpenAI({ apiKey: env("OPENAI_API_KEY") });
+  if (!singleton) singleton = new OpenAI({ apiKey: env("OPENAI_API_KEY"), maxRetries: 0 });
   return singleton;
 }
 

@@ -32,7 +32,7 @@ export type AnalyzeInput = {
 
 let singleton: Anthropic | null = null;
 function defaultClient(): Anthropic {
-  if (!singleton) singleton = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 1 });
+  if (!singleton) singleton = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
   return singleton;
 }
 

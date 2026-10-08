@@ -18,19 +18,19 @@ function chain(table: string) {
 }
 vi.mock("@/src/db/client", () => ({ createServiceClient: () => ({ from: chain }) }));
 
-import { listNotFoundSongs, countReports } from "@/src/db/queries/notFound";
+import { listNotFoundSongs, listNotFoundReports, countReports } from "@/src/db/queries/notFound";
 
 beforeEach(() => { calls.length = 0; tables = {}; });
 
-describe("listNotFoundSongs", () => {
+describe("listNotFoundReports", () => {
   it("joins events to recommendations by submission and rank, then to the candidate's deezer id", async () => {
     tables.events = [
-      { submission_id: "s1", metadata: { rank: 2 } },
-      { submission_id: "s2", metadata: { rank: 1 } },
-      { submission_id: "s3", metadata: { rank: "2" } }, // numeric string: accepted
-      { submission_id: "s4", metadata: null },
-      { submission_id: "s5", metadata: { rank: "abc" } }, // ignored
-      { submission_id: "s6", metadata: { rank: 0 } }, // out of range: ignored
+      { submission_id: "s1", creator_id: "u1", metadata: { rank: 2 } },
+      { submission_id: "s2", creator_id: "u2", metadata: { rank: 1 } },
+      { submission_id: "s3", creator_id: null, metadata: { rank: "2" } }, // numeric string: accepted
+      { submission_id: "s4", creator_id: "u1", metadata: null },
+      { submission_id: "s5", creator_id: "u1", metadata: { rank: "abc" } }, // ignored
+      { submission_id: "s6", creator_id: "u1", metadata: { rank: 0 } }, // out of range: ignored
     ];
     tables.recommendations = [
       { submission_id: "s1", rank: 1, title: "Wrong", artist: "X", candidate_id: "c0" },
@@ -39,13 +39,14 @@ describe("listNotFoundSongs", () => {
       { submission_id: "s3", rank: 2, title: "Ghost", artist: "Z", candidate_id: "missing" }, // no candidate row
     ];
     tables.candidates = [{ id: "c1", deezer_id: "42" }, { id: "c0", deezer_id: "7" }];
-    const rows = await listNotFoundSongs();
+    const rows = await listNotFoundReports();
     expect(rows).toEqual([
-      { title: "Stay", artist: "Kid LAROI", catalog_key: "deezer:42" },
-      { title: "Orphan", artist: "Y", catalog_key: null },
-      { title: "Ghost", artist: "Z", catalog_key: null },
+      { title: "Stay", artist: "Kid LAROI", catalog_key: "deezer:42", creator_id: "u1" },
+      { title: "Orphan", artist: "Y", catalog_key: null, creator_id: "u2" },
+      { title: "Ghost", artist: "Z", catalog_key: null, creator_id: null },
     ]);
     const ev = calls.find((c) => c.table === "events")!;
+    expect(ev.ops).toContainEqual(["select", "submission_id, creator_id, metadata"]);
     expect(ev.ops).toContainEqual(["eq", "name", "song_not_found"]);
     expect(ev.ops).toContainEqual(["limit", 500]);
     expect(calls.find((c) => c.table === "recommendations")!.ops).toContainEqual(["in", "submission_id", ["s1", "s2", "s3"]]);
@@ -53,24 +54,45 @@ describe("listNotFoundSongs", () => {
   });
 
   it("returns [] without further queries when there are no usable reports", async () => {
-    tables.events = [{ submission_id: "s1", metadata: {} }];
-    expect(await listNotFoundSongs()).toEqual([]);
+    tables.events = [{ submission_id: "s1", creator_id: "u1", metadata: {} }];
+    expect(await listNotFoundReports()).toEqual([]);
     expect(calls.map((c) => c.table)).toEqual(["events"]);
+  });
+});
+
+describe("listNotFoundSongs (bans)", () => {
+  it("keeps only songs reported by at least two distinct creators", async () => {
+    tables.events = [
+      { submission_id: "s1", creator_id: "u1", metadata: { rank: 1 } },
+      { submission_id: "s2", creator_id: "u2", metadata: { rank: 1 } }, // same song, 2nd creator: banned
+      { submission_id: "s3", creator_id: "u1", metadata: { rank: 1 } },
+      { submission_id: "s4", creator_id: "u1", metadata: { rank: 1 } }, // same creator twice: not banned
+      { submission_id: "s5", creator_id: null, metadata: { rank: 1 } }, // anonymous never counts
+    ];
+    tables.recommendations = [
+      { submission_id: "s1", rank: 1, title: "Hit", artist: "A", candidate_id: null },
+      { submission_id: "s2", rank: 1, title: "hit", artist: "a", candidate_id: null },
+      { submission_id: "s3", rank: 1, title: "Solo", artist: "B", candidate_id: null },
+      { submission_id: "s4", rank: 1, title: "Solo", artist: "B", candidate_id: null },
+      { submission_id: "s5", rank: 1, title: "Solo", artist: "B", candidate_id: null },
+    ];
+    const rows = await listNotFoundSongs();
+    expect(rows.map((r) => r.title)).toEqual(["Hit", "hit"]);
   });
 });
 
 describe("countReports", () => {
   it("counts per song, most reported first", () => {
     const out = countReports([
-      { title: "A", artist: "Z", catalog_key: "deezer:1" },
-      { title: "B", artist: "Z", catalog_key: null },
-      { title: "A (feat. Q)", artist: "Z", catalog_key: "deezer:1" },
-      { title: "b", artist: "z", catalog_key: null },
-      { title: "B", artist: "Z", catalog_key: null },
+      { title: "A", artist: "Z", catalog_key: "deezer:1", creator_id: "u1" },
+      { title: "B", artist: "Z", catalog_key: null, creator_id: "u1" },
+      { title: "A (feat. Q)", artist: "Z", catalog_key: "deezer:1", creator_id: "u1" },
+      { title: "b", artist: "z", catalog_key: null, creator_id: "u2" },
+      { title: "B", artist: "Z", catalog_key: null, creator_id: null },
     ]);
     expect(out).toEqual([
-      { key: "b|z", title: "B", artist: "Z", reports: 3 },
-      { key: "deezer:1", title: "A", artist: "Z", reports: 2 },
+      { key: "b|z", title: "B", artist: "Z", reports: 3, creators: 2 },
+      { key: "deezer:1", title: "A", artist: "Z", reports: 2, creators: 1 },
     ]);
   });
 });

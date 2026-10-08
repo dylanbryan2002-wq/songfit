@@ -95,8 +95,8 @@ describe("recommendSubmission", () => {
     const deps = makeDeps({
       generate, verify,
       listNotFound: vi.fn(async () => [
-        { title: "Banned1", artist: "The Weeknd", catalog_key: null }, // banned by name
-        { title: "Something else", artist: "Nobody", catalog_key: "deezer:777" }, // banned by catalog key
+        { title: "Banned1", artist: "The Weeknd", catalog_key: null, creator_id: "u1" }, // banned by name
+        { title: "Something else", artist: "Nobody", catalog_key: "deezer:777", creator_id: "u1" }, // banned by catalog key
       ]),
     });
     await recommendSubmission("sub-1", ctx(), deps);
@@ -106,6 +106,23 @@ describe("recommendSubmission", () => {
     expect(scoredArg.map((v) => v.title)).toEqual(["A", "B", "C", "D"]);
     expect(info).toHaveBeenCalledWith("recommend.banned_dropped", expect.objectContaining({ count: 2 }));
     info.mockRestore();
+  });
+
+  it("caps generation exclusions at 50 banned names, most reported first, but drops every banned song after verification", async () => {
+    const reports = Array.from({ length: 60 }, (_, i) => ({ title: `Rare${i}`, artist: "X", catalog_key: null, creator_id: "u1" }));
+    const hot = { title: "Hot", artist: "X", catalog_key: null, creator_id: "u2" };
+    const generate = vi.fn(async () => ["A", "B", "C", "Rare59"].map((t) => gen({ title: t, artist: "X" })));
+    const deps = makeDeps({
+      generate,
+      verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x, i) => ver({ ...x, deezer_id: String(i + 1) })), unverified: [], lookupFailed: [] })),
+      listNotFound: vi.fn(async () => [...reports, hot, hot, hot]),
+    });
+    await recommendSubmission("sub-1", ctx(), deps);
+    const opts = (generate.mock.calls[0] as unknown[])[2] as { exclude: string[] };
+    expect(opts.exclude).toHaveLength(50);
+    expect(opts.exclude[0]).toBe("hot|x");
+    const scoredArg = (deps.score as ReturnType<typeof vi.fn>).mock.calls[0]![2] as VerifiedCandidate[];
+    expect(scoredArg.map((v) => v.title)).toEqual(["A", "B", "C"]);
   });
 
   it("continues with no bans when the reports lookup fails", async () => {
@@ -129,7 +146,7 @@ describe("recommendSubmission", () => {
     const deps = makeDeps({
       generate,
       verify: vi.fn(async (c: GeneratedCandidate[]) => ({ verified: c.map((x) => ver({ ...x, deezer_id: "1" })), unverified: [], lookupFailed: [] })),
-      listNotFound: vi.fn(async () => [{ title: "Banned1", artist: "The Weeknd", catalog_key: null }]),
+      listNotFound: vi.fn(async () => [{ title: "Banned1", artist: "The Weeknd", catalog_key: null, creator_id: "u1" }]),
     });
     await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow();
     const second = (generate.mock.calls[1] as unknown[])[2] as { exclude: string[] };

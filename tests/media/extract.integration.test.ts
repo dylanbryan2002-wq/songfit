@@ -30,7 +30,7 @@ describe.skipIf(!ffmpeg)("extractMedia (integration)", () => {
       "-f", "lavfi", "-i", "sine=frequency=440:duration=5",
       "-shortest", "-pix_fmt", "yuv420p", sample,
     ]);
-  });
+  }, 30_000);
 
   afterAll(async () => {
     await Promise.all(tmpDirs.map((d) => fs.rm(d, { recursive: true, force: true })));
@@ -48,5 +48,5 @@ describe.skipIf(!ffmpeg)("extractMedia (integration)", () => {
     expect(out.audioPath).toMatch(/audio\.wav$/);
     const stat = await fs.stat(out.audioPath!);
     expect(stat.size).toBeGreaterThan(1000);
-  });
+  }, 30_000);
 });

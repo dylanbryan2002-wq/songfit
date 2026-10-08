@@ -19,6 +19,11 @@ describe("explainPicks", () => {
     expect(out[0]!.spotify_url).toBe(spotifySearchUrl("Song 1", "Canon Artist"));
     expect(call).toHaveBeenCalledTimes(1);
   });
+  it("calls with low effort and a 3000-token cap, first try and retry", async () => {
+    const call = vi.fn().mockResolvedValueOnce("[]").mockResolvedValueOnce(ok);
+    await explainPicks(three(), analysis, brief, { call });
+    for (const c of call.mock.calls) expect(c[0]).toMatchObject({ effort: "low", maxTokens: 3000 });
+  });
   it("passes the pick's Deezer preview through unchanged, with no iTunes id", async () => {
     const out = await explainPicks(three(), analysis, brief, { call: async () => ok });
     expect(out[2]).toMatchObject({ preview_url: "https://d.mp3", itunes_id: null });

@@ -60,23 +60,13 @@ export async function analyzeSubmission(
   try {
     const media = await d.extractMedia(videoPath, { workDir, deadlineAt: ctx.deadlineAt });
 
-    // H.264 playback copy for Android/desktop browsers. Best effort: never fails the stage.
-    try {
-      const t0 = Date.now();
-      const playbackLocal = await d.transcodeForPlayback(videoPath, workDir, ctx.deadlineAt);
-      if (playbackLocal) {
-        const playbackPath = playbackPathFor(sub.video_path);
-        // Cap the storage round-trips too, so a hung upload cannot eat the model calls' budget.
-        const capped = <T,>(p: Promise<T>, ms: number) =>
-          Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms} ms`)), ms))]);
-        await capped(d.uploadPlayback(playbackPath, playbackLocal), 20_000);
-        await capped(d.updateSubmission(submissionId, { playback_path: playbackPath }), 10_000);
-        const bytes = (await fs.stat(playbackLocal).catch(() => null))?.size ?? 0;
-        logger.info("media.transcoded", { submissionId, ms: Date.now() - t0, bytes });
-      }
-    } catch (err) {
+    // H.264 playback copy for Android/desktop browsers. Started now so ffmpeg runs while Whisper and
+    // Claude are on the network; awaited only after the analysis is persisted. Best effort: never fails the stage.
+    const t0 = Date.now();
+    const transcoding = d.transcodeForPlayback(videoPath, workDir, ctx.deadlineAt).catch((err: unknown) => {
       logger.warn("media.transcode_failed", { submissionId, reason: err instanceof Error ? err.message : String(err) });
-    }
+      return null;
+    });
 
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
@@ -115,6 +105,22 @@ export async function analyzeSubmission(
       prompt_version: result.prompt_version,
       raw_response: result.raw,
     });
+
+    try {
+      const playbackLocal = await transcoding;
+      if (playbackLocal) {
+        const playbackPath = playbackPathFor(sub.video_path);
+        // Cap the storage round-trips too, so a hung upload cannot eat the rest of the budget.
+        const capped = <T,>(p: Promise<T>, ms: number) =>
+          Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms} ms`)), ms))]);
+        await capped(d.uploadPlayback(playbackPath, playbackLocal), 20_000);
+        await capped(d.updateSubmission(submissionId, { playback_path: playbackPath }), 10_000);
+        const bytes = (await fs.stat(playbackLocal).catch(() => null))?.size ?? 0;
+        logger.info("media.transcoded", { submissionId, ms: Date.now() - t0, bytes });
+      }
+    } catch (err) {
+      logger.warn("media.transcode_failed", { submissionId, reason: err instanceof Error ? err.message : String(err) });
+    }
 
     await d.updateSubmission(submissionId, {
       content_category: result.analysis.content_category,

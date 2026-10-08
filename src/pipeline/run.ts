@@ -25,14 +25,6 @@ export type RunDeps = {
   now: () => number;
 };
 
-// Phase 3 contract (ruling C3): Phase 3 changes exactly TWO lines in this file: the import of
-// recommendSubmission (from ../engine/recommend) and, in defaultDeps below,
-//   recommend: (id, ctx) => recommendSubmission(id, ctx)
-// Nothing else here changes.
-export async function recommendNotImplemented(): Promise<void> {
-  throw new PipelineError("recommend", "not implemented");
-}
-
 const RAW_MAX_CHARS = 4000;
 
 export const defaultDeps: RunDeps = {

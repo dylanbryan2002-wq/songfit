@@ -60,7 +60,8 @@ export async function POST(request: Request) {
 
   await logEvent({ name: "submission_created", creatorId: creator.id, submissionId: submission.id });
   await logEvent({ name: "upload_completed", creatorId: creator.id, submissionId: submission.id });
-  if ((await countSubmissionsForCreator(creator.id)) >= 2) {
+  // Only the second submission marks a return; later ones are not new returns.
+  if ((await countSubmissionsForCreator(creator.id)) === 2) {
     await logEvent({ name: "returned_with_second_submission", creatorId: creator.id, submissionId: submission.id });
   }
 

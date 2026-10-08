@@ -116,12 +116,35 @@ describe("analyzeSubmission", () => {
     expect(d.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ transcript: "", transcriptSegments: [] }), ctx);
   });
 
-  it("uploads the playback copy and records playback_path before the model call", async () => {
+  it("starts the transcode before Whisper, and uploads + records playback_path after the analysis is persisted", async () => {
     const d = deps();
     await analyzeSubmission("sub-1", ctx, d);
     expect(d.transcodeForPlayback).toHaveBeenCalledWith("/tmp/x/video.mp4", "/tmp/x", 1_000_000);
     expect(d.uploadPlayback).toHaveBeenCalledWith("cre-1/sub-1.playback.mp4", "/tmp/x/playback.mp4");
     expect(d.updateSubmission).toHaveBeenCalledWith("sub-1", { playback_path: "cre-1/sub-1.playback.mp4" });
+    const order = (f: { mock: { invocationCallOrder: number[] } }) => f.mock.invocationCallOrder[0]!;
+    expect(order(d.transcodeForPlayback)).toBeLessThan(order(d.transcribe));
+    expect(order(d.upsertAnalysis)).toBeLessThan(order(d.uploadPlayback));
+  });
+
+  it("runs Whisper and the model call while the transcode is still running", async () => {
+    const d = deps();
+    let finish: (v: string | null) => void = () => undefined;
+    d.transcodeForPlayback.mockReturnValue(new Promise((r) => { finish = r; }));
+    const run = analyzeSubmission("sub-1", ctx, d);
+    await vi.waitFor(() => expect(d.upsertAnalysis).toHaveBeenCalled());
+    expect(d.uploadPlayback).not.toHaveBeenCalled();
+    finish("/tmp/x/playback.mp4");
+    await run;
+    expect(d.uploadPlayback).toHaveBeenCalled();
+  });
+
+  it("does not fail the stage when the transcode promise rejects", async () => {
+    const d = deps();
+    d.transcodeForPlayback.mockRejectedValue(new Error("ffmpeg gone"));
+    await analyzeSubmission("sub-1", ctx, d);
+    expect(d.uploadPlayback).not.toHaveBeenCalled();
+    expect(d.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "analysis_completed" }));
   });
 
   it("continues without a playback copy when the transcode returns null", async () => {
