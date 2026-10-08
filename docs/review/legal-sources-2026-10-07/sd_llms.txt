@@ -1,0 +1,177 @@
+# Massive Music API Documentation
+
+> Documentation for Massive Music API
+
+## Guides and Resources: Getting Started Guides
+- [Introduction](https://docs.massivemusic.com/docs/guides-introduction.md)
+- [Building a Subscription Streaming Service](https://docs.massivemusic.com/docs/building-a-streaming-service.md): Build a subscription streaming service using Catalogue Events, user provisioning, subscription management, streaming, optional offline playback, playlists, and reporting.
+- [Building a Fitness Service](https://docs.massivemusic.com/docs/building-a-fitness-service.md)
+- [Building a Download Service](https://docs.massivemusic.com/docs/building-a-download-service.md)
+- [Building a Background Music Service](https://docs.massivemusic.com/docs/building-a-background-music-service.md)
+- [Building a Interactive Radio Streaming Service](https://docs.massivemusic.com/docs/building-a-interactive-radio-streaming-service.md)
+- [Building a Social Media Service (MassiveMusic managed content delivery)](https://docs.massivemusic.com/docs/building-a-social-media-service-direct-streaming.md)
+- [Building a Social Media Service (Self managed content delivery)](https://docs.massivemusic.com/docs/building-a-social-media-service-self-managed-content-delivery.md)
+- [Building a Streaming Service](https://docs.massivemusic.com/docs/building-a-streaming-service-1.md)
+- [Building a Content Delivery Service](https://docs.massivemusic.com/docs/building-a-content-delivery-service.md)
+- [Accessing the Songtradr Pre-Cleared Catalogue](https://docs.massivemusic.com/docs/accessing-the-represented-catalogue.md)
+- [Accessing Enhanced Metadata](https://docs.massivemusic.com/docs/accessing-enhanced-metadata.md)
+
+## Guides and Resources: Catalogue Events
+- [Catalogue Events Overview](https://docs.massivemusic.com/docs/catalogue-events.md)
+- [Technical Specification](https://docs.massivemusic.com/docs/technical-specification-1.md)
+- [Standard Metadata](https://docs.massivemusic.com/docs/available-metadata.md)
+  - [Standard Metadata Event Schema](https://docs.massivemusic.com/docs/standard-metadata-event-schema.md)
+- [Enhanced Metadata](https://docs.massivemusic.com/docs/enhanced-metadata-tags.md)
+  - [Enhanced Metadata Event Schema](https://docs.massivemusic.com/docs/enhanced-metadata-event-schema.md)
+  - [Classes Overview](https://docs.massivemusic.com/docs/classes-overview.md)
+  - [Understanding Enhanced Metadata](https://docs.massivemusic.com/docs/understanding-enhanced-metadata.md)
+- [Artwork](https://docs.massivemusic.com/docs/artwork.md)
+- [Frequently Asked Questions](https://docs.massivemusic.com/docs/faq.md)
+
+## Guides and Resources: Reference Documents
+- [Supported Formats](https://docs.massivemusic.com/docs/supported-formats.md)
+- [Supported Licensors](https://docs.massivemusic.com/docs/licensor-table.md)
+- [Standard SLA](https://docs.massivemusic.com/docs/sla.md)
+- [Fingerprinting](https://docs.massivemusic.com/docs/fingerprinting.md)
+- [DMCA Radio Licensing Overview](https://docs.massivemusic.com/docs/dmca-radio-licensing-overview.md)
+- [Encryption of cached media](https://docs.massivemusic.com/docs/encryption-of-cached-media.md)
+- [Preview clip service](https://docs.massivemusic.com/docs/compliance-preview-clips.md)
+- [Download service](https://docs.massivemusic.com/docs/compliance-download.md)
+- [Catalogue streaming service](https://docs.massivemusic.com/docs/compliance-catalogue.md)
+- [Subscription streaming service](https://docs.massivemusic.com/docs/compliance-subscription.md)
+- [Postman Public Workspace](https://docs.massivemusic.com/docs/postman-sample-requests.md)
+- [ETags](https://docs.massivemusic.com/docs/etags.md)
+
+## Guides and Resources: Reporting Standards
+- [Client Usage Report](https://docs.massivemusic.com/docs/client-usage-reports-1.md)
+- [Label Reports](https://docs.massivemusic.com/docs/label-reports.md)
+- [Compliance Testing](https://docs.massivemusic.com/docs/testing-logs.md)
+- [File Transfers](https://docs.massivemusic.com/docs/file-transfers.md)
+- [Popularity Reports Delivery](https://docs.massivemusic.com/docs/popularity-reports-delivery.md): Set up delivery for twice-weekly popularity reports that rank tracks, artists, and products across the MassiveMusic global catalogue.
+- [S3 Bucket Logging](https://docs.massivemusic.com/docs/s3-bucket-logging.md)
+  - [Catalogue Streaming plays S3 bucket logger](https://docs.massivemusic.com/docs/streaming-plays-s3-bucket-logger.md)
+  - [Subscription plays S3 bucket logger](https://docs.massivemusic.com/docs/subscription-plays-s3-bucket-logger.md)
+  - [Preview clips S3 bucket logger](https://docs.massivemusic.com/docs/preview-clips-logger.md)
+
+## Guides and Resources: Supplier Documentation
+- [Implementation Guide Overview](https://docs.massivemusic.com/docs/implementation-guide-overview.md)
+- [Testing Process for DDEX Delivery](https://docs.massivemusic.com/docs/testing-process-for-ddex-delivery.md)
+- [Delivering Content to Our SFTP](https://docs.massivemusic.com/docs/delivering-content-to-our-sftp.md)
+- [Guide to Content Delivery Specifications and Best Practices](https://docs.massivemusic.com/docs/guide-to-content-delivery-specifications-and-best-practices.md)
+- [Non-DDEX Implementation Guide](https://docs.massivemusic.com/docs/non-ddex-implementation-guide.md)
+- [Components of an ERN Message](https://docs.massivemusic.com/docs/ddex-ern-38.md)
+- [Message Header and Footer](https://docs.massivemusic.com/docs/message-header-and-footer.md)
+- [Resource List and Technical Details](https://docs.massivemusic.com/docs/resource-list-and-technical-details.md)
+- [Technical Sound Recording details and Image](https://docs.massivemusic.com/docs/technical-sound-recording-details-and-image.md)
+- [Release List](https://docs.massivemusic.com/docs/release-list.md)
+- [Release Details by Territory](https://docs.massivemusic.com/docs/release-details-by-territory.md)
+- [Streaming Availability](https://docs.massivemusic.com/docs/streaming-availability.md)
+- [Download availability](https://docs.massivemusic.com/docs/download-availability.md)
+- [Client Inclusion for Distribution Channels](https://docs.massivemusic.com/docs/client-inclusion-for-distribution-channels.md)
+
+## Guides and Resources: Platform Health and Support
+- [Health Dashboards](https://docs.massivemusic.com/docs/health-dashboards.md)
+- [Support](https://docs.massivemusic.com/docs/support.md)
+
+## Guides and Resources: Partnerships
+- [External Partner Network and Integrations](https://docs.massivemusic.com/docs/external-partner-network-and-integrations.md)
+  - [Our Partners](https://docs.massivemusic.com/docs/partners.md)
+
+## API docs: Getting started
+- [Introduction](https://docs.massivemusic.com/reference/introduction.md)
+- [Authentication](https://docs.massivemusic.com/reference/authentication.md)
+- [Request format](https://docs.massivemusic.com/reference/request-format.md)
+- [Error responses](https://docs.massivemusic.com/reference/error-responses.md): Identify API error codes, inspect error payloads, and handle batch request failures.
+- [Usage limits](https://docs.massivemusic.com/reference/usage-limits.md): Understand daily request limits for non-live API keys and how to read rate-limit response headers.
+- [Image sizes](https://docs.massivemusic.com/reference/image-sizes.md)
+
+## API docs: Catalogue
+- [About the Catalogue API](https://docs.massivemusic.com/reference/about-this-api.md)
+- [Search](https://docs.massivemusic.com/reference/search-1.md): Search the MassiveMusic catalogue for artists, releases, and tracks by query terms and filters, then use returned IDs in downstream workflows.
+  - [Track](https://docs.massivemusic.com/reference/track-search.md): Search the MassiveMusic catalogue for tracks matching the search query. Responses are weighted by popularity based on platform usage.
+  - [Release](https://docs.massivemusic.com/reference/release-search.md): Search the MassiveMusic catalogue for releases matching the search query. Responses are weighted by popularity based on platform usage.
+  - [Artist](https://docs.massivemusic.com/reference/artist-search.md): Search the MassiveMusic catalogue for artists matching the search query. Responses are weighted by popularity based on platform usage.
+- [Artist](https://docs.massivemusic.com/reference/artist-1.md)
+  - [Details](https://docs.massivemusic.com/reference/details.md): Get all available artist details.
+  - [Releases](https://docs.massivemusic.com/reference/releases.md): Get a list of releases by given artist. Releases can be filtered by type.
+  - [Browse by name](https://docs.massivemusic.com/reference/browse-by-name.md): Get a list of artists from the 7digital catalogue whose names match the start letter(s) supplied.
+- [Release](https://docs.massivemusic.com/reference/release-1.md)
+  - [Details](https://docs.massivemusic.com/reference/release-details.md): Get all available details for a given release.
+  - [Details in batch](https://docs.massivemusic.com/reference/details-in-batch.md): Get details of multiple releases in one request.   In the request, releases are identified by release id. There will be one release in the response for every corresponding valid id in the request,…
+  - [Track listing](https://docs.massivemusic.com/reference/track-listing.md): Get a list of all tracks constituting the release.
+- [Track](https://docs.massivemusic.com/reference/track-1.md)
+  - [Details](https://docs.massivemusic.com/reference/track-details.md): Get all available details for a given track.
+  - [Details in batch](https://docs.massivemusic.com/reference/details-in-batch-1.md): Get details of multiple tracks in one request.   In the request, tracks are identified by track id. There will be one track in the response for every corresponding valid id in the request, and the…
+- [Usage type information](https://docs.massivemusic.com/reference/usage-type-information.md)
+  - [Download](https://docs.massivemusic.com/reference/download.md)
+
+## API docs: Media Delivery
+- [Streaming (HTTP Progressive)](https://docs.massivemusic.com/reference/streaming-http-progressive.md)
+  - [Subscription streaming (HTTP Progressive)](https://docs.massivemusic.com/reference/stream-to-subscriber.md): Stream any track available for streaming in the user's region, as long as they have a valid subscription.<br><br>This endpoint should only be used when a given device is actively connected to the…
+  - [Subscription streaming - offline (HTTP Progressive)](https://docs.massivemusic.com/reference/stream-to-subscriber-offline.md): This endpoint should only be used when a given device is actively connected to the Internet. For local caching in bulk, to be used for offline plays, see [Stream to subscriber -…
+  - [Catalogue streaming (HTTP Progressive)](https://docs.massivemusic.com/reference/stream-any-track-radio-use.md): Stream any track in the MassiveMusic catalogue available in the user's region.<br><br> This endpoint is designed for non-subscription streaming plays where stream requests are not validated against…
+  - [ALC locker streaming (HTTP Progressive)](https://docs.massivemusic.com/reference/stream-from-locker.md): Stream a previously purchased track from a user's locker. This endpoint can be used for online plays or offline caching (for plays when the device isn't connected to the Internet). Stream a…
+  - [Preview clip streaming (HTTP Progressive)](https://docs.massivemusic.com/reference/play-preview-clip.md): Stream a track preview clip from the MassiveMusic catalogue.<br><br>If authorisation is successful the bytes for the clip will be returned to the client. The request url should not be stored for…
+- [Streaming (HLS)](https://docs.massivemusic.com/reference/streaming-hls.md)
+  - [Subscription streaming (HLS)](https://docs.massivemusic.com/reference/stream-to-subscriber-hls.md): Stream any track available for streaming in the user's region, as long as they have a valid subscription.<br><br>This endpoint should only be used when a given device is actively connected to the…
+  - [Subscription streaming - offline (HLS)](https://docs.massivemusic.com/reference/stream-to-subscriber-offline-hls.md): Stream any track available for streaming in the user's region, as long as they have a valid subscription account already set up with our subscription system and their device is registered for offline…
+  - [Catalogue streaming (HLS)](https://docs.massivemusic.com/reference/stream-to-radio-user-hls.md): Stream any track in the MassiveMusic catalogue available in the user's region.<br><br> This endpoint is designed for non-subscription streaming plays where stream requests are not validated against…
+  - [ALC locker streaming (HLS)](https://docs.massivemusic.com/reference/stream-from-locker-hls.md): Stream a previously purchased track from a user's locker. This endpoint can be used for online plays or offline caching (for plays when the device isn't connected to the…
+- [Authorise device for off-line streaming](https://docs.massivemusic.com/reference/authorise-device-for-off-line-streaming.md): Authorise a device for offline mode.   The POST body can be sent in either JSON or XML formats.  ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required") ![User…
+- [Device status for off-line streaming](https://docs.massivemusic.com/reference/device-status-for-off-line-streaming.md): Get the offline status of a specified device.   This status can be changed with a POST to the user/unlimitedStreaming/offline endpoint.  ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth…
+- [Devices authorised for off-line streaming](https://docs.massivemusic.com/reference/devices-authorised-for-off-line-streaming.md): Get a list of all of the user's registered devices.  ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required") ![User token](https://files.readme.io/ecfdd80-Asset_14.png "User…
+- [Download Purchases](https://docs.massivemusic.com/reference/download-1.md)
+  - [Download purchased track](https://docs.massivemusic.com/reference/download-track.md): Download a purchased track.   ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required") ![User token](https://files.readme.io/ecfdd80-Asset_14.png "User access token or id")
+  - [Download purchased release](https://docs.massivemusic.com/reference/download-release-zip.md): Download tracks in a purchased release as a single ZIP file.   ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required") ![User…
+  - [Download purchase](https://docs.massivemusic.com/reference/download-purchase-zip.md): Download tracks purchased in a transaction as a single ZIP file. The highest quality available for each track will be used.   ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature…
+- [Media Transfer](https://docs.massivemusic.com/reference/transfer-media-files-for-content-delivery.md): Retrieve media files of any track.  It allows the download of an entire licensed catalogue in any supported format or bitrate. Use of this endpoint is likely to necessitate additional technical due…
+
+## API docs: Logging
+- [About the Logging API](https://docs.massivemusic.com/reference/about-the-logging-api.md)
+- [Report a subscriber stream](https://docs.massivemusic.com/reference/report-a-subscriber-stream.md): Report a track that has been streamed by a user which had a subscription.  It is recommended to log streams in near real-time, or the same day in batches of 10-20 logs per request. Before logging…
+- [Report a catalogue stream](https://docs.massivemusic.com/reference/report-a-catalogue-stream.md): Report a track that has been streamed to a user who was listening in a radio style playback.  It is recommended to log streams in near real time, or the same day in batch. Before logging actual user…
+- [Report a preview stream](https://docs.massivemusic.com/reference/report-a-preview-stream.md): Report a preview clip that has been played.**Acceptable usage** for this endpoint is 5 POST requests per second, and with batches of 500 logs per request. If you are likely to exceed this usage…
+
+## API docs: Playlists
+- [Create playlist](https://docs.massivemusic.com/reference/create-playlist.md): Create a new playlist tied to your partner consumer key.  Playlists can be associated with the partner or a specific user, by setting the userId query parameter.  When creating a new playlist you can…
+- [List playlists](https://docs.massivemusic.com/reference/list-playlists.md): Get a list of the partner's playlists.  ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required")
+- [Update playlist details](https://docs.massivemusic.com/reference/update-playlist-details.md): Update a playlist details at {playlistId} with the supplied playlist details.  It does not affect playlist tracks. Use this method e.g. for changing visibility of the playlist from private to public.…
+- [Add tracks to playlist](https://docs.massivemusic.com/reference/add-tracks-to-playlist.md): Add an array of tracks to the playlist at {playlistId}. All metadata (e.g. track title, artist, etc) for tracks needs to be provided in the API call. The "source" property is optional, and defaults…
+
+## API docs: Interactive Radio
+- [About the Interactive Radio API](https://docs.massivemusic.com/reference/about-the-interactive-radio-api.md)
+- [Create a Listening Session](https://docs.massivemusic.com/reference/create-an-interactive-radio-session.md): Create an Interactive Radio session (listening session) from one or more playlists that you have created on the MassiveMusic platform ([via the Playlist API](ref:about-the-playlist-api) or [Playlist…
+- [Delete a Listening Session](https://docs.massivemusic.com/reference/delete-an-interactive-radio-session.md): Delete an active listening session.
+- [Get the next track](https://docs.massivemusic.com/reference/get-the-next-track.md): Get the next track which can be played within the listening session.The next track will be calculated based on the ruleset which your service follows (eg. DMCA, configured by MassiveMusic upon…
+- [Track Playback Events](https://docs.massivemusic.com/reference/track-playback-events.md): In order to comply with the specific Interactive Radio rulesets (eg. DMCA, GVL), you are required to send back each user's playback events. These events will directly influence the tracks are allowed…
+
+## API docs: User Management
+- [About the User Management API](https://docs.massivemusic.com/reference/about-the-user-management-api.md)
+- [Create a new user](https://docs.massivemusic.com/reference/create-a-new-partner-user.md): Create a new user account.  The OAuth 1.0 signature base string includes the parameters from the request entity-body if the body is single-part and `application/x-www-form-urlencoded`. For example, a…
+
+## API docs: Subscriptions
+- [About the Subscriptions API](https://docs.massivemusic.com/reference/about-the-subscriptions-api.md)
+- [Create a subscription](https://docs.massivemusic.com/reference/create-a-subscription.md): Create a user's subscription.You must notify us of new subscriptions. This is essential in granting streaming access for any given user, and in royalty and usage reporting back to the…
+
+## API docs: Purchasing
+- [Credit item](https://docs.massivemusic.com/reference/credit-item.md): Log a sale of a track or release for the specified user and add that track or release to the user's locker. You're free to retail in whichever currency suits you best, but you must ensure you log…
+- [User's locker](https://docs.massivemusic.com/reference/users-locker.md): The locker allows you to manage an individual user's purchased tracks and releases.Get a paged list of releases and tracks for a user's locker (collection of all purchased…
+- [Report release refund](https://docs.massivemusic.com/reference/report-release-refund.md): Remove a purchase of a release from the sales report when the purchase has been refunded.   ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required")
+- [Report track refund](https://docs.massivemusic.com/reference/report-track-refund.md): Remove a purchase of a track from the sales report when the purchase has been refunded.   ![OAuth](https://files.readme.io/0bdd3d5-Asset_15.png "OAuth signature required")
+
+## Pages
+- [Incident Escalation](https://docs.massivemusic.com/page/incident-escalation.md)
+- [Warner Music Group Integration Steps](https://docs.massivemusic.com/page/umg-integration-steps.md)
+- [Universal Music Group - Security Due Diligence](https://docs.massivemusic.com/page/umg-security-due-diligence.md)
+
+## Changelog
+- [Handling Track and Release Download Availability](https://docs.massivemusic.com/changelog/handling-track-and-release-download-availability.md)
+- [Removed reference to deprecated products + Added takedown clarification](https://docs.massivemusic.com/changelog/removed-reference-to-deprecated-products-added-takedown-clarification.md)
+- [ClipStartPoint - Events Schema and Example](https://docs.massivemusic.com/changelog/clipstartpoint-events-schema-and-example.md)
+- [Adding Clip Start Point to Events](https://docs.massivemusic.com/changelog/adding-clip-start-point-to-events.md)
+- [GZipping/Compressing Events Messages](https://docs.massivemusic.com/changelog/gzippingcompressing-events-messages.md)
+- [Events Available Metadata Page Updated](https://docs.massivemusic.com/changelog/events-available-metadata-page-updated.md)
+- [Ad Hoc Scheduled Ingestion Downtime Impact on Events](https://docs.massivemusic.com/changelog/ad-hoc-scheduled-ingestion-downtime-impact-on-events.md)
+- [Increased Artwork Offering to Include 1400px and 3000px](https://docs.massivemusic.com/changelog/increased-artwork-offering-to-include-1400px-and-3000px.md)
+- [Events Schema and Example Updated and Provisional Schema and Example Removed](https://docs.massivemusic.com/changelog/events-schema-and-example-updated-and-provisional-schema-and-example-removed.md)
+- [Events Failed Messages Expectations](https://docs.massivemusic.com/changelog/events-failed-messages-expectations.md)

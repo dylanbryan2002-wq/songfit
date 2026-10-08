@@ -1,0 +1,283 @@
+
+ YouTube API Services - Required Minimum Functionality  |  Google for Developers
+ Skip to main content
+ YouTube
+ /
+ English
+ Deutsch
+ Español
+ Español – América Latina
+ Français
+ Indonesia
+ Italiano
+ Polski
+ Português – Brasil
+ Tiếng Việt
+ Türkçe
+ Русский
+ עברית
+ العربيّة
+ فارسی
+ हिंदी
+ বাংলা
+ ภาษาไทย
+ 中文 – 简体
+ 中文 – 繁體
+ 日本語
+ 한국어
+ Sign in
+ Home
+ Guides
+ Samples
+ Terms
+ YouTube
+ Home
+ Guides
+ Samples
+ Terms
+ YouTube API Services Terms of Service
+Terms of Service (Americas)
+Terms of Service (APAC)
+Terms of Service (EMEA)
+Terms of Service (Russia)
+Developer Policies
+Required Minimum Functionality
+Subject API Services
+Branding Guidelines
+Revision History
+ Guides
+Complying with the YouTube's Developer Policies
+ Home
+ Products
+ YouTube
+ Terms
+ YouTube API Services - Required Minimum Functionality
+ Stay organized with collections
+ Save and categorize content based on your preferences.
+Note: Complying with the YouTube Developer Policies provides guidance and examples to help you ensure that your API clients follow specific portions of the YouTube API Services Terms and Policies (API TOS). The guide offers insight into how YouTube enforces certain aspects of the API TOS, but it does not replace any existing documents.
+This document defines minimum functional requirements for API clients that implement or provide access to specific features of YouTube API services ("API Clients").
+These requirements and guidelines ensure that API clients provide a consistent user experience that protects the interests of YouTube users, content owners, and advertisers. These rules are an integral part of the YouTube API Terms of Service and must be followed in the development and implementation of any API Clients.
+You should expect the requirements in this document to change so that we can ensure better user experiences with existing YouTube features. They will also change in response to new and updated YouTube features. At times, such changes may require you to update your API Clients to address new requirements. The Terms of Service revision history will document any changes, so please check that document frequently, or subscribe to its RSS feed, to ensure that you can quickly learn about changes that may affect your API Clients.
+In addition to the requirements in this document, we highly recommend that you follow best practices described in the YouTube API Services Policies and discussed elsewhere in YouTube API services' documentation. Even when not strictly required, these practices help your API Clients to recover more quickly from errors and to optimize their quota usage if they use YouTube API services that allocate quota. At the same time, these practices help to ensure the health of the YouTube ecosystem and, above all, to provide the best experience possible to users of your API Clients and of YouTube Applications.
+YouTube embedded player and video playback
+The requirements in this section relate specifically to embedded YouTube players. The YouTube API Services Policies also includes several policies relevant to API Clients that play YouTube audiovisual content.
+API Client Identity and Credentials
+API Clients that use the YouTube embedded player (including the YouTube IFrame Player API) must provide identification through the HTTP Referer request header. In some environments, the browser will automatically set HTTP Referer, and API Clients need only ensure they are not setting the Referrer-Policy in a way that suppresses the Referer value. YouTube recommends using strict-origin-when-cross-origin Referrer-Policy, which is already the default in many browsers.
+Similarly, if integrating the YouTube embedded player in a window created by using JavaScript window.open, API Clients must not use the noreferrer feature, which suppresses the Referer value.
+Set the Referer
+In environments where HTTP Referer is empty by default and not automatically set by the browser, API Clients must take action to provide their identity through alternative means. In WebView integrations such as a mobile app or desktop app, HTTP Referer is empty by default and the Referer is typically set using one of these techniques:
+Mobile app with player inside a local HTML file
+In this configuration, the player is loaded in an HTML file that is bundled with the app. When loading this HTML file, setting the baseUrl parameter will set the Referer.
+Android loadDataWithBaseURL
+iOS loadHTMLString:baseURL:
+Mobile app without local HTML file
+In this configuration, the player is loaded directly from https://www.youtube.com/embed/VIDEO_ID without any enclosing HTML file. You set the Referer by adding it as an HTTP Header:
+Android loadUrl with the Referer HTTP Header added to the additionalHttpHeaders parameter
+iOS loadRequest: with the Referer HTTP Header added to the request. For example:
+NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
+NSString *referrer = [[NSString stringWithFormat:@"https://%@", bundleId] lowercaseString];
+NSURL *referrerUrl = [NSURL URLWithString:referrer];
+NSString *destination = @"https://www.youtube.com/embed/VIDEO_ID";
+NSURL *destinationUrl = [NSURL URLWithString:destination];
+NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:destinationUrl];
+[request addValue:referrerUrl forHTTPHeaderField:@"Referer"];
+// Create an instance of WKWebView (omitted for simplicity), then load the NSMutableURLRequest.
+[webView loadRequest:request];
+Mobile app with player inside a native browser tab
+Android CustomTabs
+Use Intent.EXTRA_REFERRER to set the referrer. Be sure to use the android-app:// scheme instead of https:// when creating the Uri. For example:
+String destinationUrl = "https://www.youtube.com/embed/VIDEO_ID";
+CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder().build()
+customTabsIntent.intent.putExtra(Intent.EXTRA_REFERRER, Uri.parse("android-app://" + context.getPackageName()));
+customTabsIntent.launchUrl(this, Uri.parse(destinationUrl));
+iOS SFSafariViewController
+SFSafariViewController does not support setting the Referer. In this case, set the origin player parameter instead.
+Desktop app
+In this configuration, set the Referer by adding it as an HTTP Header:
+Microsoft .NET - use HttpRequestHeaders.Referrer or CoreWebView2HttpRequestHeaders.SetHeader
+macOS - follow the same instructions described above for iOS mobile apps
+For other platforms where HTTP Referer is empty by default, set the Referer value by configuring the WebView in which the player is loaded. The exact technique might vary by platform.
+If you are the owner of a library, framework, plugin, service, or wrapper used by developers to integrate the YouTube embedded player, you must retrieve the app ID from the environment (this may not be possible, depending on the platform) or allow developers to pass-in their app ID so that Referer (and the widget_referrer player parameter, if appropriate) can be set as described above.
+Referer format
+When you explicitly provide Referer by setting a WebView parameter or adding an HTTP Header, the format is typically a fully qualified URL. Specify HTTPS as the protocol. Within the URL, the domain name must be your application identifier ("app ID") that is registered with the store that distributed your app to end users. If your app is provided to users through an alternative distribution channel, use the app ID that is registered with the operating system during app install. In most cases, your app ID will be a reversed domain name (also known as "reverse-DNS format"), like com.google.android.youtube. Representative examples:
+Android OS and Android apps on ChromeOS: App ID
+Apple platforms, including iOS, iPadOS, macOS: Bundle ID
+Samsung Tizen: App ID
+Linux distributions:
+Fedora: App ID
+Gnome: App ID
+Ubuntu: App ID
+On some platforms the app ID is not a reversed domain name. In these cases, use the unique app ID assigned by the store that distributes the app. When the store app ID is a generated alphanumeric string (assigned by the store or development tools, not chosen by the app developer), include both the app display name (replacing spaces with hyphens) and the store app ID, delimited by a period. For example: <my-app-name>.<AppID>. This value should be stable across app version changes. If the app is not hosted on a store, use the app ID that is registered with the operating system during app install; this is typically a unique identifier in the app manifest. Exclude any details about app version and supported architecture. Representative examples:
+Chrome Web Store: store-hosted
+The store app ID is typically the last part of the path in the app url https://chromewebstore.google.com/detail/<hyphenated-app-name>/<AppID>. Use the hyphenated app name and the store app ID to build the <my-app-name>.<AppID> string described above.
+Windows: store-hosted
+The store app ID is typically the last part of the path in the app url https://apps.microsoft.com/detail/<AppID>. Use the store app ID to build the <my-app-name>.<AppID> string described above. The hyphenated app name must be included as well.
+Windows: non-store distribution
+Windows apps contain a package identity in the app manifest: Name_Version_Architecture_ResourceID_PublisherID. Use only the Name attribute.
+Xbox: store-hosted
+The store app ID is typically the last part of the path in the app url https://www.xbox.com/<region>/games/store/<hyphenated-app-name>/<AppID>. Use the hyphenated app name and the store app ID to build the <my-app-name>.<AppID> string described above.
+For API Clients with a high number of requests to YouTube (see Usage and Quotas), additional credentials might be required to access the YouTube embedded player.
+Failure to comply with these requirements might result in reduced functionality in the YouTube embedded player.
+WebView Type
+When integrating the YouTube embedded player in a WebView, use one of the OS-provided WebView types when available. For example:
+Android OS: WebView or CustomTabs
+Apple platforms, including iOS, iPadOS, macOS: WKWebView or SFSafariViewController
+Embedded YouTube Player size
+Embedded players must have a viewport that is at least 200px by 200px. If the player displays controls, it must be large enough to fully display the controls without shrinking the viewport below the minimum size. We recommend 16:9 players be at least 480 pixels wide and 270 pixels tall.
+Autoplay and scripted playbacks
+This section covers automatic playbacks. It applies to YouTube embedded players that either use the autoplay player parameter or programmatically initiate automatic playback using the YouTube IFrame Player API service or another YouTube API service.
+Embedded players that automatically play a video should initiate playback immediately when the page loads or as soon as the embedded player is fully visible. However, an API Client must not initiate an automatic playback until the player is visible and more than half of the player is visible on the page or screen.
+A page or screen must not have more than one YouTube player that automatically plays content simultaneously.
+Any YouTube thumbnail that initiates a playback must be at least 120 pixels wide and 70 pixels tall.
+YouTube Player attributes
+Attributes and parameters of the YouTube player, including the appearance of YouTube branding in the player, are specified in YouTube API documentation and specifications (https://developers.google.com/youtube). You must not make changes to the YouTube player that are not explicitly described by the API documentation.
+Overlays and frames
+You must not display overlays, frames, or other visual elements in front of any part of a YouTube embedded player, including player controls. Similarly, you must not use overlays, frames or other visual elements to obscure any part of an embedded player, including player controls.
+Mouseovers
+You must not use mouseovers or touch events on a YouTube player to initiate any action on the user's behalf, such as opening a window or subscribing to a channel.
+Uploading videos
+If API Clients allow users to upload content to multiple platforms, users should be able to select and deselect the platforms to which they want to upload their videos.
+Data requirements
+API clients that enable users to upload videos to YouTube must enable users to set the values in the following list. Any properties that are not listed are optional.
+ Name
+ Description
+ Resource properties
+ snippet.title
+ Required. The video's title. YouTube returns an error if the value exceeds 100 characters. YouTube supports all valid UTF-8 characters except < and >.
+ snippet.description
+ Required. The video's description. YouTube returns an error if the value exceeds 5000 bytes. YouTube supports all valid UTF-8 characters except < and >.
+ status.privacyStatus
+ Required. The video's privacy setting. Users must be able to choose whether the uploaded video will be public, private, or unlisted.
+ Request parameters
+ onBehalfOfContentOwnerChannel
+ Conditionally required. If the request's authorization credentials identify a content owner and the onBehalfOfContentOwner parameter is set, the API user must also be able to specify the YouTube channel to which the video is being uploaded.
+Displaying comments
+ Name
+ Description
+ Resource properties
+ snippet.textDisplay
+ Required. The comment's text. The API client must either (a) display the full text of a comment or comment reply, or (b) truncate the text and provide a way for the viewer to easily access the full text from the truncated version.
+This requirement applies to all comments and comment replies, regardless of which type of resource the comments are associated with (videos, channels, etc.).
+Note that the commentThread resource's snippet.topLevelComment property value is a comment resource and the replies.comments[] property is a list of comment resources. As such, this requirement also applies to the snippet.topLevelComment.snippet.textDisplay and replies.comments[].snippet.textDisplay properties.
+ snippet.title
+(channel)
+ Required (suggestion). The channel's title.
+If the comment pertains to a channel, the API client must display the channel's name.
+If the comment pertains to a video, the API client must display the name of the channel that uploaded the video.
+ snippet.title
+(video)
+ Conditionally required (suggestion). The video's title. This value must be displayed if the comment pertains to a video.
+ snippet.moderationStatus
+ Conditionally required. If the moderationStatus parameter value in the API request is heldForReview or likelySpam, the display must clearly identify that status using the property value, similar language (for example, "This comment is being held for review"), a header (for example, "Held for review"), or other unambiguous language. The commentThreads.list method supports the ability to retrieve comments based on their moderation status.
+Adding comments
+ Name
+ Description
+ Resource properties
+ snippet.title
+(channel)
+ Required. The channel's title.
+If the user is adding a comment about a channel, the API client must display the channel's name.
+If the user is adding comment about a video, the API client must display the name of the channel that uploaded the video.
+ snippet.title
+(video)
+ Required. If the user is adding a comment about a video, the API client must display the video's title.
+ Other requirements
+ Comment author's channel name
+ Required. The API client must clearly identify the YouTube user account to which the comment will be attributed. If the request's authorization credentials identify a content owner and the onBehalfOfContentOwner parameter is set, the API user must also be able to specify the YouTube channel to which the comment will be attributed.
+Adding comment replies
+ Name
+ Description
+ Resource properties
+ snippet.textDisplay
+ Required. The comment's text. The API client must display the text of the comment that the user is replying to in accordance with the rules defined in the Displaying comments section of this document.
+ snippet.title
+(channel)
+ Required. The channel's title.
+If the user is replying to a comment about a channel, the API client must display the channel's name.
+If the user is replying to a comment about a video, the API client must display the name of the channel that uploaded the video.
+ snippet.title
+(video)
+ Required. If the user is replying to a comment about a video, the API client must display the video's title.
+ Other requirements
+ Comment author's channel name
+ Required. The API client must clearly identify the YouTube user account to which the comment reply will be attributed. If the request's authorization credentials identify a content owner and the onBehalfOfContentOwner parameter is set, the API user must also be able to specify the YouTube channel to which the comment reply will be attributed.
+Editing or deleting comment replies
+ Name
+ Description
+ Resource properties
+ snippet.textDisplay
+ Required. The comment's text. The API client must display the text of the comment that the user is editing or deleting in accordance with the rules defined in the Displaying comments section of this document.
+ snippet.title
+(channel)
+ Required. The channel's title.
+If the user is editing or deleting a comment about a channel, the API client must display the channel's name.
+If the user is editing or deleting a comment about a video, the API client must display the name of the channel that uploaded the video.
+ snippet.title
+(video)
+ Required. If the user is editing or deleting a comment about a video, the API client must display the video's title.
+ Other requirements
+ Comment author's channel name
+ Required. The API client must clearly identify the YouTube user account to which the comment is attributed.
+Banning a user from live chat (or removing a ban)
+ Name
+ Description
+ Resource properties
+ snippet.title
+(channel)
+ Required. The name of the YouTube channel that is being banned or unbanned. In addition, the name must link to the channel or the channel URL must also be displayed.
+ Other requirements
+ Comment author's channel name
+ Required. The API client must clearly identify the YouTube user account being used to add or remove the ban.
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License, and code samples are licensed under the Apache 2.0 License. For details, see the Google Developers Site Policies. Java is a registered trademark of Oracle and/or its affiliates.
+Last updated 2026-09-14 UTC.
+ [[["Easy to understand","easyToUnderstand","thumb-up"],["Solved my problem","solvedMyProblem","thumb-up"],["Other","otherUp","thumb-up"]],[["Missing the information I need","missingTheInformationINeed","thumb-down"],["Too complicated / too many steps","tooComplicatedTooManySteps","thumb-down"],["Out of date","outOfDate","thumb-down"],["Samples / code issue","samplesCodeIssue","thumb-down"],["Other","otherDown","thumb-down"]],["Last updated 2026-09-14 UTC."],[],["API clients using YouTube's API must adhere to specific functional requirements. Embedded players need a minimum size (200x200px) and must not auto-play until visible. Overlays on players are prohibited, and mouseovers cannot trigger user actions. When uploading, users must set video title, description, and privacy. For displaying, adding, editing, or deleting comments/replies, the API client must show the comment text, video title, and channel name, as well as any moderation status. When banning a user, the client must display the channel's name.\n"]]
+ Blog
+The latest news on the YouTube blog
+ Issue Tracker
+Something wrong? Send us a bug report!
+ YouTube Researcher Program
+For researchers interested in using data from YouTube's global API
+Tools
+ Google APIs Explorer
+ YouTube Player Demo
+ Configure a Subscribe Button
+Issue Tracker
+ File a bug
+ Request a feature
+ See open issues
+Product Info
+ Terms of Service
+ Developer Policies
+ Required Minimum Functionality
+ Branding Guidelines
+ Android
+ Chrome
+ Firebase
+ Google Cloud Platform
+ Google AI
+ All products
+ Terms
+ Privacy
+ Manage cookies
+ English
+ Deutsch
+ Español
+ Español – América Latina
+ Français
+ Indonesia
+ Italiano
+ Polski
+ Português – Brasil
+ Tiếng Việt
+ Türkçe
+ Русский
+ עברית
+ العربيّة
+ فارسی
+ हिंदी
+ বাংলা
+ ภาษาไทย
+ 中文 – 简体
+ 中文 – 繁體
+ 日本語
+ 한국어

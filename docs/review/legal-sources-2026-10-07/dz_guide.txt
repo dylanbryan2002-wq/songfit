@@ -1,0 +1,111 @@
+
+ Deezer for developers
+ Login
+ Plugins
+ API
+ Guidelines
+Introduction
+Getting Started
+Key features
+User levels
+Content access rules
+Available tools
+Streaming URL privacy
+Local Storage policy
+Graphical Guidelines
+Logo
+Other
+Available regions
+Introduction
+ This page highlights the key elements you need to know before starting
+ Deezer integration into your 3rd party service/device.
+Key features
+ For a similar user experience accross devices and services,
+ Deezer asks you to implement at least the following key features when building a full Deezer-enabled application: 
+My Music (end-user library, available after the user logged in)
+My Playlists: playlists created or bookmarked by the end-user
+My Albums: favorite albums bookmarked by the end-user
+Mixes
+Search
+User levels
+ In the territories where Deezer is already available, we manage 3 kinds of end-users.
+ Unlogged users: 
+ Users who are not registered or logged in on the Deezer service.
+ Cannot add a mix/album/artist as a favorite.
+ Cannot create a playlist.
+ 30s clips listening restrictions.
+ Freemium users: 
+Users with a free Deezer account.
+Can add a mix/album/artist as a favorite.
+Can create a playlist.
+30s clips listening restrictions.
+ Premium / HiFi / Family users: 
+ Users who suscribed a paid account (learn more).
+ Can add a mix/album/artist as a favorite.
+ Can create a playlist.
+ Unlimited listening in HQ.
+ Mobile access.
+Content access rules
+ According to his own local region area, the end-user will access to the content that Deezer dealed with the local rights holders.
+ The table below describes limitations on content access by user type. As indicated in the Terms of use, you will have to respect these rules when using Deezer API or SDKs.
+ Features
+ Unlogged users
+ Freemium users
+ Premium users
+ Mixes
+ API: 30s. extract
+Plugins: Full Track / unlimited
+ API: 30s. extract
+Plugins: Full Track / unlimited
+ API: 30s. extract
+Plugins: Full Track / unlimited
+ Music on Demand
+ API: 30s. extract
+Plugins: 30s. extract
+ API: 30s. extract
+Plugins: 30s. extract
+ API/Plugins: 
+Full Track / Unlimited
+Available tools
+ To help you in using the right tool for your platform, please refer to the table below:
+ Platform
+ API
+ Web Plugins
+ JavaScript SDK
+ Android Native SDK
+ iOS Native SDK
+ Website
+ Yes*
+ Yes
+ Yes
+ No
+ No
+ Native iPhone/iPad Application
+ Yes*
+ No
+ No
+ No
+ Yes
+ Native Android Application
+ Yes*
+ No
+ No
+ Yes
+ No
+ Firmware/OTT/STB
+ Yes*
+ No
+ No
+ No
+ No
+ *Full data access, but no audio streaming available except 30s extracts.
+Streaming URL privacy
+ Important Except for 30s. extracts mp3s, full-length tracks URLs must never be accessible to the end-user from your application. As the owner of your application, you are responsible for not making any audio data downloadable for the end-user. Your application can be blocked by Deezer at any time if it does not fully respect the Terms of use.
+Local Storage/Offline Storage policy
+ Important
+ Local Storage/Offline Storage of audio data is strictly forbidden.
+ If in some cases you need to optimize your application and store audio data, please contact Deezer.
+Back to top
+ Follow @deezer
+ Terms of use
+ Contact & Support

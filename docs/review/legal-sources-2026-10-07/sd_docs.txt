@@ -1,0 +1,157 @@
+Introduction
+For AI agents: visit https://docs.massivemusic.com/llms.txt for an index of all pages formatted in Markdown and endpoints in OpenAPI. Append .md to any documentation page URL to get its markdown version.
+Jump to Content
+Guides and ResourcesAPI docsChangelog
+API docs
+Guides and ResourcesAPI docsChangelog
+Introduction
+Getting started
+Introduction
+Authentication
+OAuth Tool
+Request format
+Responses
+Error responses
+Eventual consistency
+Caching API responses
+Usage limits
+Lists & paging
+Image sizes
+API Status
+API statusget
+Catalogue
+About the Catalogue API
+Search
+Trackget
+Releaseget
+Artistget
+Artist
+Detailsget
+Releasesget
+Browse by nameget
+Release
+Detailsget
+Details in batchget
+Track listingget
+Track
+Detailsget
+Details in batchget
+Usage type information
+Subscription Streaming
+Ad Supported Streaming
+Download
+Media Delivery
+About the Media Delivery API
+Streaming (HTTP Progressive)
+Subscription streaming (HTTP Progressive)get
+Subscription streaming - offline (HTTP Progressive)get
+Catalogue streaming (HTTP Progressive)get
+ALC locker streaming (HTTP Progressive)get
+Preview clip streaming (HTTP Progressive)get
+Streaming (HLS)
+Subscription streaming (HLS)get
+Subscription streaming - offline (HLS)get
+Catalogue streaming (HLS)get
+ALC locker streaming (HLS)get
+Offline Device Management
+Authorise device for off-line streamingpost
+Device status for off-line streamingget
+Devices authorised for off-line streamingget
+Download Purchases
+Download purchased trackget
+Download purchased releaseget
+Download purchaseget
+Media Transferget
+Logging
+About the Logging API
+Report a subscriber streampost
+Report a catalogue streampost
+Report a preview streampost
+Playlists
+About the Playlist API
+Create playlistpost
+List playlistsget
+Retrieve Playlistget
+Replace Playlistpost
+Delete Playlistdel
+Playlist detailsget
+Update playlist detailspost
+List playlist tracksget
+Add tracks to playlistpost
+Remove tracksdel
+Move trackspost
+User Playlists
+Retrieve a user's playlistsget
+Retrieve a user's playlist groupsget
+Create a playlist grouppost
+Retrieve a playlist groupget
+Add playlists to a playlist grouppost
+Replace a playlist groupput
+Delete playlist groupdel
+Partner Playlists
+Retrieve playlist tagsget
+Save playlist tagspost
+Favourite playlistput
+Unfavourite playlistdel
+Interactive Radio
+About the Interactive Radio API
+Create a Listening Sessionpost
+Delete a Listening Sessiondel
+Get the next trackget
+Track Playback Eventspost
+User Management
+About the User Management API
+Create a new userget
+Subscriptions
+About the Subscriptions API
+Create a subscriptionpost
+Retrieve subscription statusget
+Purchasing
+About the Purchasing API
+Credit itemget
+User's lockerget
+Report release refunddel
+Report track refunddel
+Powered by 
+Getting started
+Copy Page
+Introduction
+The MassiveMusic API is organised around REST. Our API has predictable resource-oriented URLs and uses standard HTTP response codes, authentication, and verbs.
+Our APIs returns JSON and XML responses, dependent upon on the request header specified.
+HTTP headers
+accept: application/json
+accept: application/xml
+Access to MassiveMusic services is provided through a REST style interface.
+The base URL for the MassiveMusic API is located at the following address:
+BASE URL
+https://api.7digital.com/1.2/
+What is the MassiveMusic Platform?
+Use the MassiveMusic Platform to access music catalogue data, deliver audio and artwork, and support playback, reporting, and enrichment workflows in your product.
+Problem it solves
+The platform gives you a single REST API surface for working with catalogue, delivery, playback, and reporting services instead of building separate integrations for each capability.
+Who it's for
+The platform is for developers building music-enabled products and services that need to work with catalogue data, audio delivery, streaming, reporting, or metadata enrichment.
+What you can build
+You can use the platform to build:
+Download services
+Streaming services
+Subscription streaming services
+Interactive radio streaming services
+Background music services
+Fitness services
+Social media services
+Content delivery services
+Applications that use catalogue events, standard metadata, enhanced metadata, artwork, or embedding data
+📘
+References to 7digital
+Please note MassiveMusic previously traded as 7digital and all API endpoints operate under 7digital domains. These URLs are all valid and part of the current production platform. There are currently no plans to migrate to a different domain.
+Updated 6 months ago 
+Authentication
+Did this page help you?
+Yes
+No
+Updated 6 months ago 
+Authentication
+Did this page help you?
+Yes
+No

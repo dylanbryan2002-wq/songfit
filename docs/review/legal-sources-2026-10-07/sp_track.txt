@@ -1,0 +1,523 @@
+Web API Reference | Spotify for Developers
+Skip to content
+Documentation
+DocumentationProducts
+Web API
+Web Playback SDK
+Ads API
+iOS
+Android
+Embeds
+Commercial Hardware
+Open Access
+Spotify SoloistGuidelines
+Design
+Accessibility
+Legal
+Community
+0
+Documentation
+DocumentationProducts
+Web API
+Web Playback SDK
+Ads API
+iOS
+Android
+Embeds
+Commercial Hardware
+Open Access
+Spotify SoloistGuidelines
+Design
+Accessibility
+Legal
+Community
+Web API
+Overview
+Getting started
+Building with AI
+ConceptsConceptsConcepts
+Access Token
+API calls
+Apps
+Authorization
+Redirect URIs
+Playlists
+Quota modes
+Rate limits
+Scopes
+Spotify URIs and IDs
+Track Relinking
+TutorialsTutorialsTutorials
+Authorization code
+Authorization code PKCE
+Client credentials
+Implicit grant [Deprecated]
+Refreshing tokens
+Migration: Implicit grant to Authorization code
+Migration: Insecure redirect URI
+Migration: February 2026 Dev Mode Changes
+How-TosHow-TosHow-Tos
+Display your Spotify profile data in a web app
+ChangelogChangelogChangelog
+July 2026
+May 2026
+March 2026
+February 2026Reference
+AlbumsAlbumsAlbums
+Get Album
+Get Several Albums
+Get Album Tracks
+Get User's Saved Albums
+Save Albums for Current User
+Remove Users' Saved Albums
+Check User's Saved Albums
+Get New Releases
+ArtistsArtistsArtists
+Get Artist
+Get Several Artists
+Get Artist's Albums
+Get Artist's Top Tracks
+Get Artist's Related Artists
+AudiobooksAudiobooksAudiobooks
+Get an Audiobook
+Get Several Audiobooks
+Get Audiobook Chapters
+Get User's Saved Audiobooks
+Save Audiobooks for Current User
+Remove User's Saved Audiobooks
+Check User's Saved Audiobooks
+CategoriesCategoriesCategories
+Get Several Browse Categories
+Get Single Browse Category
+ChaptersChaptersChapters
+Get a Chapter
+Get Several Chapters
+EpisodesEpisodesEpisodes
+Get Episode
+Get Several Episodes
+Get User's Saved Episodes
+Save Episodes for Current User
+Remove User's Saved Episodes
+Check User's Saved Episodes
+GenresGenresGenres
+Get Available Genre Seeds
+LibraryLibraryLibrary
+Save Items to Library
+Remove Items from Library
+Check User's Saved Items
+MarketsMarketsMarkets
+Get Available Markets
+PlayerPlayerPlayer
+Get Playback State
+Transfer Playback
+Get Available Devices
+Get Currently Playing Track
+Start/Resume Playback
+Pause Playback
+Skip To Next
+Skip To Previous
+Seek To Position
+Set Repeat Mode
+Set Playback Volume
+Toggle Playback Shuffle
+Get Recently Played Tracks
+Get the User's Queue
+Add Item to Playback Queue
+PlaylistsPlaylistsPlaylists
+Get Playlist
+Change Playlist Details
+Get Playlist Items [DEPRECATED]
+Update Playlist Items [DEPRECATED]
+Add Items to Playlist [DEPRECATED]
+Remove Playlist Items [DEPRECATED]
+Get Playlist Items
+Update Playlist Items
+Add Items to Playlist
+Remove Playlist Items
+Get Current User's Playlists
+Create Playlist
+Get User's Playlists
+Create Playlist for user
+Get Featured Playlists
+Get Category's Playlists
+Get Playlist Cover Image
+Add Custom Playlist Cover Image
+SearchSearchSearch
+Search for Item
+ShowsShowsShows
+Get Show
+Get Several Shows
+Get Show Episodes
+Get User's Saved Shows
+Save Shows for Current User
+Remove User's Saved Shows
+Check User's Saved Shows
+TracksTracksTracks
+Get Track
+Get Several Tracks
+Get User's Saved Tracks
+Save Tracks for Current User
+Remove User's Saved Tracks
+Check User's Saved Tracks
+Get Several Tracks' Audio Features
+Get Track's Audio Features
+Get Track's Audio Analysis
+Get Recommendations
+UsersUsersUsers
+Get Current User's Profile
+Get User's Top Items
+Get User's Profile
+Follow Playlist
+Unfollow Playlist
+Get Followed Artists
+Follow Artists or Users
+Unfollow Artists or Users
+Check If User Follows Artists or Users
+Check if Current User Follows Playlist
+Web API
+Overview
+Getting started
+Building with AI
+ConceptsConceptsConcepts
+Access Token
+API calls
+Apps
+Authorization
+Redirect URIs
+Playlists
+Quota modes
+Rate limits
+Scopes
+Spotify URIs and IDs
+Track Relinking
+TutorialsTutorialsTutorials
+Authorization code
+Authorization code PKCE
+Client credentials
+Implicit grant [Deprecated]
+Refreshing tokens
+Migration: Implicit grant to Authorization code
+Migration: Insecure redirect URI
+Migration: February 2026 Dev Mode Changes
+How-TosHow-TosHow-Tos
+Display your Spotify profile data in a web app
+ChangelogChangelogChangelog
+July 2026
+May 2026
+March 2026
+February 2026Reference
+AlbumsAlbumsAlbums
+Get Album
+Get Several Albums
+Get Album Tracks
+Get User's Saved Albums
+Save Albums for Current User
+Remove Users' Saved Albums
+Check User's Saved Albums
+Get New Releases
+ArtistsArtistsArtists
+Get Artist
+Get Several Artists
+Get Artist's Albums
+Get Artist's Top Tracks
+Get Artist's Related Artists
+AudiobooksAudiobooksAudiobooks
+Get an Audiobook
+Get Several Audiobooks
+Get Audiobook Chapters
+Get User's Saved Audiobooks
+Save Audiobooks for Current User
+Remove User's Saved Audiobooks
+Check User's Saved Audiobooks
+CategoriesCategoriesCategories
+Get Several Browse Categories
+Get Single Browse Category
+ChaptersChaptersChapters
+Get a Chapter
+Get Several Chapters
+EpisodesEpisodesEpisodes
+Get Episode
+Get Several Episodes
+Get User's Saved Episodes
+Save Episodes for Current User
+Remove User's Saved Episodes
+Check User's Saved Episodes
+GenresGenresGenres
+Get Available Genre Seeds
+LibraryLibraryLibrary
+Save Items to Library
+Remove Items from Library
+Check User's Saved Items
+MarketsMarketsMarkets
+Get Available Markets
+PlayerPlayerPlayer
+Get Playback State
+Transfer Playback
+Get Available Devices
+Get Currently Playing Track
+Start/Resume Playback
+Pause Playback
+Skip To Next
+Skip To Previous
+Seek To Position
+Set Repeat Mode
+Set Playback Volume
+Toggle Playback Shuffle
+Get Recently Played Tracks
+Get the User's Queue
+Add Item to Playback Queue
+PlaylistsPlaylistsPlaylists
+Get Playlist
+Change Playlist Details
+Get Playlist Items [DEPRECATED]
+Update Playlist Items [DEPRECATED]
+Add Items to Playlist [DEPRECATED]
+Remove Playlist Items [DEPRECATED]
+Get Playlist Items
+Update Playlist Items
+Add Items to Playlist
+Remove Playlist Items
+Get Current User's Playlists
+Create Playlist
+Get User's Playlists
+Create Playlist for user
+Get Featured Playlists
+Get Category's Playlists
+Get Playlist Cover Image
+Add Custom Playlist Cover Image
+SearchSearchSearch
+Search for Item
+ShowsShowsShows
+Get Show
+Get Several Shows
+Get Show Episodes
+Get User's Saved Shows
+Save Shows for Current User
+Remove User's Saved Shows
+Check User's Saved Shows
+TracksTracksTracks
+Get Track
+Get Several Tracks
+Get User's Saved Tracks
+Save Tracks for Current User
+Remove User's Saved Tracks
+Check User's Saved Tracks
+Get Several Tracks' Audio Features
+Get Track's Audio Features
+Get Track's Audio Analysis
+Get Recommendations
+UsersUsersUsers
+Get Current User's Profile
+Get User's Top Items
+Get User's Profile
+Follow Playlist
+Unfollow Playlist
+Get Followed Artists
+Follow Artists or Users
+Unfollow Artists or Users
+Check If User Follows Artists or Users
+Check if Current User Follows Playlist
+Web API •References / Tracks / Get Track
+Get Track
+ OAuth 2.0
+Get Spotify catalog information for a single track identified by its
+unique Spotify ID.
+ Important policy notes
+Spotify content may not be downloaded
+You may not facilitate downloads of Spotify content or enable “stream ripping”More information
+Keep visual content in its original form
+Spotify visual content must be kept in its original form, e.g. you can not crop album artwork, overlay images on album artwork, place a brand/logo on album artworkMore information
+Ensure content attribution
+Please keep in mind that metadata, cover art and artist images must be accompanied by a link back to the applicable artist, album, track, or playlist on the Spotify Service. You must also attribute content from Spotify with the logo.More information
+Spotify content may not be used to train machine learning or AI model
+Please note that you can not use the Spotify Platform or any Spotify Content to train a machine learning or AI model or otherwise ingesting Spotify Content into a machine learning or AI model.More information
+Request
+GET/tracks/{id}
+idstring 
+Required
+The Spotify ID
+for the track.
+Example: 11dFghVXANMlKmJXsNCbNl
+marketstring 
+An ISO 3166-1 alpha-2 country code.
+If a country code is specified, only content that is available in that market will be returned.
+If a valid user access token is specified in the request header, the country associated with
+the user account will take priority over this parameter.
+Note: If neither market or user country are provided, the content is considered unavailable for the client.
+Users can view the country that is associated with their account in the account settings.
+Example: market=ES
+Response
+200
+401
+403
+429
+A track
+albumobject 
+The album on which the track appears. The album object includes a link in href to full information about the album.
+album_typestring 
+Required
+The type of the album.
+Allowed values: "album", "single", "compilation"Example: "compilation"
+total_tracksinteger 
+Required
+The number of tracks in the album.
+Example: 9
+available_marketsarray of strings 
+Required
+Deprecated
+The markets in which the album is available: ISO 3166-1 alpha-2 country codes. NOTE: an album is considered available in a market when at least 1 of its tracks is available in that market.
+Example: ["CA","BR","IT"]
+external_urlsobject 
+Required
+Known external URLs for this album.
+spotifystring 
+The Spotify URL for the object.
+hrefstring 
+Required
+A link to the Web API endpoint providing full details of the album.
+idstring 
+Required
+The Spotify ID for the album.
+Example: "2up3OPMp9Tb4dAKM2erWXQ"
+imagesarray of ImageObject 
+Required
+The cover art for the album in various sizes, widest first.
+urlstring 
+Required
+The source URL of the image.
+Example: "https://i.scdn.co/image/ab67616d00001e02ff9ca10b55ce82ae553c8228"
+heightinteger 
+Required
+Nullable
+The image height in pixels.
+Example: 300
+widthinteger 
+Required
+Nullable
+The image width in pixels.
+Example: 300
+namestring 
+Required
+The name of the album. In case of an album takedown, the value may be an empty string.
+release_datestring 
+Required
+The date the album was first released.
+Example: "1981-12"
+release_date_precisionstring 
+Required
+The precision with which release_date value is known.
+Allowed values: "year", "month", "day"Example: "year"
+restrictionsobject 
+Included in the response when a content restriction is applied.
+reasonstring 
+The reason for the restriction. Albums may be restricted if the content is not available in a given market, to the user's subscription type, or when the user's account is set to not play explicit content.
+Additional reasons may be added in the future.
+Allowed values: "market", "product", "explicit"
+typestring 
+Required
+The object type.
+Allowed values: "album"
+uristring 
+Required
+The Spotify URI for the album.
+Example: "spotify:album:2up3OPMp9Tb4dAKM2erWXQ"
+artistsarray of SimplifiedArtistObject 
+Required
+The artists of the album. Each artist object includes a link in href to more detailed information about the artist.
+external_urlsobject 
+Known external URLs for this artist.
+spotifystring 
+The Spotify URL for the object.
+hrefstring 
+A link to the Web API endpoint providing full details of the artist.
+idstring 
+The Spotify ID for the artist.
+namestring 
+The name of the artist.
+typestring 
+The object type.
+Allowed values: "artist"
+uristring 
+The Spotify URI for the artist.
+artistsarray of SimplifiedArtistObject 
+The artists who performed the track. Each artist object includes a link in href to more detailed information about the artist.
+external_urlsobject 
+Known external URLs for this artist.
+spotifystring 
+The Spotify URL for the object.
+hrefstring 
+A link to the Web API endpoint providing full details of the artist.
+idstring 
+The Spotify ID for the artist.
+namestring 
+The name of the artist.
+typestring 
+The object type.
+Allowed values: "artist"
+uristring 
+The Spotify URI for the artist.
+available_marketsarray of strings 
+Deprecated
+A list of the countries in which the track can be played, identified by their ISO 3166-1 alpha-2 code.
+disc_numberinteger 
+The disc number (usually 1 unless the album consists of more than one disc).
+duration_msinteger 
+The track length in milliseconds.
+explicitboolean 
+Whether or not the track has explicit lyrics ( true = yes it does; false = no it does not OR unknown).
+external_idsobject 
+Known external IDs for the track.
+isrcstring 
+International Standard Recording Code
+eanstring 
+International Article Number
+upcstring 
+Universal Product Code
+external_urlsobject 
+Known external URLs for this track.
+spotifystring 
+The Spotify URL for the object.
+hrefstring 
+A link to the Web API endpoint providing full details of the track.
+idstring 
+The Spotify ID for the track.
+is_playableboolean 
+Part of the response when Track Relinking is applied. If true, the track is playable in the given market. Otherwise false.
+linked_fromobject 
+Deprecated
+Part of the response when Track Relinking is applied, and the requested track has been replaced with different track. The track in the linked_from object contains information about the originally requested track.
+restrictionsobject 
+Included in the response when a content restriction is applied.
+reasonstring 
+The reason for the restriction. Supported values:
+market - The content item is not available in the given market.
+product - The content item is not available for the user's subscription type.
+explicit - The content item is explicit and the user's account is set to not play explicit content.
+Additional reasons may be added in the future.
+Note: If you use this field, make sure that your application safely handles unknown values.
+namestring 
+The name of the track.
+popularityinteger 
+Deprecated
+The popularity of the track. The value will be between 0 and 100, with 100 being the most popular.
+The popularity of a track is a value between 0 and 100, with 100 being the most popular. The popularity is calculated by algorithm and is based, in the most part, on the total number of plays the track has had and how recent those plays are.
+Generally speaking, songs that are being played a lot now will have a higher popularity than songs that were played a lot in the past. Duplicate tracks (e.g. the same track from a single and an album) are rated independently. Artist and album popularity is derived mathematically from track popularity. Note: the popularity value may lag actual popularity by a few days: the value is not updated in real time.
+preview_urlstring 
+Nullable
+Deprecated
+A link to a 30 second preview (MP3 format) of the track. Can be null
+ Important policy note
+Spotify Audio preview clips can not be a standalone service
+Audio Preview Clips may not be offered as a standalone service or product.More information
+track_numberinteger 
+The number of the track. If an album has several discs, the track number is the number on the specified disc.
+typestring 
+The object type: "track".
+Allowed values: "track"
+uristring 
+The Spotify URI for the track.
+is_localboolean 
+Whether or not the track is from a local file.
+endpointhttps://api.spotify.com/v1/tracks/{id}idmarket
+Try it
+Response sample{ "album": { "album_type": "compilation", "total_tracks": 9, "available_markets": ["CA", "BR", "IT"], "external_urls": { "spotify": "string" }, "href": "string", "id": "2up3OPMp9Tb4dAKM2erWXQ", "images": [ { "url": "https://i.scdn.co/image/ab67616d00001e02ff9ca10b55ce82ae553c8228", "height": 300, "width": 300 } ], "name": "string", "release_date": "1981-12", "release_date_precision": "year", "restrictions": { "reason": "market" }, "type": "album", "uri": "spotify:album:2up3OPMp9Tb4dAKM2erWXQ", "artists": [ { "external_urls": { "spotify": "string" }, "href": "string", "id": "string", "name": "string", "type": "artist", "uri": "string" } ] }, "artists": [ { "external_urls": { "spotify": "string" }, "href": "string", "id": "string", "name": "string", "type": "artist", "uri": "string" } ], "available_markets": ["string"], "disc_number": 0, "duration_ms": 0, "explicit": false, "external_ids": { "isrc": "string", "ean": "string", "upc": "string" }, "external_urls": { "spotify": "string" }, "href": "string", "id": "string", "is_playable": false, "linked_from": { }, "restrictions": { "reason": "string" }, "name": "string", "popularity": 0, "preview_url": "string", "track_number": 0, "type": "track", "uri": "string", "is_local": false}

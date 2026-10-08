@@ -1,0 +1,48 @@
+
+SoundCloud Developers
+Home
+Blog
+Your Apps
+Jobs
+SoundCloud for Developers
+Discover. Connect. Build.
+01
+Building with AI
+new!
+02
+Get an API key
+new!
+03
+API Guide
+04
+Widget API
+05
+Rate Limits
+06
+Support
+07
+Buttons & Logos
+08
+Terms of Use
+Backstage blog
+Integrate
+Connect your platform to millions of tracks. Build applications
+that enable users to upload, play, and engage with content via
+our API and customizable player.
+GET STARTED WITH THE API
+SEE THE BRANDING KIT
+EXPLORE THE EMBEDDED PLAYER
+Stay in sync
+Keep your integration running smoothly. Track every update,
+contribute to the open-source community, and find solutions
+to common technical hurdles.
+VIEW THE API CHANGELOG
+REPORT AN ISSUE ON GITHUB
+SEARCH STACK OVERFLOW
+Follow us
+Status
+Privacy
+Cookies
+Competition Terms
+Cookie Manager
+Imprint

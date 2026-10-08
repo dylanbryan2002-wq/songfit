@@ -277,3 +277,11 @@ distinct songs were dropped as unverified, most of them famous.
   "may not be used separately from music playback". The Apple plan is withdrawn
   (docs/review/15). Licensed samples for the US-gap artists need a B2B licence (7digital or similar)
   or written permission.
+- **Licensing options, verified from the live terms on 2026-10-07 (docs/review/16-licensing-options.md,
+  sources in docs/review/legal-sources-2026-10-07/):** no self-serve provider allows playing a
+  preview while the creator's video plays (Spotify "Do not synchronize any sound recordings with any
+  visual media"; TIDAL same; Apple iTunes "not … synchronized with video"; Apple MusicKit "cannot be
+  synchronized"; SoundCloud requires sync licences; Deezer non-commercial). Compliant now: samples on
+  their own via the iTunes Search API with badge + "provided courtesy of iTunes"; verification via
+  MusicBrainz (+iTunes); deep links. Licensed audition-over-video = MassiveMusic (ex-7digital) +
+  publishing administrator, weeks + contract.

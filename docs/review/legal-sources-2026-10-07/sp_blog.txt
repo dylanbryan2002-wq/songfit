@@ -1,0 +1,75 @@
+Introducing some changes to our Web API | Spotify for Developers
+Skip to content
+Documentation
+DocumentationProducts
+Web API
+Web Playback SDK
+Ads API
+iOS
+Android
+Embeds
+Commercial Hardware
+Open Access
+Spotify SoloistGuidelines
+Design
+Accessibility
+Legal
+Community
+0
+Documentation
+DocumentationProducts
+Web API
+Web Playback SDK
+Ads API
+iOS
+Android
+Embeds
+Commercial Hardware
+Open Access
+Spotify SoloistGuidelines
+Design
+Accessibility
+Legal
+Community
+Introducing some changes to our Web API
+Posted November 27, 2024
+Spotify
+Since our last broader update on the Community platform, we continue to see new integrations made through Spotify’s APIs and SDKs. We’re excited about the continued engagement we’re seeing to learn, experiment, innovate, and deliver unique experiences with Spotify.
+As we continue to review the experience provided on Spotify for Developers, we've decided to roll out a number of measures with the aim of creating a more secure platform.
+Web API endpoint integration
+Effective today, new Web API use cases will no longer be able to access or use the following endpoints and functionality in their third-party applications. Applications with existing extended mode Web API access that were relying on these endpoints remain unaffected by this change.
+Related Artists
+Recommendations
+Audio Features
+Audio Analysis
+Get Featured Playlists
+Get Category's Playlists
+30-second preview URLs, in multi-get responses (SimpleTrack object)
+Algorithmic and Spotify-owned editorial playlists
+These changes will impact the following Web API applications:
+Existing apps that are still in development mode without a pending extension request
+New apps that are registered on or after today's date
+What’s next?
+Third party integrations continue to play an important role in the way users can experience the Spotify experience through third party apps. We evaluate the set up of our platform on an ongoing basis and remain committed to ensuring it provides the best possible opportunities for developers, artists, creators and listeners.
+Our forum remains open to any feedback.
+Footer
+Documentation
+Web API
+Web Playback SDK
+Ads API
+iOS
+Android
+Embeds
+Commercial Hardware
+Guidelines
+Design
+Accessibility
+Community
+News
+Forum
+Legal
+Developer Terms
+Developer Policy
+Compliance Tips
+Third Party Licenses
+LegalCookies© 2026 Spotify AB
