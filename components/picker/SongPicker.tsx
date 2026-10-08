@@ -20,10 +20,13 @@ const RETRY_NOTE = "Sample didn't load. Tap play to try again.";
 export function SongPicker({
   data,
   videoUrl,
+  vibeLine,
   onAllRejected,
 }: {
   data: PickerData;
   videoUrl: string;
+  /** Read-only echo of the creator's vibe tags, shown under the video. */
+  vibeLine?: string | null;
   onAllRejected?: () => void;
 }) {
   const id = data.submission_id;
@@ -198,6 +201,7 @@ export function SongPicker({
         />
 
         <SongSheet hint={!chosenMode}>
+          {vibeLine && <p className="px-2 pb-2 text-[13px] text-muted">{vibeLine}</p>}
           {playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
             <p className="px-2 pb-2 text-[13px] text-muted">
               Only the first {formatTime(pb.loopLength)} of your video plays with this sample.

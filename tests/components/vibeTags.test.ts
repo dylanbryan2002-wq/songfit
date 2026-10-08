@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toggleVibeTag } from "@/components/vibeTags";
+import { toggleVibeTag, vibeLine } from "@/components/vibeTags";
 
 describe("toggleVibeTag", () => {
   it("adds in display order and removes on a second tap", () => {
@@ -13,5 +13,12 @@ describe("toggleVibeTag", () => {
     const three = ["Funny", "Deep", "Travel"];
     expect(toggleVibeTag(three, "Romantic")).toBe(three);
     expect(toggleVibeTag(three, "Deep")).toEqual(["Funny", "Travel"]);
+  });
+});
+
+describe("vibeLine", () => {
+  it("joins tags with a middle dot, and is null without tags", () => {
+    expect(vibeLine(["Funny", "Day in the Life"])).toBe("For your Funny · Day in the Life video");
+    expect(vibeLine([])).toBeNull();
   });
 });

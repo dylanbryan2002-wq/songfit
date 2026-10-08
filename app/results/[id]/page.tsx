@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCreator, isAdmin } from "@/src/auth/session";
-import { getSubmission, markSubmissionViewed } from "@/src/db/queries/submissions";
+import { getSubmission, markSubmissionViewed, type SubmissionVibeColumns } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
 import { loadPicker } from "@/src/feedback/picker";
 import { getSignedPlaybackUrl } from "@/src/media/storage";
@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { WaitingState } from "@/components/WaitingState";
 import { SongPicker } from "@/components/picker/SongPicker";
+import { vibeLine } from "@/components/vibeTags";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,12 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
         </Link>
       </header>
       {picker && videoUrl ? (
-        <SongPicker data={picker} videoUrl={videoUrl} />
+        <SongPicker
+          data={picker}
+          videoUrl={videoUrl}
+          // Cast until `pnpm db:types` includes 0008_vibe.sql.
+          vibeLine={vibeLine((submission as Partial<SubmissionVibeColumns>).vibe_tags ?? [])}
+        />
       ) : (
         <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} />
       )}
