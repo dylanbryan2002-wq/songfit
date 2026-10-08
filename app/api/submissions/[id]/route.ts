@@ -1,15 +1,27 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { getCreator, isAdmin } from "@/src/auth/session";
-import { getSubmission } from "@/src/db/queries/submissions";
+import { getSubmission, listRecentReadyTimings } from "@/src/db/queries/submissions";
 import { runSubmission } from "@/src/pipeline/run";
+import { etaSeconds, stageMedians, type StageMedians } from "@/src/shared/eta";
 import { isUuid } from "@/src/shared/ids";
 import { isStaleInFlight } from "@/src/shared/inFlight";
 import { logger } from "@/src/shared/logger";
+import { SubmissionStatus } from "@/src/shared/types";
 
 // A stale run is restarted inside this request via waitUntil, so the poll needs the full budget.
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
+
+// Stage medians from recent runs, kept for a minute so every poll doesn't re-read them.
+const MEDIANS_TTL_MS = 60_000;
+let medians: { at: number; value: StageMedians } | null = null;
+
+async function recentMedians(now: number): Promise<StageMedians> {
+  if (medians && now - medians.at < MEDIANS_TTL_MS) return medians.value;
+  medians = { at: now, value: stageMedians(await listRecentReadyTimings(20)) };
+  return medians.value;
+}
 
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const creator = await getCreator();
@@ -29,9 +41,20 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     waitUntil(runSubmission(id).catch((err) => logger.error("pipeline.unhandled", { submissionId: id, err: String(err) })));
   }
 
+  // A time-left estimate is a nicety: if it can't be computed the poll still answers.
+  let eta: number | null = null;
+  try {
+    const now = Date.now();
+    const status = SubmissionStatus.parse(submission.status);
+    eta = etaSeconds({ ...submission, status }, await recentMedians(now), now);
+  } catch (err) {
+    logger.warn("eta.failed", { submissionId: id, err: String(err) });
+  }
+
   // Status only: the results page loads the picker server-side once ready.
   return NextResponse.json({
     status: submission.status,
     error: submission.status === "failed" ? "failed" : null, // never the raw message
+    etaSeconds: eta,
   });
 }

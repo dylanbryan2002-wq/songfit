@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const m = vi.hoisted(() => ({ getCreator: vi.fn(), getSubmission: vi.fn(), runSubmission: vi.fn(), waitUntil: vi.fn() }));
+const m = vi.hoisted(() => ({
+  getCreator: vi.fn(),
+  getSubmission: vi.fn(),
+  listRecentReadyTimings: vi.fn(),
+  runSubmission: vi.fn(),
+  waitUntil: vi.fn(),
+}));
 vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator, isAdmin: () => false }));
-vi.mock("@/src/db/queries/submissions", () => ({ getSubmission: m.getSubmission }));
+vi.mock("@/src/db/queries/submissions", () => ({
+  getSubmission: m.getSubmission,
+  listRecentReadyTimings: m.listRecentReadyTimings,
+}));
 vi.mock("@/src/pipeline/run", () => ({ runSubmission: m.runSubmission }));
 vi.mock("@vercel/functions", () => ({ waitUntil: m.waitUntil }));
 
@@ -13,11 +22,13 @@ const call = (id = ID) => GET(new Request("http://x"), { params: Promise.resolve
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 const sub = (status: string, updatedMin = 1, creator_id = "c1") => ({
   id: ID, creator_id, status, error: status === "failed" ? "raw boom" : null, updated_at: minutesAgo(updatedMin),
+  created_at: minutesAgo(updatedMin), analyzed_at: null,
 });
 
 beforeEach(() => {
   m.getCreator.mockReset().mockResolvedValue({ id: "c1", email: "a@b.co" });
   m.getSubmission.mockReset().mockResolvedValue(sub("analyzing"));
+  m.listRecentReadyTimings.mockReset().mockResolvedValue([]);
   m.runSubmission.mockReset().mockResolvedValue(undefined);
   m.waitUntil.mockReset();
 });
@@ -33,11 +44,23 @@ describe("GET /api/submissions/[id]", () => {
     m.getCreator.mockResolvedValue(null);
     expect((await call()).status).toBe(401);
   });
-  it("returns status and error only, never the raw message", async () => {
+  it("returns status, error and eta only, never the raw message", async () => {
     m.getSubmission.mockResolvedValue(sub("ready", 30));
-    expect(await (await call()).json()).toEqual({ status: "ready", error: null });
+    expect(await (await call()).json()).toEqual({ status: "ready", error: null, etaSeconds: 0 });
     m.getSubmission.mockResolvedValue(sub("failed", 30));
-    expect(await (await call()).json()).toEqual({ status: "failed", error: "failed" });
+    expect(await (await call()).json()).toEqual({ status: "failed", error: "failed", etaSeconds: null });
+  });
+  it("estimates the time left from recent runs (fallback medians with no history)", async () => {
+    m.getSubmission.mockResolvedValue({ ...sub("analyzing"), created_at: new Date(Date.now() - 25_000).toISOString() });
+    const { etaSeconds } = await (await call()).json();
+    expect(etaSeconds).toBeGreaterThanOrEqual(159); // 75 - 25 + 110
+    expect(etaSeconds).toBeLessThanOrEqual(161);
+  });
+  it("etaSeconds is null, not an error, when it cannot be estimated", async () => {
+    m.getSubmission.mockResolvedValue({ ...sub("analyzing"), created_at: null });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json()).etaSeconds).toBeNull();
   });
   it("does not restart a fresh in-flight run", async () => {
     await call();

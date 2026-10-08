@@ -181,3 +181,17 @@ export async function countSubmissionsSince(creatorId: string, sinceIso: string)
   if (error) throw error;
   return count ?? 0;
 }
+
+/** Stage timestamps of the most recent finished runs, for the waiting screen's time-left estimate. */
+export async function listRecentReadyTimings(
+  limit = 20,
+): Promise<Pick<SubmissionRow, "created_at" | "analyzed_at" | "recommended_at">[]> {
+  const { data, error } = await createServiceClient()
+    .from("submissions")
+    .select("created_at, analyzed_at, recommended_at")
+    .eq("status", "ready")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
