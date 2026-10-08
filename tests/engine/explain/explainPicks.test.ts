@@ -1,10 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-const flags = vi.hoisted(() => ({ previews: false }));
-vi.mock("@/src/shared/config", async (orig) => {
-  const m = await orig<typeof import("@/src/shared/config")>();
-  return { ...m, get PREVIEWS_ENABLED() { return flags.previews; } };
-});
+import { describe, it, expect, vi } from "vitest";
 
 import { explainPicks, spotifySearchUrl, buildExplainPrompt } from "@/src/engine/explain/explainPicks";
 import { analysis, brief, pick } from "../fixtures";
@@ -16,38 +10,34 @@ const three = () => [
 ];
 const ok = JSON.stringify([{ rank: 1, explanation: "One." }, { rank: 2, explanation: "Two." }, { rank: 3, explanation: "Three." }]);
 
-beforeEach(() => { flags.previews = false; });
-
 describe("explainPicks", () => {
-  it("attaches three explanations and spotify urls from canonical names; no iTunes calls when previews are off", async () => {
+  it("attaches three explanations and spotify urls from canonical names", async () => {
     const call = vi.fn(async () => ok);
-    const itunes = vi.fn(async () => null);
-    const out = await explainPicks(three(), analysis, brief, { call, itunes });
+    const out = await explainPicks(three(), analysis, brief, { call });
     expect(out.map((r) => r.explanation)).toEqual(["One.", "Two.", "Three."]);
     expect(out[0]!.spotify_url).toBe("https://open.spotify.com/search/" + encodeURIComponent("Song 1 Canon Artist"));
     expect(out[0]!.spotify_url).toBe(spotifySearchUrl("Song 1", "Canon Artist"));
-    expect(itunes).not.toHaveBeenCalled();
     expect(call).toHaveBeenCalledTimes(1);
   });
-  it("asks iTunes only for picks missing a preview when enabled; failures never block", async () => {
-    flags.previews = true;
-    const itunes = vi.fn(async (title: string) => {
-      if (title === "Song 2") return { itunesId: "99", previewUrl: "https://i.m4a" };
-      throw new Error("boom");
-    });
-    const out = await explainPicks(three(), analysis, brief, { call: async () => ok, itunes });
-    expect(out[1]).toMatchObject({ preview_url: "https://i.m4a", itunes_id: "99" });
-    expect(out[2]).toMatchObject({ preview_url: "https://d.mp3", itunes_id: null });
-    expect(itunes.mock.calls.map((c) => c[0])).toEqual(["Song 1", "Song 2"]);
+  it("passes the pick's Deezer preview and verification itunes_id through unchanged (previews are Deezer-only)", async () => {
+    const picks = [
+      ...three().slice(0, 2),
+      pick({ rank: 3, verified_via: "itunes", deezer_id: null, itunes_id: "55", deezer_url: null, preview_url: null, title: "Hello", canonical_title: "Hello" }),
+    ];
+    const out = await explainPicks(picks, analysis, brief, { call: async () => ok });
+    expect(out.map((r) => r.preview_url)).toEqual([null, null, null]);
+    expect(out.map((r) => r.itunes_id)).toEqual([null, null, "55"]);
+    const withPreview = await explainPicks(three(), analysis, brief, { call: async () => ok });
+    expect(withPreview[2]).toMatchObject({ preview_url: "https://d.mp3", itunes_id: null });
   });
   it("retries once when a rank is missing, then throws", async () => {
     const call = vi.fn(async () => JSON.stringify([{ rank: 1, explanation: "One." }]));
-    await expect(explainPicks(three(), analysis, brief, { call, itunes: async () => null })).rejects.toThrow(/explanation output invalid/);
+    await expect(explainPicks(three(), analysis, brief, { call })).rejects.toThrow(/explanation output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
   });
   it("recovers when the retry is valid", async () => {
     const call = vi.fn().mockResolvedValueOnce("[]").mockResolvedValueOnce(ok);
-    const out = await explainPicks(three(), analysis, brief, { call, itunes: async () => null });
+    const out = await explainPicks(three(), analysis, brief, { call });
     expect(out).toHaveLength(3);
   });
   it("tells the model about alignment only where it happened", () => {

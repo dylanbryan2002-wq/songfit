@@ -1,11 +1,10 @@
 import { z } from "zod";
 import { DIMENSIONS, type FinalRecommendation, type MusicBrief, type Pick, type VideoAnalysis } from "@/src/shared/types";
-import { MODELS, PREVIEWS_ENABLED } from "@/src/shared/config";
+import { MODELS } from "@/src/shared/config";
 import { callClaude, type ClaudeCall } from "@/src/shared/anthropic";
 import { extractJson } from "@/src/shared/json";
 import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
-import { findItunesPreview } from "@/src/engine/catalog/itunes";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 
 export const PROMPT_VERSION = "explain-v1";
@@ -71,22 +70,12 @@ export function parseExplanations(
 
 export async function explainPicks(
   picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief,
-  deps: { call?: ClaudeCall; ctx?: StageCtx; itunes?: typeof findItunesPreview } = {},
+  deps: { call?: ClaudeCall; ctx?: StageCtx } = {},
 ): Promise<FinalRecommendation[]> {
   const call = deps.call ?? callClaude;
-  const itunes = deps.itunes ?? findItunesPreview;
   const ranks = picks.map((p) => p.rank);
   const user = buildExplainPrompt(picks, analysis, brief);
   const timeoutMs = () => remainingBudget(deps.ctx);
-
-  // Previews are optional: only for picks missing one, only when enabled; lookup never throws.
-  const previewsP = Promise.all(
-    picks.map((p) =>
-      PREVIEWS_ENABLED && p.preview_url == null
-        ? itunes(p.canonical_title, p.canonical_artist).catch(() => null)
-        : Promise.resolve(null),
-    ),
-  );
 
   const started = Date.now();
   const first = await call({ model: MODELS.explain, system: SYSTEM, user, maxTokens: 1500, timeoutMs: timeoutMs() });
@@ -103,16 +92,11 @@ export async function explainPicks(
   }
   logger.info("explain", { ms: Date.now() - started, promptVersion: PROMPT_VERSION });
 
-  const previews = await previewsP;
+  // Previews are Deezer-only (C1 ruling): preview_url and itunes_id come from verification as-is.
   const byRank = parsed.byRank;
-  return picks.map((p, i) => {
-    const it = previews[i] ?? null;
-    return {
-      ...p,
-      explanation: byRank.get(p.rank)!,
-      spotify_url: spotifySearchUrl(p.canonical_title, p.canonical_artist),
-      itunes_id: it?.itunesId ?? null,
-      preview_url: p.preview_url ?? it?.previewUrl ?? null,
-    };
-  });
+  return picks.map((p) => ({
+    ...p,
+    explanation: byRank.get(p.rank)!,
+    spotify_url: spotifySearchUrl(p.canonical_title, p.canonical_artist),
+  }));
 }

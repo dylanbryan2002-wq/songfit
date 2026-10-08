@@ -28,9 +28,10 @@ each entry, link sources. Used to make engine and data decisions.
 - Source: https://providers.apievangelist.com/providers/deezer/ ,
   https://minim.readthedocs.io/en/dev/api-ref/minim.api.deezer.DeezerAPIClient.html
 
-### iTunes Search API — preview fallback
+### iTunes Search API — verification fallback (not a preview source)
 - Free, no auth, stable 30 s `previewUrl`, `trackTimeMillis`, artwork.
-- ~20 calls / minute, so only use it for the final 3, not for 75 candidates.
+- ~20 calls / minute: paced at one per 3 s, at most 12 Deezer misses per run (C1).
+- 2026-10-07 ruling: previews are Deezer-only; iTunes `previewUrl` is never read or stored.
 - Source: https://performance-partners.apple.com/resources/documentation/itunes-store-web-service-search-api/
 
 ### Trend data: what is legitimately available
@@ -90,8 +91,8 @@ each entry, link sources. Used to make engine and data decisions.
 1. Verification provider = Deezer. Spotify dev app is no longer a setup step.
 2. Candidate rows store `deezer_id`, `itunes_id` (nullable), `spotify_url`
    (constructed search link). Catalog `songs` table gets the same.
-3. Preview on results page = Deezer preview, iTunes fallback, fetched for
-   the final 3 only.
+3. Preview on results page = Deezer preview only (iTunes fallback dropped
+   2026-10-07, C1 ruling), fetched for the final 3 only.
 4. Trend signals: manual list this week; Instagram Audio API is the first
    automated feed to add after launch.
 
@@ -150,8 +151,8 @@ summarised in docs/superpowers/specs/2026-10-07-song-picker-design.md):
   (0:44–1:00) sits just before the real chorus (~1:09), so the clip may be a better guide than the
   model's timestamp. Future idea: Whisper-timestamp the clip to anchor the section more precisely.
 - iTunes `previewUrl`: 30 s M4A, CORS unconfirmed for the audio host, terms say previews are
-  promotional only and must not be "synchronized with other media". Fallback only, with the
-  "provided courtesy of iTunes" line and a store link.
+  promotional only and must not be "synchronized with other media". Not used: previews are
+  Deezer-only (C1 ruling, 2026-10-07).
 - Spotify Embed iFrame API: `loadEntity`/`play`/`seek` exist, but mobile browsers get the preview
   length only, and track ids need a Web API app. Not used.
 - Apple MusicKit JS: full songs for subscribers; needs the $99 Developer Program, a MusicKit key and a
