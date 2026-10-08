@@ -66,6 +66,8 @@ export function SongRow(p: Props) {
               {p.sounding && <Equaliser />}
             </span>
             <span className="mt-0.5 block truncate text-[15px] text-muted">{row.artist}</span>
+            {/* Every pick had a sample at verification; this only shows when the Deezer refresh failed. */}
+            {!p.hasSample && <span className="mt-0.5 block text-[12px] text-muted">Sample unavailable right now</span>}
             <span className="mt-1.5 inline-block rounded-full bg-canvas px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink/70">
               {row.direction_label}
             </span>
@@ -73,7 +75,7 @@ export function SongRow(p: Props) {
         </button>
 
         <div className="flex shrink-0 items-center gap-2">
-          {p.hasSample ? (
+          {p.hasSample && (
             <button
               type="button"
               onClick={toggle}
@@ -82,8 +84,6 @@ export function SongRow(p: Props) {
             >
               {p.playing ? <PauseIcon /> : <PlayIcon />}
             </button>
-          ) : (
-            <span className="rounded-full bg-canvas px-2.5 py-1 text-[11px] font-medium text-muted">No sample</span>
           )}
           {p.showActions && (
             <>

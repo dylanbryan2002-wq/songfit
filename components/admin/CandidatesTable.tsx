@@ -22,7 +22,8 @@ export function CandidatesTable({ rows }: { rows: CandidateRow[] }) {
                 <td className="p-1" title={`${r.section_reason} / ${r.fit_reason}`}>{r.canonical_title ?? r.title} — {r.canonical_artist ?? r.artist}</td>
                 {/* "current" is the model's belief about recent popularity, not a measured trend (I9). */}
                 <td className="p-1">{(r.directions ?? []).map((d) => (d === "current" ? "current (unverified)" : d)).join(", ")}</td>
-                <td className="p-1">{r.verified ? "yes" : "no"}</td>
+                {/* An unverified row with a deezer_id matched on Deezer but had no sample (samples-only rule). */}
+                <td className="p-1">{r.verified ? "yes" : r.deezer_id ? "no sample" : "no"}</td>
                 <td className="p-1">{formatTime(Number(r.anchor_seconds))}</td>
                 <td className="p-1">{formatTime(Number(r.proposed_start))}–{formatTime(Number(r.proposed_end))}</td>
                 <td className="p-1 font-mono">{r.total_score === null ? "—" : Number(r.total_score).toFixed(2)}</td>

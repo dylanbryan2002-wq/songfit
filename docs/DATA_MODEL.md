@@ -82,9 +82,9 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | song_id           | uuid        | nullable, → songs ON DELETE SET NULL (catalog, later) |
 | title             | text        |                                                    |
 | artist            | text        |                                                    |
-| deezer_id         | text        | nullable; set when verified via Deezer             |
+| deezer_id         | text        | nullable; set when verified via Deezer, and on an unverified row whose Deezer match had no sample (no_sample) |
 | duration_seconds  | numeric     | nullable, from the verifying provider              |
-| verified          | boolean     | false = dropped, never shown                       |
+| verified          | boolean     | true only for a Deezer match with a 30 s preview (samples-only rule, 2026-10-07); false = dropped, never shown |
 | proposed_start    | numeric     | seconds                                            |
 | proposed_end      | numeric     | seconds                                            |
 | anchor_seconds    | numeric     | the model's claimed musical hit inside the window   |
@@ -96,9 +96,9 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | canonical_artist  | text        | nullable, provider's artist verbatim                |
 | artwork_url       | text        | nullable, from the verifying provider               |
 | deezer_url        | text        | nullable, from Deezer                               |
-| preview_url       | text        | nullable, 30s preview (only when PREVIEWS_ENABLED)  |
-| preview_source    | text        | nullable, 'deezer' or 'itunes'                      |
-| itunes_id         | text        | nullable, set only when verified via iTunes (C1); never a preview source |
+| preview_url       | text        | nullable; always set on verified rows since 2026-10-07 (snapshot, expires ~1 h; the picker re-fetches by deezer_id) |
+| preview_source    | text        | nullable, 'deezer' ('itunes' never written)          |
+| itunes_id         | text        | nullable; set only on older rows verified via the removed C1 iTunes fallback; always null for new rows |
 | source            | text        | 'model' now; 'catalog' later                        |
 | segment_id        | uuid        | nullable, → song_segments ON DELETE SET NULL (later) |
 | aligned_to_moment | numeric     | nullable, video time the anchor was aligned to      |
@@ -127,7 +127,7 @@ The ranked picks shown to the creator: up to 15 (at least 3), shown 5 at a time.
 | spotify_url     | text        | constructed search link, no API         |
 | deezer_url      | text        | nullable                                |
 | artwork_url     | text        | nullable                                |
-| preview_url     | text        | nullable, 30s Deezer or iTunes preview  |
+| preview_url     | text        | nullable, 30s Deezer preview snapshot   |
 | selected              | boolean     | default false; at most one true per submission     |
 | rejected              | boolean     | default false                                      |
 | explain_prompt_version| text        | nullable                                           |

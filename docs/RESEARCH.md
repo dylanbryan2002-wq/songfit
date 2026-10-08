@@ -228,3 +228,19 @@ distinct songs were dropped as unverified, most of them famous.
   thing, one primary CTA, a short trust line under it, policy links in the footer.
 - Decision pending (Dylan): "pick your video first, sign in at Find my songs" (file stashed in the
   browser across the OAuth redirect; zero server cost before sign-in) vs keep sign-in-first plus demo.
+
+## 2026-10-07 — Samples-only rule: no sample, no recommendation
+
+- Rule (Dylan): Songfit never recommends a song it cannot play a sample of. A candidate is
+  verified only when its Deezer match carries a 30 s `preview`. A Deezer match without one is
+  unverified (`no_sample`, stored with its `deezer_id`, shown as "no sample" in the inspector) and
+  stays excluded on regeneration.
+- The C1 iTunes fallback is removed: Apple's preview terms forbid playing its clips over a video,
+  so everything it verified reached the picker as unplayable ("Too Sweet" by Hozier as a Best fit).
+- Cost, measured today: 61 of 66 candidates verified with the fallback, about 55 without. The
+  scorer still picks 15 from ~55. Some famous songs cannot be recommended in the US until we have a
+  licensed sample source: Adele, The Killers, Hozier, Robyn, Gotye, Miley Cyrus, Björk, The Temper
+  Trap, Idina Menzel (seen today). The recommend stage loses the paced Apple calls (~100 s → ~65 s).
+- Licensed route to recover them later: Apple Music API / MusicKit (catalogue + previews under a
+  developer agreement, $99 Developer Program), see the 2026-10-07 picker notes above.
+- `scripts/probe-match2.ts` stays as the measurement probe for Deezer misses.
