@@ -4,14 +4,14 @@
 
 ## Watch (every hour on launch days)
 
-- `/admin?status=failed` — any failed submission. Read the `error` text:
+- `/admin` — failed rows are red (there is no status filter). Read the `error` text:
   - `analyze:` prefix → ffmpeg/Whisper/Claude analysis problem. Retry once. If it fails again, open the inspector and check the video plays; a corrupt or 0-byte upload is the usual cause.
   - `recommend:` prefix with "fewer than 3 verified" → the generator named songs Deezer can't find. Retry (the retry prompt carries exclusions and asks for better-known songs).
-  - Any other error → check `/admin/submissions/<id>` (inspector: analysis output, brief, candidates, final 3) for context.
+  - Any other error → check `/admin/submissions/<id>` (inspector: analysis output, brief, candidates, the 15 picks) for context.
 
-- A run stuck in `analyzing` or `recommending` for >6 minutes: open `/admin`, find the row, Retry. The claim expires after `LIMITS.inFlightStaleMinutes` so stale takeover works. If it happens >once, check Vercel logs for early function termination.
+- A run stuck in `uploaded`, `analyzing` or `recommending` for >6 minutes heals itself: the creator's waiting screen polls `GET /api/submissions/<id>`, which restarts a run untouched for `LIMITS.inFlightStaleMinutes` (log `pipeline.stale_restart`). The atomic claim stops double runs. If no one is polling, open `/admin`, find the row, Retry. If `pipeline.stale_restart` shows up more than once, check Vercel logs for early function termination.
 
-- `/admin/metrics` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless runs fail. "Couldn't find it" is the count of creators who tapped Tell us because a song was not in TikTok or Instagram; it is the miss rate for the deck, so watch it.
+- `/admin/metrics` — median upload→ready creeping past 150 s means Claude or Deezer is slow; nothing to do unless runs fail. "Couldn't find it" is the count of creators who tapped Tell us because a song was not in TikTok or Instagram; it is the miss rate for the deck, so watch it. The table lists every reported song with its report and creator counts; a song reported by 2 or more distinct creators is banned from future picks.
 
 - **Vercel Logs** — filter `error`. 504 on `/api/submissions` = function duration limit; check Project > Settings > Functions that Fluid Compute is ON.
 
@@ -25,11 +25,17 @@
 
 `/admin` (failed rows are red) → Retry. It re-runs from the failed stage. Candidates and recommendations are replaced, never duplicated.
 
+Creators can retry too: a failed run (or one still in flight after ~7 minutes on their screen) shows **Try again** (one per visit, `POST /api/submissions/<id>/retry`, owner only) and **Try another video**. Same claim, same retry-from-stage.
+
+## Daily cap
+
+Each creator can start at most `LIMITS.dailyUploadsPerCreator` (10) submissions per rolling 24 hours, on top of the 5-per-minute burst limit. `/api/upload-url` answers 429 `daily_limit`; the form says "You've used today's 10 uploads. Come back tomorrow." To lift it for someone, raise the number in `src/shared/config.ts` and redeploy.
+
 ## Fix a bad recommendation by hand
 
 Supabase Studio → Table editor:
 
-1. `recommendations` → filter `submission_id` → edit `title`, `artist`, `start_seconds`, `end_seconds`, `explanation`, `artwork_url`, `spotify_url` directly. Rank stays 1–3.
+1. `recommendations` → filter `submission_id` → edit `title`, `artist`, `start_seconds`, `end_seconds`, `explanation`, `artwork_url`, `spotify_url` directly. Ranks run 1–15 (shown 5 at a time); keep each rank unique.
 2. To swap in a different candidate: copy its row from `candidates` (same `submission_id`) into the recommendation row's fields; set `candidate_id` to that candidate's id.
 3. To build a Spotify link: `https://open.spotify.com/search/<Title>%20<Artist>`.
 
@@ -66,13 +72,7 @@ pnpm typecheck && pnpm test && pnpm build  # full gate before shipping
 
 ## Stripe (not yet enabled)
 
-Set up when the offer pages are ready:
-
-1. Create a Stripe Payment Link for annual subscriptions.
-2. Copy its signing secret to `STRIPE_WEBHOOK_SECRET` (Vercel production env).
-3. Point Stripe Webhooks to `https://thissongfits.com/api/stripe/webhook`.
-
-Until then, all creators see the `/subscribe` paywall but cannot check out.
+Not built yet: no Payment Link, no webhook route, no subscribe page. `PAYWALL_ENABLED` is `false`, so nobody is gated (migration 0006 lifts the database rule too). "Paying creators" on the metrics page stays 0 until Stripe ships.
 
 ## Manual fixes
 

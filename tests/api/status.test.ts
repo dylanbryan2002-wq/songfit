@@ -5,7 +5,6 @@ vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator, isAdmin: () => 
 vi.mock("@/src/db/queries/submissions", () => ({ getSubmission: m.getSubmission }));
 vi.mock("@/src/pipeline/run", () => ({ runSubmission: m.runSubmission }));
 vi.mock("@vercel/functions", () => ({ waitUntil: m.waitUntil }));
-vi.mock("@/src/db/queries/recommendations", () => ({ listRecommendations: async () => [] }));
 
 import { GET, maxDuration } from "@/app/api/submissions/[id]/route";
 
@@ -33,6 +32,12 @@ describe("GET /api/submissions/[id]", () => {
     expect((await call()).status).toBe(404);
     m.getCreator.mockResolvedValue(null);
     expect((await call()).status).toBe(401);
+  });
+  it("returns status and error only, never the raw message", async () => {
+    m.getSubmission.mockResolvedValue(sub("ready", 30));
+    expect(await (await call()).json()).toEqual({ status: "ready", error: null });
+    m.getSubmission.mockResolvedValue(sub("failed", 30));
+    expect(await (await call()).json()).toEqual({ status: "failed", error: "failed" });
   });
   it("does not restart a fresh in-flight run", async () => {
     await call();

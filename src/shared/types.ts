@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PICKS_TOTAL } from "./config";
 
 export const Energy = z.enum(["low", "medium", "medium-high", "high"]);
 export const Pacing = z.enum(["slow", "medium", "fast"]);
@@ -59,8 +60,8 @@ export const DIRECTION_LABEL: Record<DirectionTag, string> = {
 };
 export const BEST_FIT_LABEL = "Best fit";
 
-/** A recommendation's position, 1..15 (PICKS_TOTAL). */
-export const RankSchema = z.number().int().min(1).max(15);
+/** A recommendation's position, 1..PICKS_TOTAL. */
+export const RankSchema = z.number().int().min(1).max(PICKS_TOTAL);
 export type Rank = number;
 
 export const GeneratedCandidate = z.object({
@@ -125,23 +126,6 @@ export const FinalRecommendation = Pick.extend({
   itunes_id: z.string().nullable(),
 });
 export type FinalRecommendation = z.infer<typeof FinalRecommendation>;
-
-/** The ONLY shape sent to the browser. No scores, reasons, directions or provider internals. */
-export const RecommendationView = z.object({
-  rank: RankSchema,
-  direction_label: z.string(),
-  title: z.string(),
-  artist: z.string(),
-  start_seconds: z.number(),
-  end_seconds: z.number(),
-  explanation: z.string(),
-  artwork_url: z.string().nullable(),
-  preview_url: z.string().nullable(),
-  spotify_url: z.string(),
-  selected: z.boolean(),
-  rejected: z.boolean(),
-});
-export type RecommendationView = z.infer<typeof RecommendationView>;
 
 /** Song-picker row. `preview_url` is filled per request by loadPicker and never stored (Deezer terms). */
 export const PickerRow = z.object({

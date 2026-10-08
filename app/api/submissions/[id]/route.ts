@@ -1,9 +1,7 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { getCreator, isAdmin } from "@/src/auth/session";
-import { listRecommendations } from "@/src/db/queries/recommendations";
 import { getSubmission } from "@/src/db/queries/submissions";
-import { toRecommendationView } from "@/src/feedback/recommendationView";
 import { runSubmission } from "@/src/pipeline/run";
 import { isUuid } from "@/src/shared/ids";
 import { isStaleInFlight } from "@/src/shared/inFlight";
@@ -31,12 +29,9 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     waitUntil(runSubmission(id).catch((err) => logger.error("pipeline.unhandled", { submissionId: id, err: String(err) })));
   }
 
-  const recommendations =
-    submission.status === "ready" ? (await listRecommendations(id)).map(toRecommendationView) : [];
-
+  // Status only: the results page loads the picker server-side once ready.
   return NextResponse.json({
     status: submission.status,
     error: submission.status === "failed" ? "failed" : null, // never the raw message
-    recommendations,
   });
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { VideoAnalysis, MusicBrief, GeneratedCandidate, VerifiedCandidate, RecommendationView, DIRECTION_LABEL, BEST_FIT_LABEL, RankSchema } from "@/src/shared/types";
+import { VideoAnalysis, MusicBrief, GeneratedCandidate, VerifiedCandidate, PickerRow, DIRECTION_LABEL, BEST_FIT_LABEL, RankSchema } from "@/src/shared/types";
+import { PICKS_TOTAL } from "@/src/shared/config";
 
 const validAnalysis = {
   summary: "Creator walks through NYC at night and reveals an outfit.",
@@ -92,13 +93,15 @@ describe("VerifiedCandidate schema (samples-only rule)", () => {
   });
 });
 
-describe("RecommendationView schema", () => {
+describe("PickerRow schema (the browser shape)", () => {
   it("has no score or reason fields", () => {
-    const keys = Object.keys(RecommendationView.shape).sort();
+    const keys = Object.keys(PickerRow.shape).sort();
     expect(keys).toEqual(
       [
         "artwork_url",
         "artist",
+        "deezer_id",
+        "deezer_url",
         "direction_label",
         "end_seconds",
         "explanation",
@@ -124,7 +127,8 @@ describe("DIRECTION_LABEL", () => {
     expect(BEST_FIT_LABEL).toBe("Best fit");
     expect(Object.values(DIRECTION_LABEL)).not.toContain(BEST_FIT_LABEL);
   });
-  it("ranks run 1..15, integers only", () => {
+  it("ranks run 1..PICKS_TOTAL, integers only", () => {
+    expect(PICKS_TOTAL).toBe(15);
     for (const r of [1, 8, 15]) expect(RankSchema.safeParse(r).success).toBe(true);
     for (const r of [0, 16, 1.5, "1"]) expect(RankSchema.safeParse(r).success).toBe(false);
   });

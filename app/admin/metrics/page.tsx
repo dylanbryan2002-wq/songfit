@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/src/auth/session";
 import { getMetrics } from "@/src/db/queries/metrics";
-import { countReports, listNotFoundSongs } from "@/src/db/queries/notFound";
+import { countReports, listNotFoundReports } from "@/src/db/queries/notFound";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ function secs(v: number | null) {
 
 export default async function MetricsPage() {
   await requireAdmin();
-  const [m, reports] = await Promise.all([getMetrics(), listNotFoundSongs().catch(() => [])]);
+  const [m, reports] = await Promise.all([getMetrics(), listNotFoundReports().catch(() => [])]);
   const reported = countReports(reports);
   const notFound = m.eventCounts.find((e) => e.name === "song_not_found")?.count ?? 0;
   return (
@@ -43,11 +43,11 @@ export default async function MetricsPage() {
         <h2 className="mb-2 font-medium">Couldn&apos;t find it</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-left"><th>Title</th><th>Artist</th><th>Reports</th></tr></thead>
+            <thead><tr className="text-left"><th>Title</th><th>Artist</th><th>Reports</th><th>Creators</th></tr></thead>
             <tbody>
-              {reported.length === 0 && <tr className="border-t"><td colSpan={3}>None yet</td></tr>}
+              {reported.length === 0 && <tr className="border-t"><td colSpan={4}>None yet</td></tr>}
               {reported.map((r) => (
-                <tr key={r.key} className="border-t"><td>{r.title}</td><td>{r.artist}</td><td>{r.reports}</td></tr>
+                <tr key={r.key} className="border-t"><td>{r.title}</td><td>{r.artist}</td><td>{r.reports}</td><td>{r.creators}</td></tr>
               ))}
             </tbody>
           </table>
