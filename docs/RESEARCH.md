@@ -271,3 +271,9 @@ distinct songs were dropped as unverified, most of them famous.
   (Hozier "Too Sweet", Adele "Someone Like You", The Killers "Mr. Brightside", Robyn "Dancing On My
   Own"). Results also list "(Mixed)" and remix/demo versions, so the exact-then-loose matcher must
   prefer the plain studio recording. Probe: `pnpm local scripts/probe-apple.ts`.
+- **Apple Music API: NOT usable for Songfit's samples (2026-10-07, Codex C1, verified in the DPLA
+  §3.3.6(D)):** MusicKit Content "cannot be synchronized with any other content", playback must offer
+  full songs with standard controls, and access may not be indirectly monetized; even artwork/text
+  "may not be used separately from music playback". The Apple plan is withdrawn
+  (docs/review/15). Licensed samples for the US-gap artists need a B2B licence (7digital or similar)
+  or written permission.

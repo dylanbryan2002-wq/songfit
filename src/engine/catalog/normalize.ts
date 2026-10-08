@@ -106,7 +106,7 @@ const X_SPLIT_RE = /\s+x\s+/i;
 const DESCRIPTOR_START_RE = /\s+[(\[]|\s+[-–—]\s+/;
 // "Soundtrack Version" is the original film recording, not a variant: the one exception to "version".
 export const DISQUALIFYING_DESCRIPTOR =
-  /\b(live|remix|mix|dub|edit|acoustic|instrumental|karaoke|cover|tribute|sped|slowed|nightcore|demo|outtakes?|sessions?|rehearsal|originally|ringtone|8-bit|lullaby|reprise|radio|club|extended|(?<!soundtrack )version)\b/i;
+  /\b(live|remix|mix|mixed|dub|edit|acoustic|instrumental|karaoke|cover|tribute|sped|slowed|nightcore|demo|outtakes?|sessions?|rehearsal|originally|ringtone|8-bit|lullaby|reprise|radio|club|extended|(?<!soundtrack )version)\b/i;
 
 /** Every credited artist, normalised: "Post Malone & Swae Lee" → ["post malone", "swae lee"]. */
 export function artistList(a: string): string[] {
