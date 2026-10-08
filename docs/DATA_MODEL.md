@@ -31,6 +31,8 @@ A creator's upload and its pipeline state.
 | playback_path     | text        | nullable, storage path of the H.264 mp4 playback copy (`<creator>/<submission>.playback.mp4`, next to the original); null when the transcode failed, was skipped, or has not run. Results page plays it when set |
 | duration_seconds  | numeric     | nullable until probed                             |
 | creator_intent    | text        | nullable, "what do you want this to feel like"    |
+| vibe_tags         | text[]      | not null default '{}'; creator-picked chips, each one of VIBE_TAGS (`src/shared/vibe.ts`) |
+| vibe_note         | text        | nullable, "Anything else?" (trimmed, ≤ 140 chars)   |
 | content_category  | text        | nullable, set by analysis; used for niche metrics |
 | status            | text        | see Status                                        |
 | error             | text        | nullable, last failure message                    |
@@ -177,6 +179,7 @@ landing_viewed               metadata.flow_id  (creator_id null; signed-out land
 video_chosen                 metadata.flow_id  (creator_id null; a valid video chosen before sign-in)
 sign_in_started              metadata.flow_id  (creator_id null; "Continue with Google" tapped, file kept on device)
 sign_in_completed            metadata.flow_id  (creator set; back from Google and the kept file was found)
+vibe_set                     metadata.tags, metadata.has_note  (at submission creation, only when tags or note are non-empty)
 ```
 
 RLS: service role only.
