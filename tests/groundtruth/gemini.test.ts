@@ -11,7 +11,7 @@ const reply = readFileSync("tests/groundtruth/fixtures/gemini-reply.md", "utf8")
 describe("GEMINI_PROMPT", () => {
   it("is the file Dylan pastes, says it is a screen recording, and lists every content category", () => {
     expect(GEMINI_PROMPT).toBe(readFileSync("scripts/groundtruth/GEMINI_PROMPT.md", "utf8"));
-    expect(GEMINI_PROMPT).toMatch(/screen recording/);
+    expect(GEMINI_PROMPT).toMatch(/screen recording/i);
     expect(GEMINI_PROMPT).toContain(CONTENT_CATEGORIES.join(", "));
   });
 });

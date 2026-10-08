@@ -111,7 +111,7 @@ function clipSection(c: ClipReport): string[] {
   p(); p("### Gemini on the music"); p();
   if (!g) p("no Gemini analysis yet");
   else {
-    p(`- song as Gemini heard it (not trusted): ${g.song.title} — ${g.song.artist} (${g.song.confidence} confidence)`);
+    p(`- song as Gemini heard it (not trusted): ${g.song.title ?? "unknown"} — ${g.song.artist ?? "unknown"} (${g.song.confidence} confidence)`);
     p(`- section start in song: ${g.music.section_start_seconds_in_song == null ? "unknown" : `${mmss(g.music.section_start_seconds_in_song)} (${g.music.section_start_seconds_in_song} s)`}`);
     p(`- role: ${g.music.role} — ${g.music.role_note}`);
     p(`- why it works: ${g.music.why_it_works}`);

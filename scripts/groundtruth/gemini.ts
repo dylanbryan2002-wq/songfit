@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { CONTENT_CATEGORIES } from "../../src/shared/config";
-import { Energy, MusicBriefFields, Pacing } from "../../src/shared/types";
+import { Energy, Pacing } from "../../src/shared/types";
 
 export const PROMPT_VERSION = "gemini-paste-v1";
 /** The exact text Dylan pastes into the Gemini app; bump PROMPT_VERSION when GEMINI_PROMPT.md changes. */
@@ -25,7 +25,7 @@ export const GeminiAnalysis = z.object({
   aesthetic: z.array(z.string()),
   dialogue_present: z.boolean(),
   key_moments: z.array(KeyMoment),
-  song: z.object({ title: z.string(), artist: z.string(), confidence: z.enum(["high", "medium", "low"]) }), // recorded, never trusted
+  song: z.object({ title: z.string().nullable(), artist: z.string().nullable(), confidence: z.enum(["high", "medium", "low"]) }), // recorded, never trusted
   music: z.object({
     section_start_seconds_in_song: z.number().min(0).nullable(),
     hits: z.array(z.object({ video_time: z.number().min(0), what_music_does: z.string() })),
@@ -37,10 +37,10 @@ export const GeminiAnalysis = z.object({
     text: z.string(),
     moods: z.array(z.string()),
     energy: z.number().min(0).max(1),
-    tempo: MusicBriefFields.shape.tempo_preference,
-    vocals: MusicBriefFields.shape.vocal_preference,
+    tempo: z.string(), // free text in the prompt Dylan has (e.g. "fast", "120-130 bpm")
+    vocals: z.string(),
     genres: z.array(z.string()),
-    familiarity: MusicBriefFields.shape.desired_familiarity,
+    familiarity: z.string(),
   }),
 });
 export type GeminiAnalysis = z.infer<typeof GeminiAnalysis>;

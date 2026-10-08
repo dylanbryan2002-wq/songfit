@@ -1,46 +1,39 @@
-I am uploading a screen recording of an Instagram Reel or TikTok that went viral. Watch it with sound. Because it is a screen recording, ignore the platform's UI overlay (caption bar, username, like/comment/share counts, music label, progress bar, phone status bar) and describe only the creator's video itself.
+You are helping evaluate a music recommendation engine for short-form video. The attached file is a SCREEN RECORDING of a public Instagram Reel or TikTok. Ignore the platform UI overlay (captions bar, like counts, username, buttons). Watch the whole clip with sound.
 
-Do two things.
+Give me two parts.
 
-First, in a few short paragraphs of plain text: what happens in the video, what the music is doing at each moment that matters (where the hook, drop, vocal entry or a lyric lands relative to the cuts and the key moment), what job the song does for the video, and in one line why this song works for this clip.
+PART 1, in plain words (under 150 words): what happens in the video, the single most important moment and its time in seconds, and what the music is doing at that moment.
 
-Then output ONE fenced ```json block with exactly these keys and no others:
+PART 2, one fenced ```json block with exactly these keys and nothing else outside the block:
 
-- summary: string, 1–2 sentences on what happens.
-- content_category: string, exactly one of: fashion, beauty, fitness, travel, food, lifestyle, comedy, music, dance, education, business, gaming, pets, family, other.
-- setting: string or null.
-- story: string or null, the arc or the joke if there is one.
-- energy: one of "low", "medium", "medium-high", "high".
-- pacing: one of "slow", "medium", "fast".
-- mood: array of 2–5 words.
-- aesthetic: array of 2–5 words.
-- dialogue_present: boolean, true only if a person speaks to the viewer (talking to camera, voiceover, conversation); singing or lip-syncing is not dialogue.
-- key_moments: array of { "time": seconds from the start of the video, "type": one of scene_change, main_visual_reveal, climax, transition, text_overlay, beat_cut, "note": short string }. At most 6.
-- song: { "title": string, "artist": string, "confidence": "high" | "medium" | "low" }, your best identification of the song you hear.
-- music: {
-  "section_start_seconds_in_song": number or null, where in the full song the audio you hear starts, if you know the song well enough;
-  "hits": array of { "video_time": seconds, "what_music_does": string }, one per visual moment that matters (hook, drop, vocal entry, build, break, lyric that lands);
-  "role": one of "contrast", "amplify", "punchline", "trend", "narration", "other";
-  "role_note": one sentence on how that role plays out here;
-  "why_it_works": one line a music supervisor would say }
-- brief: the brief a music supervisor would need to find a song like this one, written from the visuals and the feel without naming the song: {
-  "text": 3–6 plain sentences;
-  "moods": array of words;
-  "energy": number from 0 to 1;
-  "tempo": one of "slow", "medium", "medium-high", "high";
-  "vocals": one of "vocals", "instrumental", "either";
-  "genres": array of strings;
-  "familiarity": one of "recognizable", "recognizable_not_overused", "unexpected" }
-
-The JSON must be valid: no comments, no trailing commas, every key present, null only where allowed. Shape:
-
-```json
 {
-  "summary": "", "content_category": "", "setting": null, "story": null,
-  "energy": "medium", "pacing": "medium", "mood": [], "aesthetic": [], "dialogue_present": false,
-  "key_moments": [{ "time": 0, "type": "scene_change", "note": "" }],
-  "song": { "title": "", "artist": "", "confidence": "medium" },
-  "music": { "section_start_seconds_in_song": null, "hits": [{ "video_time": 0, "what_music_does": "" }], "role": "amplify", "role_note": "", "why_it_works": "" },
-  "brief": { "text": "", "moods": [], "energy": 0.5, "tempo": "medium", "vocals": "either", "genres": [], "familiarity": "recognizable" }
+  "summary": "one or two sentences on what the video is",
+  "content_category": "one of: fashion, beauty, fitness, travel, food, lifestyle, comedy, music, dance, education, business, gaming, pets, family, other",
+  "setting": "where it takes place",
+  "story": "the arc or joke in one sentence, or null",
+  "energy": "low | medium | medium-high | high",
+  "pacing": "slow | medium | fast",
+  "mood": ["two to four mood words"],
+  "aesthetic": ["two to four visual style words"],
+  "dialogue_present": true or false,
+  "key_moments": [{"time": seconds as a number, "type": "cut | reveal | punchline | action | text | transition", "note": "what happens"}],
+  "song": {"title": "your best guess or null", "artist": "your best guess or null", "confidence": "high | medium | low"},
+  "music": {
+    "section_start_seconds_in_song": number or null (how far into the song the clip's audio starts, if you can tell),
+    "hits": [{"video_time": seconds as a number, "what_music_does": "beat drop, vocal entry, chorus, silence, build, etc."}],
+    "role": "contrast | amplify | punchline | trend | narration | other",
+    "role_note": "one sentence on how the song is being used",
+    "why_it_works": "one sentence on why this song fits this video"
+  },
+  "brief": {
+    "text": "two or three sentences describing the ideal song for this video, written without naming the actual song",
+    "moods": ["mood words a song should have"],
+    "energy": a number from 0 to 1,
+    "tempo": "slow | mid | fast | or a bpm range",
+    "vocals": "none | sparse | prominent | male | female | rap | any",
+    "genres": ["one to three genres"],
+    "familiarity": "obscure | known | famous | trending"
+  }
 }
-```
+
+Use real seconds measured from the start of the video. If you are not sure of a value, give your best guess rather than leaving it out; use null only where allowed above.
