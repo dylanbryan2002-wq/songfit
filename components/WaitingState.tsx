@@ -4,17 +4,23 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { SubmissionStatus } from "@/src/shared/types";
 import { waitingView } from "./waitingView";
+import { etaLabel, nextEta, tickEta, uploadFill, waitingFill, type Eta } from "./etaDisplay";
 
 const LINES = ["Watching your video", "Understanding the feel", "Finding your songs"];
 const POLL_MS = 3000;
 const LINE_MS = 4000;
 
+/** The upload stage, before the submission exists. Shown by UploadForm; the results page never passes it. */
+export type UploadStage = { progress: number; error: string | null; onRetry: () => void };
+
 export function WaitingState({
   submissionId,
-  initialStatus,
+  initialStatus = "uploaded",
+  upload = null,
 }: {
-  submissionId: string;
-  initialStatus: SubmissionStatus;
+  submissionId: string | null;
+  initialStatus?: SubmissionStatus;
+  upload?: UploadStage | null;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<SubmissionStatus>(initialStatus);
@@ -23,10 +29,12 @@ export function WaitingState({
   const [retried, setRetried] = useState(false);
   const [limited, setLimited] = useState(false);
   const [restartFailed, setRestartFailed] = useState(false);
+  const [eta, setEta] = useState<Eta | null>(null);
   const startedAt = useRef(Date.now());
   const lastStatus = useRef<SubmissionStatus>(initialStatus);
   const view = waitingView(status, elapsed);
   const failed = view === "failed";
+  const polling = !upload && submissionId !== null && !failed;
 
   useEffect(() => {
     if (failed) return;
@@ -34,16 +42,24 @@ export function WaitingState({
     return () => clearInterval(t);
   }, [failed]);
 
+  // Between polls the estimate counts down on its own.
   useEffect(() => {
-    if (failed) return;
+    if (!polling) return;
+    const t = setInterval(() => setEta(tickEta), 1000);
+    return () => clearInterval(t);
+  }, [polling]);
+
+  useEffect(() => {
+    if (!polling) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function tick() {
       try {
         const res = await fetch(`/api/submissions/${submissionId}`, { cache: "no-store" });
         if (res.ok) {
-          const body = (await res.json()) as { status: SubmissionStatus };
+          const body = (await res.json()) as { status: SubmissionStatus; etaSeconds?: number | null };
           if (cancelled) return;
+          setEta((prev) => nextEta(prev, body.etaSeconds ?? null));
           if (body.status === "ready") {
             router.refresh();
             return;
@@ -69,7 +85,7 @@ export function WaitingState({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [submissionId, router, failed, retried]);
+  }, [submissionId, router, polling, retried]);
 
   async function retry() {
     setRetried(true); // one retry per visit
@@ -78,6 +94,7 @@ export function WaitingState({
     if (res && (res.status === 202 || res.status === 409)) {
       startedAt.current = Date.now();
       setElapsed(0);
+      setEta(null); // a new run gets a fresh estimate
       lastStatus.current = "analyzing";
       setStatus("analyzing");
     } else if (res?.status === 429) {
@@ -85,6 +102,21 @@ export function WaitingState({
     } else {
       setRestartFailed(true);
     }
+  }
+
+  if (upload?.error) {
+    return (
+      <div className="flex flex-col items-center gap-4 text-center">
+        <p className="text-lg font-medium text-neutral-900">{upload.error}</p>
+        <button
+          type="button"
+          onClick={upload.onRetry}
+          className="steel-gradient min-h-11 rounded-2xl px-6 py-3 text-base font-semibold text-white"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (failed) {
@@ -113,14 +145,31 @@ export function WaitingState({
     );
   }
 
+  const fill = upload ? uploadFill(upload.progress) : waitingFill(eta);
+  // Upload first; then the time left, with the rotating lines underneath once an estimate is in.
+  const line = upload ? `Uploading ${upload.progress}%` : eta ? etaLabel(eta.eta) : LINES[lineIdx];
+  const subline = !upload && eta ? LINES[lineIdx] : null;
+
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      <div className="h-1.5 w-40 overflow-hidden rounded-full bg-neutral-200">
-        <div className="h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-neutral-900" />
+      <div
+        className="h-1.5 w-40 overflow-hidden rounded-full bg-neutral-200"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(fill * 100)}
+      >
+        <div
+          className="h-full rounded-full bg-neutral-900 transition-[width] duration-1000 ease-linear"
+          style={{ width: `${fill * 100}%` }}
+        />
       </div>
-      <p className="text-lg font-medium text-neutral-900" aria-live="polite">
-        {LINES[lineIdx]}
-      </p>
+      <div className="flex flex-col items-center gap-1">
+        <p className="text-lg font-medium text-neutral-900" aria-live="polite">
+          {line}
+        </p>
+        {subline && <p className="text-sm text-neutral-500">{subline}</p>}
+      </div>
       {view === "slow" && (
         <p className="text-sm text-neutral-500">This is taking longer than usual, we&apos;ll keep trying.</p>
       )}
