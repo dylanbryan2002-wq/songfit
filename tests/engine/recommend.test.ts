@@ -22,9 +22,9 @@ function makeDeps(over: Partial<RecommendDeps> = {}) {
       calls.push("explain");
       return p.map((x) => ({ ...x, explanation: "e", spotify_url: "s", itunes_id: null }));
     }),
-    replaceCandidates: vi.fn(async (_id: string, rows: { deezer_id?: string | null }[]) => {
+    replaceCandidates: vi.fn(async (_id: string, rows: { deezer_id?: string | null; itunes_id?: string | null }[]) => {
       calls.push("replaceCandidates");
-      return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id ?? null })) as never;
+      return rows.map((r, i) => ({ id: `cand-${i}`, deezer_id: r.deezer_id ?? null, itunes_id: r.itunes_id ?? null })) as never;
     }),
     replaceRecommendations: vi.fn(async () => { calls.push("replaceRecommendations"); return []; }),
     setStatus: vi.fn(async () => { calls.push("setStatus"); }),
@@ -88,6 +88,38 @@ describe("recommendSubmission", () => {
     await expect(recommendSubmission("sub-1", ctx(), deps)).rejects.toThrow(/fewer than 3 verified candidates/);
     expect(deps.replaceCandidates).toHaveBeenCalled();
     expect(deps.setStatus).not.toHaveBeenCalled();
+  });
+
+  it("keys iTunes-verified recordings by catalog_key: persists itunes_id, links candidate_id, passes ctx to verify", async () => {
+    const generated = [gen({ title: "V1" }), gen({ title: "Hello", artist: "Adele" }), gen({ title: "V3" })];
+    const verified = [
+      ver({ title: "V1", deezer_id: "1" }),
+      ver({ title: "Hello", artist: "Adele", verified_via: "itunes", deezer_id: null, itunes_id: "55", deezer_url: null }),
+      ver({ title: "V3", deezer_id: "3" }),
+    ];
+    const verify = vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] }));
+    const deps = makeDeps({ generate: vi.fn(async () => generated), verify });
+    const c = ctx();
+    await recommendSubmission("sub-1", c, deps);
+    expect(verify).toHaveBeenCalledWith(generated, { ctx: c });
+    const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
+    expect(rows[1]).toMatchObject({ title: "Hello", verified: true, deezer_id: null, itunes_id: "55", deezer_url: null, preview_source: null });
+    const recRows = (deps.replaceRecommendations as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { candidate_id: string; deezer_url: string | null }[];
+    expect(recRows.map((r) => r.candidate_id)).toEqual(["cand-0", "cand-1", "cand-2"]);
+    expect(recRows[1]!.deezer_url).toBeNull();
+  });
+
+  it("counts a Deezer and an iTunes recording with the same id string as two distinct recordings", async () => {
+    const generated = [gen({ title: "A" }), gen({ title: "B" }), gen({ title: "C" })];
+    const verified = [
+      ver({ title: "A", deezer_id: "7" }),
+      ver({ title: "B", verified_via: "itunes", deezer_id: null, itunes_id: "7" }),
+      ver({ title: "C", verified_via: "itunes", deezer_id: null, itunes_id: "8" }),
+    ];
+    const generate = vi.fn(async () => generated);
+    const deps = makeDeps({ generate, verify: vi.fn(async () => ({ verified, unverified: [], lookupFailed: [] })) });
+    await recommendSubmission("sub-1", ctx(), deps);
+    expect(generate).toHaveBeenCalledTimes(1); // 3 distinct catalog keys: no regeneration
   });
 
   it("fails when no analysis is stored", async () => {

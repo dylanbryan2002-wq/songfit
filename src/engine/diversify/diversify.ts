@@ -13,7 +13,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
   const seen = new Set<string>();
   const sorted = [...scored]
     .sort((a, b) => b.total_score - a.total_score)
-    .filter((c) => (seen.has(c.deezer_id) ? false : (seen.add(c.deezer_id), true)));
+    .filter((c) => (seen.has(c.catalog_key) ? false : (seen.add(c.catalog_key), true)));
   if (sorted.length < 3) throw new PipelineError("recommend", `fewer than 3 verified candidates (${sorted.length})`);
 
   const picks: ScoredCandidate[] = [];
@@ -23,7 +23,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
 
   const take = (c: ScoredCandidate) => {
     picks.push(c);
-    usedIds.add(c.deezer_id);
+    usedIds.add(c.catalog_key);
     usedArtists.add(normalizeArtist(c.canonical_artist));
     usedDirections.add(primaryDirection(c));
   };
@@ -38,7 +38,7 @@ export function diversify(scored: ScoredCandidate[]): Pick[] {
 
   take(sorted[0]!);
   while (picks.length < 3) {
-    const available = sorted.filter((c) => !usedIds.has(c.deezer_id));
+    const available = sorted.filter((c) => !usedIds.has(c.catalog_key));
     // ALL of a candidate's directions must be unused (stricter than primary-only; deliberate).
     const fresh = available.filter((c) => c.directions.every((d) => !usedDirections.has(d)));
     const choice = preferNewArtist(fresh.length ? fresh : available);

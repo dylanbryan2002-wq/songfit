@@ -73,13 +73,16 @@ export const GeneratedCandidate = z.object({
 export type GeneratedCandidate = z.infer<typeof GeneratedCandidate>;
 
 export const VerifiedCandidate = GeneratedCandidate.extend({
-  deezer_id: z.string(),
+  verified_via: z.enum(["deezer", "itunes"]),
+  catalog_key: z.string(), // "deezer:<id>" or "itunes:<id>": THE identity of a verified recording
+  deezer_id: z.string().nullable(), // null when verified via iTunes
+  itunes_id: z.string().nullable(), // set only when verified via iTunes
   canonical_title: z.string(), // provider's title, stored verbatim
   canonical_artist: z.string(),
   duration_seconds: z.number(),
   artwork_url: z.string().nullable(),
-  deezer_url: z.string(),
-  preview_url: z.string().nullable(), // null when previews are disabled (config.PREVIEWS_ENABLED)
+  deezer_url: z.string().nullable(),
+  preview_url: z.string().nullable(), // Deezer only; null when previews are disabled or verified via iTunes
 });
 export type VerifiedCandidate = z.infer<typeof VerifiedCandidate>;
 

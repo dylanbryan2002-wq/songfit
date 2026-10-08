@@ -15,6 +15,8 @@ export const LIMITS = {
   deezerConcurrency: 6,
   deezerMinIntervalMs: 120, // ≈8 req/s, under Deezer's ~50 req / 5 s per IP
   deezerTimeoutMs: 8_000,
+  itunesMinIntervalMs: 3_000, // iTunes Search API ~20 req / min per IP
+  itunesFallbackMax: 12, // Deezer misses re-checked on iTunes per verify run
   sectionMin: 12,
   sectionMax: 20,
   sectionDefault: 15,

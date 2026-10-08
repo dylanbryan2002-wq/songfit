@@ -172,3 +172,26 @@ summarised in docs/superpowers/specs/2026-10-07-song-picker-design.md):
   verification calls too, not only previews. Codex flagged it (docs/review/07). Mitigations: kill
   switch `PREVIEWS_ENABLED`, no audio storage, attribution, approval request to Deezer, and Apple Music
   API / MusicKit as the licensed route for catalogue + previews after the challenge.
+
+## 2026-10-07 — Why famous songs were dropped as "not found" (C1)
+
+Measured with `scripts/probe-match2.ts` on the two real submissions (69 + 65 candidates): 33
+distinct songs were dropped as unverified, most of them famous.
+
+- **Matching too strict: 12 of 33.** Deezer's title carries a descriptor ("Dreams (2004 Remaster)",
+  "Running Up That Hill (A Deal With God)", "Sunflower (Spider-Man: Into the Spider-Verse)",
+  "Pure Imagination (From … Soundtrack)") or credits only the lead artist ("Post Malone" for
+  "Post Malone & Swae Lee", "Mark Ronson" for "Mark Ronson & Bruno Mars", "Kendrick Lamar" for
+  "Kendrick Lamar & SZA"). Fix: core title + non-disqualifying descriptor, any shared artist,
+  exact match first, then highest Deezer `rank` (popularity). Two of the probe's relaxed hits were
+  wrong recordings and stay rejected: "The Sound of Silence (Reprise)" and "Mr. Brightside (… Dub)".
+- **Deezer's US catalogue lacks the original: 16 of the remaining 21.** Adele, The Killers, Hozier,
+  Robyn, Miley Cyrus, Gotye, Björk, The Temper Trap, Idina Menzel: the public search returns only
+  covers/remixes. The iTunes Search API (US store, `entity=song&country=US`) has every one of them.
+  Fix: re-check up to 12 Deezer misses per run on iTunes, one request per 3 s (~20 req/min limit),
+  stop with < 30 s of budget, abort on 403/429. iTunes is used for verification only: its
+  `previewUrl` is never read or stored by verification (Apple: previews are promotional only), so an
+  iTunes-verified pick has no Deezer preview and the picker shows "No sample".
+- Still unfound on both: Hot Chip "Sad Song", Kreayshawn "Oh No", Chiiild "Residual", Flying Lotus
+  "Los Angeles" (model inventions or obscure tracks), plus soundtrack/classical credits where
+  iTunes lists the performer, not the composer (Strauss, Mascagni).

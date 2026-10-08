@@ -25,7 +25,7 @@ export type RecommendDeps = {
   getSubmission: (id: string) => Promise<SubmissionRow | null>;
   getAnalysis: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; row: unknown } | null>;
   generate: (brief: MusicBrief, analysis: VideoAnalysis, opts?: GenerateOpts) => Promise<GeneratedCandidate[]>;
-  verify: (cands: GeneratedCandidate[]) => Promise<VerifyResult>;
+  verify: (cands: GeneratedCandidate[], deps?: { ctx?: StageCtx }) => Promise<VerifyResult>;
   score: (analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[], deps?: { ctx?: StageCtx }) => Promise<ScoredCandidate[]>;
   diversify: (scored: ScoredCandidate[]) => Pick[];
   sections: (picks: Pick[], analysis: VideoAnalysis) => Pick[];
@@ -57,7 +57,7 @@ export function toCandidateInsert(
     canonical_title: verified ? s.canonical_title ?? null : null,
     canonical_artist: verified ? s.canonical_artist ?? null : null,
     deezer_id: verified ? s.deezer_id ?? null : null,
-    itunes_id: null,
+    itunes_id: verified ? s.itunes_id ?? null : null,
     artwork_url: s.artwork_url ?? null,
     deezer_url: s.deezer_url ?? null,
     preview_url: s.preview_url ?? null,
@@ -81,7 +81,9 @@ export function toCandidateInsert(
   };
 }
 
-const distinct = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.deezer_id)).size;
+const distinct = (vs: VerifiedCandidate[]) => new Set(vs.map((v) => v.catalog_key)).size;
+/** Same identity as VerifiedCandidate.catalog_key, rebuilt from a stored row (recommendations hold no catalogue id). */
+const rowKey = (r: CandidateRow) => (r.deezer_id ? `deezer:${r.deezer_id}` : r.itunes_id ? `itunes:${r.itunes_id}` : null);
 const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.artist);
 
 export async function recommendSubmission(
@@ -95,7 +97,7 @@ export async function recommendSubmission(
   const { analysis, brief } = stored;
 
   const gen1 = await deps.generate(brief, analysis, { ctx });
-  const v1 = await deps.verify(gen1);
+  const v1 = await deps.verify(gen1, { ctx });
   const verified = [...v1.verified];
   let unverified = [...v1.unverified];
   let lookupFailed = [...v1.lookupFailed];
@@ -107,9 +109,9 @@ export async function recommendSubmission(
     logger.warn("recommend.regenerate", { submissionId, verified: distinct(verified) });
     const gen2 = await deps.generate(brief, analysis, { note: RETRY_NOTE, exclude: seenKeys, ctx });
     generated += gen2.length;
-    const v2 = await deps.verify(gen2);
-    const have = new Set(verified.map((v) => v.deezer_id));
-    for (const v of v2.verified) if (!have.has(v.deezer_id)) { verified.push(v); have.add(v.deezer_id); }
+    const v2 = await deps.verify(gen2, { ctx });
+    const have = new Set(verified.map((v) => v.catalog_key));
+    for (const v of v2.verified) if (!have.has(v.catalog_key)) { verified.push(v); have.add(v.catalog_key); }
     unverified = [...unverified, ...v2.unverified];
     lookupFailed = [...lookupFailed, ...v2.lookupFailed];
   }
@@ -128,11 +130,11 @@ export async function recommendSubmission(
 
   const picks = deps.sections(deps.diversify(scored), analysis);
   const finals = await deps.explain(picks, analysis, brief, { ctx });
-  const idByDeezer = new Map(inserted.filter((r) => r.deezer_id).map((r) => [r.deezer_id as string, r.id]));
+  const idByKey = new Map(inserted.flatMap((r) => { const k = rowKey(r); return k ? [[k, r.id] as const] : []; }));
 
   await deps.replaceRecommendations(submissionId, finals.map((r): RecommendationInsert => ({
     submission_id: submissionId,
-    candidate_id: idByDeezer.get(r.deezer_id) ?? null,
+    candidate_id: idByKey.get(r.catalog_key) ?? null,
     rank: r.rank,
     direction_label: r.direction_label,
     title: r.canonical_title,

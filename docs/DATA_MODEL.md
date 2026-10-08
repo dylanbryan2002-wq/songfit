@@ -82,8 +82,8 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | song_id           | uuid        | nullable, → songs ON DELETE SET NULL (catalog, later) |
 | title             | text        |                                                    |
 | artist            | text        |                                                    |
-| deezer_id         | text        | nullable until verified                            |
-| duration_seconds  | numeric     | nullable, from Deezer                              |
+| deezer_id         | text        | nullable; set when verified via Deezer             |
+| duration_seconds  | numeric     | nullable, from the verifying provider              |
 | verified          | boolean     | false = dropped, never shown                       |
 | proposed_start    | numeric     | seconds                                            |
 | proposed_end      | numeric     | seconds                                            |
@@ -94,11 +94,11 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | directions        | text[]      | every generation direction that proposed it         |
 | canonical_title   | text        | nullable, provider's title verbatim                 |
 | canonical_artist  | text        | nullable, provider's artist verbatim                |
-| artwork_url       | text        | nullable, from Deezer                               |
+| artwork_url       | text        | nullable, from the verifying provider               |
 | deezer_url        | text        | nullable, from Deezer                               |
 | preview_url       | text        | nullable, 30s preview (only when PREVIEWS_ENABLED)  |
 | preview_source    | text        | nullable, 'deezer' or 'itunes'                      |
-| itunes_id         | text        | nullable, set only when iTunes supplied the preview |
+| itunes_id         | text        | nullable, set only when verified via iTunes (C1); never a preview source |
 | source            | text        | 'model' now; 'catalog' later                        |
 | segment_id        | uuid        | nullable, → song_segments ON DELETE SET NULL (later) |
 | aligned_to_moment | numeric     | nullable, video time the anchor was aligned to      |
