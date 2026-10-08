@@ -1,0 +1,48 @@
+{
+  "analysis": {
+    "summary": "Colour bars and a counter: a synthetic test clip.",
+    "content_type": "test pattern",
+    "content_category": "other",
+    "setting": null,
+    "story": null,
+    "aesthetic": ["synthetic", "retro"],
+    "mood": ["neutral", "playful"],
+    "energy": "medium",
+    "pacing": "medium",
+    "dialogue_present": false,
+    "important_moments": [{ "time": 1, "type": "transition", "note": "counter flips" }]
+  },
+  "brief": {
+    "text": "A neutral test pattern. Inferred feel: light and playful. A small lift around 1 s.",
+    "fields": {
+      "moods": ["playful", "light"],
+      "energy": 0.5,
+      "tempo_preference": "medium",
+      "vocal_preference": "either",
+      "genre_preferences": [],
+      "genre_avoid": [],
+      "dialogue_present": false,
+      "desired_cultural_relevance": "medium",
+      "desired_familiarity": "recognizable_not_overused"
+    }
+  },
+  "analysis_prompt_version": "analyze-v4",
+  "analysis_raw": "{}",
+  "generated": [
+    { "title": "Blinding Lights", "artist": "The Weeknd", "proposed_start": 43, "proposed_end": 58, "anchor_seconds": 45, "section_is_vocal": true, "section_reason": "chorus entry", "fit_reason": "drive", "directions": ["safe"] },
+    { "title": "Levitating", "artist": "Dua Lipa", "proposed_start": 30, "proposed_end": 45, "anchor_seconds": 32, "section_is_vocal": true, "section_reason": "chorus", "fit_reason": "bounce", "directions": ["current"] },
+    { "title": "Stay", "artist": "Kid Laroi & Justin Bieber", "proposed_start": 20, "proposed_end": 35, "anchor_seconds": 22, "section_is_vocal": true, "section_reason": "hook", "fit_reason": "lift", "directions": ["unexpected"] }
+  ],
+  "generate_calls": 1,
+  "candidates": [
+    { "submission_id": "groundtruth", "title": "Blinding Lights", "artist": "The Weeknd", "canonical_title": "Blinding Lights", "canonical_artist": "The Weeknd", "verified": true, "total_score": 0.81, "deezer_id": "1", "proposed_start": 43, "proposed_end": 58, "anchor_seconds": 45, "section_is_vocal": true, "section_reason": "chorus entry", "fit_reason": "drive", "directions": ["safe"], "source": "model", "prompt_version": "candidates-v5", "component_scores": { "semantic": { "score": 0.8, "reason": "r" } } },
+    { "submission_id": "groundtruth", "title": "Levitating", "artist": "Dua Lipa", "canonical_title": "Levitating", "canonical_artist": "Dua Lipa", "verified": true, "total_score": 0.77, "deezer_id": "2", "proposed_start": 30, "proposed_end": 45, "anchor_seconds": 32, "section_is_vocal": true, "section_reason": "chorus", "fit_reason": "bounce", "directions": ["current"], "source": "model", "prompt_version": "candidates-v5", "component_scores": { "semantic": { "score": 0.7, "reason": "r" } } },
+    { "submission_id": "groundtruth", "title": "Stay", "artist": "Kid Laroi & Justin Bieber", "canonical_title": null, "canonical_artist": null, "verified": false, "total_score": null, "deezer_id": null, "proposed_start": 20, "proposed_end": 35, "anchor_seconds": 22, "section_is_vocal": true, "section_reason": "hook", "fit_reason": "lift", "directions": ["unexpected"], "source": "model", "prompt_version": "candidates-v5", "component_scores": null }
+  ],
+  "finals": [
+    { "rank": 1, "direction_label": "Best fit", "title": "Blinding Lights", "artist": "The Weeknd", "canonical_title": "Blinding Lights", "canonical_artist": "The Weeknd", "catalog_key": "deezer:1", "deezer_id": "1", "itunes_id": null, "verified_via": "deezer", "duration_seconds": 200, "artwork_url": null, "deezer_url": "https://www.deezer.com/track/1", "preview_url": "https://cdn.deezer/1.mp3", "spotify_url": "https://open.spotify.com/search/Blinding%20Lights%20The%20Weeknd", "proposed_start": 43, "proposed_end": 58, "anchor_seconds": 45, "start_seconds": 43, "end_seconds": 58, "aligned_to_moment": null, "section_is_vocal": true, "section_reason": "chorus entry", "fit_reason": "drive", "directions": ["safe"], "total_score": 0.81, "component_scores": { "semantic": { "score": 0.8, "reason": "r" } }, "explanation": "Use 0:43–0:58: the chorus hits on the flip." },
+    { "rank": 2, "direction_label": "Recent", "title": "Levitating", "artist": "Dua Lipa", "canonical_title": "Levitating", "canonical_artist": "Dua Lipa", "catalog_key": "deezer:2", "deezer_id": "2", "itunes_id": null, "verified_via": "deezer", "duration_seconds": 203, "artwork_url": null, "deezer_url": "https://www.deezer.com/track/2", "preview_url": "https://cdn.deezer/2.mp3", "spotify_url": "https://open.spotify.com/search/Levitating%20Dua%20Lipa", "proposed_start": 30, "proposed_end": 45, "anchor_seconds": 32, "start_seconds": 30, "end_seconds": 45, "aligned_to_moment": null, "section_is_vocal": true, "section_reason": "chorus", "fit_reason": "bounce", "directions": ["current"], "total_score": 0.77, "component_scores": { "semantic": { "score": 0.7, "reason": "r" } }, "explanation": "Use 0:30–0:45: bounce under the bars." }
+  ],
+  "recommend_error": null,
+  "elapsed_ms": 1234
+}

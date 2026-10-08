@@ -102,3 +102,18 @@ Cost per clip: our engine ≈ $0.40, Gemini ≈ $0.05, Whisper on silence ≈ $0
 - Gemini's song identification can be wrong; it is never used as truth.
 - Screen recordings may carry the platform UI (captions, like counts). The analysis prompt is told
   it is a screen recording and to ignore the overlay.
+
+## Revision 2026-10-08: Gemini via the app, pasted answers
+
+Dylan's go: no API key, no `@google/genai`. He uploads each clip (with sound) to the consumer Gemini
+app himself with the prompt in `scripts/groundtruth/GEMINI_PROMPT.md` (exported as `GEMINI_PROMPT`,
+`PROMPT_VERSION` = `gemini-paste-v1`) and pastes the whole reply into
+`~/Songfit-groundtruth/gemini/<id>.md`, where `<id>` is the clip's slug (the file name, lower-cased,
+non-alphanumerics → `-`, no extension; the script prints it). Steps 3 and 4 above collapse into that
+one reply: a free-text section plus one ```json block carrying our analysis fields, the song as Gemini
+heard it (recorded, never trusted), the music section (section start in the song, what the music does at
+each visual moment, role, why it works) and a brief in our MusicBrief vocabulary. `gemini.ts` extracts the
+first ```json block, parses it with Zod (extra keys dropped, listed keys strict) and throws with the raw
+paste attached; a missing file shows as "no Gemini analysis yet" in the report and does not stop the run.
+`--skip-gemini` means "do not read the gemini folder". The terms section above still applies to the app:
+use a paid Google account so the clips are not used for training.
