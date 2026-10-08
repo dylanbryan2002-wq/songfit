@@ -66,8 +66,11 @@ export async function analyzeSubmission(
       const playbackLocal = await d.transcodeForPlayback(videoPath, workDir, ctx.deadlineAt);
       if (playbackLocal) {
         const playbackPath = playbackPathFor(sub.video_path);
-        await d.uploadPlayback(playbackPath, playbackLocal);
-        await d.updateSubmission(submissionId, { playback_path: playbackPath });
+        // Cap the storage round-trips too, so a hung upload cannot eat the model calls' budget.
+        const capped = <T,>(p: Promise<T>, ms: number) =>
+          Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms} ms`)), ms))]);
+        await capped(d.uploadPlayback(playbackPath, playbackLocal), 20_000);
+        await capped(d.updateSubmission(submissionId, { playback_path: playbackPath }), 10_000);
         const bytes = (await fs.stat(playbackLocal).catch(() => null))?.size ?? 0;
         logger.info("media.transcoded", { submissionId, ms: Date.now() - t0, bytes });
       }

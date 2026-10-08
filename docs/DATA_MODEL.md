@@ -28,7 +28,7 @@ A creator's upload and its pipeline state.
 | id                | uuid        |                                                   |
 | creator_id        | uuid        | → creators ON DELETE CASCADE                      |
 | video_path        | text        | Supabase Storage path, bucket `videos`            |
-| playback_path     | text        | nullable, storage path of the H.264 mp4 playback copy (`<creator>/playback.mp4`-style, same folder as the original); null when the transcode failed, was skipped, or has not run. Results page plays it when set |
+| playback_path     | text        | nullable, storage path of the H.264 mp4 playback copy (`<creator>/<submission>.playback.mp4`, next to the original); null when the transcode failed, was skipped, or has not run. Results page plays it when set |
 | duration_seconds  | numeric     | nullable until probed                             |
 | creator_intent    | text        | nullable, "what do you want this to feel like"    |
 | content_category  | text        | nullable, set by analysis; used for niche metrics |
