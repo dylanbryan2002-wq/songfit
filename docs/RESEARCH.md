@@ -265,3 +265,9 @@ distinct songs were dropped as unverified, most of them famous.
   bundle captions/hashtags with each pick; Kliptune's "available in this platform's library" filter.
   Positioning: "Library tools find music you're allowed to use. Songfit finds the song everyone's
   actually using, and the exact seconds to post."
+- **Apple Music API verified 2026-10-07 (Dylan's MusicKit key):** developer token minted with
+  Node's built-in ES256 signing (no library needed); `GET /v1/catalog/us/search?types=songs` returns
+  the original studio recordings WITH 30 s previews for every song Deezer US lacked in today's tests
+  (Hozier "Too Sweet", Adele "Someone Like You", The Killers "Mr. Brightside", Robyn "Dancing On My
+  Own"). Results also list "(Mixed)" and remix/demo versions, so the exact-then-loose matcher must
+  prefer the plain studio recording. Probe: `pnpm local scripts/probe-apple.ts`.
