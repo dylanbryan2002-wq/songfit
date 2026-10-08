@@ -92,7 +92,7 @@ designed in but not yet populated.
 
 Production: https://songfit.vercel.app (Vercel project `songfit`, GitHub `dylanbryan2002-wq/songfit`, branch `mvp`).
 
-1. Free tiers: Supabase caps each upload at 50 MB (LIMITS.maxUploadBytes matches). Vercel Hobby with Fluid Compute gives the 300 s function budget.
+1. Uploads: LIMITS.maxUploadBytes is 150 MB, matching the bucket; the Supabase dashboard global upload limit (Storage → Settings) must be at least 150 MB (Pro plan). Vercel Hobby with Fluid Compute gives the 300 s function budget.
 2. The project is ALREADY linked (`.vercel/`, gitignored). Do not run `vercel link` or `vercel env pull` again: both overwrite your local env file with only a `VERCEL_OIDC_TOKEN`. Agents are blocked from these by `.claude/hooks/guard-secrets.py`. A human re-linking on a new machine must back the env file up first.
 3. Set production env vars with `vercel env add <KEY> production` for every key in `.env.example` except `SUPABASE_DB_PASSWORD` and `STRIPE_*` (not needed at runtime yet). `NEXT_PUBLIC_SITE_URL` is the production URL.
 4. Fluid Compute ON: Project > Settings > Functions.

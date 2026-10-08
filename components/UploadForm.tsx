@@ -186,7 +186,7 @@ export function UploadForm({
         ) : (
           <span className="flex flex-col items-center gap-1 px-6 text-center">
             <span className="text-base font-semibold text-ink">Tap to choose a video</span>
-            <span>MP4 or MOV, up to 50 MB (about a minute)</span>
+            <span>MP4 or MOV, up to 150 MB (up to 3 minutes)</span>
           </span>
         )}
         <input id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />

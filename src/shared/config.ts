@@ -7,7 +7,7 @@ export const MODELS = {
 } as const;
 
 export const LIMITS = {
-  maxUploadBytes: 50 * 1024 * 1024, // Supabase free tier per-object limit
+  maxUploadBytes: 150 * 1024 * 1024, // matches the videos bucket limit (0001); the Supabase dashboard global cap must be >= this
   maxDurationSeconds: 180,
   maxFrames: 60,
   frameWidth: 512,

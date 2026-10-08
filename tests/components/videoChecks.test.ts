@@ -17,7 +17,7 @@ describe("checkVideoFile", () => {
   });
   it("rejects a file over the cap", () => {
     expect(checkVideoFile(f("clip.mp4", "video/mp4", LIMITS.maxUploadBytes + 1))).toBe(
-      "That video is over 50 MB. Keep it under a minute, or export a smaller file.",
+      "That video is over 150 MB. Keep it under 3 minutes, or export a smaller file.",
     );
   });
   it("keeps the too-long copy", () => {

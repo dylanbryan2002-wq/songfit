@@ -8,7 +8,7 @@ export const TOO_LONG = "Keep it under 3 minutes for now.";
 export function checkVideoFile(file: { name: string; type: string; size: number }): string | null {
   if (!fileExt(file)) return "That file type isn't supported. Use MP4, MOV or WebM.";
   if (file.size === 0) return "That file is empty. Pick another video.";
-  if (file.size > LIMITS.maxUploadBytes) return "That video is over 50 MB. Keep it under a minute, or export a smaller file.";
+  if (file.size > LIMITS.maxUploadBytes) return "That video is over 150 MB. Keep it under 3 minutes, or export a smaller file.";
   return null;
 }
 
