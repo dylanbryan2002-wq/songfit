@@ -58,7 +58,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
           vibeLine={vibeLine((submission as Partial<SubmissionVibeColumns>).vibe_tags ?? [])}
         />
       ) : (
-        <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} />
+        <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} anonymous={creator.anonymous} />
       )}
     </main>
   );

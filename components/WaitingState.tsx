@@ -17,10 +17,13 @@ export function WaitingState({
   submissionId,
   initialStatus = "uploaded",
   upload = null,
+  anonymous = false,
 }: {
   submissionId: string | null;
   initialStatus?: SubmissionStatus;
   upload?: UploadStage | null;
+  /** Anonymous owners can't retry (the retry route is signed-in only); they get "Try another video". */
+  anonymous?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<SubmissionStatus>(initialStatus);
@@ -129,7 +132,7 @@ export function WaitingState({
               ? "Couldn't restart. Try another video."
               : "Something went wrong on our side. We're on it."}
         </p>
-        {!retried && (
+        {!retried && !anonymous && (
           <button
             type="button"
             onClick={() => void retry()}

@@ -11,6 +11,8 @@ import { VibePicker } from "./VibePicker";
 import { WaitingState } from "./WaitingState";
 import { ResultsHeader, WAITING_MAIN } from "./ResultsHeader";
 import { FileCard, VideoIcon } from "./landing/FileCard";
+import { GoogleButton } from "./landing/GoogleButton";
+import { signInWithGoogle } from "./auth";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
 
@@ -287,6 +289,9 @@ export function UploadForm({
       {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step. */}
       <div className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 bg-canvas px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
         {error && <p className="text-center text-sm text-red-600">{error}</p>}
+        {error === DAILY_LIMIT_ANONYMOUS && !creator.email && (
+          <GoogleButton onClick={() => void signInWithGoogle("/")} />
+        )}
         {blocked && (
           <p className="text-center text-sm text-ink">
             {BLOCKED_COPY[blocked]}{" "}

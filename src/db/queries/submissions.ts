@@ -116,7 +116,7 @@ export async function markSubmissionViewed(id: string): Promise<boolean> {
   return data.length > 0;
 }
 
-export type SubmissionWithCreator = SubmissionRow & { creator: { email: string } | null };
+export type SubmissionWithCreator = SubmissionRow & { creator: { email: string | null } | null };
 
 /** Admin queue: every submission, newest first, with the creator's email joined. */
 export async function listSubmissions(limit = 200): Promise<SubmissionWithCreator[]> {

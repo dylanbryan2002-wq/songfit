@@ -134,23 +134,26 @@ export type Database = {
       }
       creators: {
         Row: {
+          claim_token_hash: string | null
           created_at: string
           display_name: string | null
-          email: string
+          email: string | null
           id: string
           preferences: Json | null
         }
         Insert: {
+          claim_token_hash?: string | null
           created_at?: string
           display_name?: string | null
-          email: string
+          email?: string | null
           id: string
           preferences?: Json | null
         }
         Update: {
+          claim_token_hash?: string | null
           created_at?: string
           display_name?: string | null
-          email?: string
+          email?: string | null
           id?: string
           preferences?: Json | null
         }
@@ -624,6 +627,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_anonymous: {
+        Args: { p_creator_id: string; p_token_hash: string }
+        Returns: number
+      }
       claim_submission_run: {
         Args: { p_id: string }
         Returns: {
