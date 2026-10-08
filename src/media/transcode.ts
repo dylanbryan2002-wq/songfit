@@ -7,13 +7,13 @@ const MAX_TRANSCODE_MS = 60_000;
 const MODEL_RESERVE_MS = 120_000;
 const MIN_TRANSCODE_MS = 15_000;
 
-/** Pure: exact ffmpeg argv for the H.264 playback copy (video only, <= 540 px wide, ultrafast to fit the budget). */
+/** Pure: exact ffmpeg argv for the H.264 playback copy (mono AAC audio kept so the creator's voice plays under samples, <= 540 px wide, ultrafast to fit the budget). */
 export function transcodeArgs(input: string, output: string): string[] {
   return [
     "-y",
     "-hide_banner", "-loglevel", "error",
     "-i", input,
-    "-an",
+    "-c:a", "aac", "-b:a", "96k", "-ac", "1",
     "-vf", "scale='min(540,iw)':-2",
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
     "-pix_fmt", "yuv420p",

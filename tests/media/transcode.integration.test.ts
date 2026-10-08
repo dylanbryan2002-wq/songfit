@@ -17,7 +17,7 @@ describe.skipIf(!ffmpeg)("transcodeForPlayback (integration)", () => {
   beforeAll(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "songfit-transcode-"));
     sample = path.join(dir, "sample.mp4");
-    // 2 s, 1280x720 with a tone: wider than 540 and has audio, so scale and -an are both exercised.
+    // 2 s, 1280x720 with a tone: wider than 540 and has audio, so scale and the kept mono audio are both exercised.
     await run(ffmpeg!, [
       "-hide_banner", "-loglevel", "error",
       "-f", "lavfi", "-i", "testsrc=duration=2:size=1280x720:rate=24",
@@ -30,7 +30,7 @@ describe.skipIf(!ffmpeg)("transcodeForPlayback (integration)", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
-  it("writes an h264 yuv420p mp4, no audio, width <= 540", async () => {
+  it("writes an h264 yuv420p mp4 with mono aac audio, width <= 540", async () => {
     const { transcodeForPlayback } = await import("../../src/media/transcode");
     const out = await transcodeForPlayback(sample, dir);
     expect(out).toBe(path.join(dir, "playback.mp4"));
@@ -39,7 +39,9 @@ describe.skipIf(!ffmpeg)("transcodeForPlayback (integration)", () => {
       "-v", "error", "-show_entries", "stream=codec_type,codec_name,pix_fmt,width", "-of", "json", out!,
     ]);
     const streams = (JSON.parse(stdout) as { streams: Record<string, unknown>[] }).streams;
-    expect(streams.filter((s) => s.codec_type === "audio")).toHaveLength(0);
+    const audio = streams.filter((s) => s.codec_type === "audio");
+    expect(audio).toHaveLength(1);
+    expect(audio[0]?.codec_name).toBe("aac");
     const v = streams.find((s) => s.codec_type === "video")!;
     expect(v.codec_name).toBe("h264");
     expect(v.pix_fmt).toBe("yuv420p");

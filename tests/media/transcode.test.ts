@@ -14,7 +14,7 @@ describe("transcodeArgs", () => {
     expect(transcodeArgs("/in/video.mov", "/out/playback.mp4")).toEqual([
       "-y", "-hide_banner", "-loglevel", "error",
       "-i", "/in/video.mov",
-      "-an",
+      "-c:a", "aac", "-b:a", "96k", "-ac", "1",
       "-vf", "scale='min(540,iw)':-2",
       "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
       "-pix_fmt", "yuv420p",
