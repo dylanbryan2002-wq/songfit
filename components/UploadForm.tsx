@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fileExt } from "./fileExt";
 import { readVideoDuration } from "./videoDuration";
 import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
-import { LIMITS } from "@/src/shared/config";
+import { checkVideoFile, TOO_LONG } from "./videoChecks";
 
 type Creator = { id: string; email: string };
 type Phase = "idle" | "checking" | "uploading" | "creating" | "error";
@@ -16,15 +17,40 @@ type UploadTarget = { submissionId: string; path: string; token: string; signedU
 
 const FAILED = "Upload didn't finish. Try again.";
 
-export function UploadForm({ creator }: { creator: Creator }) {
+/** Why the server said 402 (src/billing/paywall.ts). The create step only knows "needs_subscription". */
+type Blocked = "needs_subscription" | "in_flight";
+const BLOCKED_COPY: Record<Blocked, string> = {
+  needs_subscription: "Your free result is used. Paid plans are coming.",
+  in_flight: "Your last video is still being worked on.",
+};
+
+async function blockedReason(res: Response): Promise<Blocked> {
+  const body = (await res.json().catch(() => null)) as { reason?: unknown } | null;
+  return body?.reason === "in_flight" ? "in_flight" : "needs_subscription";
+}
+
+export function UploadForm({
+  creator,
+  initialFile,
+  onStarted,
+}: {
+  creator: Creator;
+  /** A file kept across sign-in (landing page). Nothing starts until the creator taps the button. */
+  initialFile?: File;
+  /** Called once when a submit actually starts (the landing stash is claimed here). */
+  onStarted?: () => void;
+}) {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [intent, setIntent] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<UploadTarget | null>(null);
+  const [blocked, setBlocked] = useState<Blocked | null>(null);
+  // State updates are async; a second tap in the same frame must not start a second upload.
+  const running = useRef(false);
 
   useEffect(() => {
     if (!file) {
@@ -38,20 +64,21 @@ export function UploadForm({ creator }: { creator: Creator }) {
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
+    setBlocked(null);
     setPhase("idle");
     setTarget(null); // a different file gets a fresh target
     setFile(e.target.files?.[0] ?? null);
   }
 
   /** Reuse the held target when it matches this file's extension; otherwise ask the server for one. */
-  async function getTarget(ext: string, sizeBytes: number): Promise<UploadTarget | "paywall"> {
+  async function getTarget(ext: string, sizeBytes: number): Promise<UploadTarget | Blocked> {
     if (target && target.ext === ext) return target;
     const urlRes = await fetch("/api/upload-url", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ext, sizeBytes }),
     });
-    if (urlRes.status === 402) return "paywall";
+    if (urlRes.status === 402) return blockedReason(urlRes);
     if (urlRes.status === 429) throw new Error("Give it a minute and try again.");
     if (!urlRes.ok) throw new Error(FAILED);
     const issued = (await urlRes.json()) as Omit<UploadTarget, "ext" | "uploaded">;
@@ -62,34 +89,36 @@ export function UploadForm({ creator }: { creator: Creator }) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (running.current) return;
     setError(null);
+    setBlocked(null);
 
     if (!file) {
       setError("Pick a video first.");
       return;
     }
+    const problem = checkVideoFile(file);
     const ext = fileExt(file);
-    if (!ext) {
-      setError("That file type isn't supported. Use MP4, MOV or WebM.");
-      return;
-    }
-    if (file.size > LIMITS.maxUploadBytes) {
-      setError("That video is over 50 MB. Keep it under a minute, or export a smaller file.");
+    if (problem || !ext) {
+      setError(problem);
       return;
     }
 
+    running.current = true;
+    onStarted?.();
     try {
       setPhase("checking");
       const duration = await readVideoDuration(file);
       if (durationVerdict(duration) === "too_long") {
-        setError("Keep it under 3 minutes for now.");
+        setError(TOO_LONG);
         setPhase("idle");
         return;
       }
 
       const issued = await getTarget(ext, file.size);
-      if (issued === "paywall") {
-        router.push("/subscribe");
+      if (issued === "needs_subscription" || issued === "in_flight") {
+        setBlocked(issued);
+        setPhase("idle");
         return;
       }
       const { submissionId, path, token, signedUrl } = issued;
@@ -109,7 +138,8 @@ export function UploadForm({ creator }: { creator: Creator }) {
         body: JSON.stringify({ submissionId, path, ext, creatorIntent: intent.trim() || null }),
       });
       if (createRes.status === 402) {
-        router.push("/subscribe");
+        setBlocked(await blockedReason(createRes));
+        setPhase("idle");
         return;
       }
       if (createRes.status === 400 || createRes.status === 403) {
@@ -124,6 +154,8 @@ export function UploadForm({ creator }: { creator: Creator }) {
       setPhase("error");
       const msg = err instanceof Error ? err.message : "";
       setError(msg.startsWith("Give it") || msg === FAILED ? msg : FAILED);
+    } finally {
+      running.current = false;
     }
   }
 
@@ -165,6 +197,14 @@ export function UploadForm({ creator }: { creator: Creator }) {
       )}
 
       {error && <p className="text-center text-sm text-red-600">{error}</p>}
+      {blocked && (
+        <p className="text-center text-sm text-ink">
+          {BLOCKED_COPY[blocked]}{" "}
+          <Link href="/results/latest" className="font-semibold text-steel-dark underline underline-offset-2">
+            Open my latest result
+          </Link>
+        </p>
+      )}
 
       <button
         type="submit"

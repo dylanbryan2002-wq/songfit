@@ -172,9 +172,17 @@ open_app                     metadata.rank, metadata.destination (tiktok|instagr
 song_not_found               metadata.rank  (creator could not find the song in TikTok/Instagram)
 more_requested               metadata.batch (2|3)  (creator tapped "Show 5 more")
 wanted_instead               metadata.text (≤ 200 chars)  ("None of these?" answer)
+landing_viewed               metadata.flow_id  (creator_id null; signed-out landing page shown)
+video_chosen                 metadata.flow_id  (creator_id null; a valid video chosen before sign-in)
+sign_in_started              metadata.flow_id  (creator_id null; "Continue with Google" tapped, file kept on device)
+sign_in_completed            metadata.flow_id  (creator set; back from Google and the kept file was found)
 ```
 
 RLS: service role only.
+
+The four landing events are written by `POST /api/landing-events` (body `{ name, flow_id }` only,
+≤ 200 bytes, 30/min per IP). `flow_id` is a random UUID per browser tab; no filename, size or
+duration is ever sent. `sign_in_completed` requires a session.
 
 ## stripe_events
 Idempotency record for the Stripe webhook. A row is written only AFTER the

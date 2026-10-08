@@ -2,7 +2,8 @@ import { countInFlightSubmissions, countReadySubmissions } from "@/src/db/querie
 import { getActiveSubscription } from "@/src/db/queries/subscriptions";
 import { FREE_RESULTS_PER_CREATOR, LIMITS } from "@/src/shared/config";
 
-export type CanSubmit = { ok: true } | { ok: false; reason: "needs_subscription" };
+/** in_flight: the allowance is only taken by a run still being worked on (the client says so). */
+export type CanSubmit = { ok: true } | { ok: false; reason: "needs_subscription" | "in_flight" };
 
 /**
  * UX pre-check. The database function create_submission() applies the same
@@ -11,7 +12,8 @@ export type CanSubmit = { ok: true } | { ok: false; reason: "needs_subscription"
  */
 export function decideCanSubmit(readyCount: number, inFlightCount: number, hasActiveSub: boolean): CanSubmit {
   if (hasActiveSub) return { ok: true };
-  if (readyCount + inFlightCount >= FREE_RESULTS_PER_CREATOR) return { ok: false, reason: "needs_subscription" };
+  if (readyCount >= FREE_RESULTS_PER_CREATOR) return { ok: false, reason: "needs_subscription" };
+  if (readyCount + inFlightCount >= FREE_RESULTS_PER_CREATOR) return { ok: false, reason: "in_flight" };
   return { ok: true };
 }
 

@@ -9,8 +9,9 @@ describe("decideCanSubmit (UX pre-check mirroring create_submission())", () => {
     expect(decideCanSubmit(1, 0, false)).toEqual({ ok: false, reason: "needs_subscription" });
     expect(decideCanSubmit(5, 0, false)).toEqual({ ok: false, reason: "needs_subscription" });
   });
-  it("counts an in-flight submission against the free allowance", () => {
-    expect(decideCanSubmit(0, 1, false)).toEqual({ ok: false, reason: "needs_subscription" });
+  it("counts an in-flight submission against the free allowance, and says so", () => {
+    expect(decideCanSubmit(0, 1, false)).toEqual({ ok: false, reason: "in_flight" });
+    expect(decideCanSubmit(1, 1, false)).toEqual({ ok: false, reason: "needs_subscription" });
   });
   it("allows any submission with an active subscription", () => {
     expect(decideCanSubmit(0, 0, true)).toEqual({ ok: true });
