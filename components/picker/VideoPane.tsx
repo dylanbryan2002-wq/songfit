@@ -4,7 +4,9 @@ import { forwardRef, useCallback, useState } from "react";
 
 export type VideoOverlay = { title: string; artist: string; loading: boolean };
 
-/** Muted, inline video in a 9:16 box. The playback hook drives it through the ref. */
+/** Muted, inline video in a 9:16 box. It starts playing silently on its own (iOS allows muted inline
+ *  autoplay) so the creator sees their clip at once, like TikTok; the playback hook then drives it
+ *  through the ref once a song is tapped. Dylan 2026-10-07: the box stayed dark until a song played. */
 export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: VideoOverlay | null }>(function VideoPane(
   { src, overlay },
   ref,
@@ -27,8 +29,11 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
         src={src}
         muted
         playsInline
-        preload="metadata"
+        autoPlay
+        loop
+        preload="auto"
         onLoadedData={() => setReady(true)}
+        onPlaying={() => setReady(true)}
         className="h-full w-full object-cover"
       />
       {!ready && (
