@@ -103,7 +103,7 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
       </section>
 
       <section className="mt-8">
-        <h2 className="text-lg font-semibold">Final 3</h2>
+        <h2 className="text-lg font-semibold">Final picks</h2>
         {recs.length === 0 ? <p className="text-sm text-gray-500">none yet</p> : (
           <ol className="mt-2 space-y-2 text-sm">
             {recs.map((r) => (

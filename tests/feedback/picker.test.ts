@@ -50,6 +50,14 @@ describe("loadPicker", () => {
     expect(out.video_duration_seconds).toBe(12);
     expect(out.rows.map((r) => r.preview_url)).toEqual(["https://p/101.mp3", "https://p/102.mp3", "https://p/103.mp3"]);
   });
+  it("looks up all 15 rows when the submission has 15 picks", async () => {
+    listPickerRows.mockResolvedValue(Array.from({ length: 15 }, (_, i) => row(i + 1)));
+    const lookup = vi.fn(async (id: string) => ({ kind: "ok" as const, previewUrl: `https://p/${id}.mp3` }));
+    const out = await loadPicker("s1", { lookup });
+    expect(lookup).toHaveBeenCalledTimes(15);
+    expect(out.rows.map((r) => r.rank)).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
+    expect(out.rows[14]!.preview_url).toBe("https://p/115.mp3");
+  });
   it("nulls only the row whose lookup fails and does not throw", async () => {
     const lookup = vi.fn(async (id: string) => {
       if (id === "102") throw new ProviderError("deezer 503", 503);

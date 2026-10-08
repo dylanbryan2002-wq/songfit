@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { allRejected, initialPickerState, pickerReducer, type PickerState } from "@/src/picker/state";
+import { allRejected, initialPickerState, moreControl, nextBatch, pickerReducer, type PickerState } from "@/src/picker/state";
 import type { PickerRow } from "@/src/shared/types";
 
-const row = (rank: 1 | 2 | 3, flags: Partial<Pick<PickerRow, "selected" | "rejected">> = {}): PickerRow => ({
+const row = (rank: number, flags: Partial<Pick<PickerRow, "selected" | "rejected">> = {}): PickerRow => ({
   rank,
   direction_label: "Best fit",
   title: `Song ${rank}`,
@@ -31,6 +31,8 @@ describe("initialPickerState", () => {
       chosenRank: null,
       rejected: new Set(),
       explanationOpen: null,
+      visibleCount: 3,
+      wantedSent: false,
     });
   });
   it("seeds chosen and rejected from the server rows", () => {
@@ -129,5 +131,54 @@ describe("allRejected", () => {
     s = pickerReducer(s, { type: "reject", rank: 3 });
     expect(allRejected(s, [1, 2, 3])).toBe(true);
     expect(allRejected(base(), [])).toBe(false);
+  });
+});
+
+const fifteen = (flags: Record<number, Partial<Pick<PickerRow, "selected" | "rejected">>> = {}) =>
+  Array.from({ length: 15 }, (_, i) => row(i + 1, flags[i + 1]));
+
+describe("batches of five", () => {
+  it("shows 5 of 15 first; reveal adds 5 twice, then stops at 15", () => {
+    let s = initialPickerState(fifteen());
+    expect(s.visibleCount).toBe(5);
+    expect(nextBatch(s)).toBe(2);
+    s = pickerReducer(s, { type: "reveal", total: 15 });
+    expect(s.visibleCount).toBe(10);
+    expect(nextBatch(s)).toBe(3);
+    s = pickerReducer(s, { type: "reveal", total: 15 });
+    expect(s.visibleCount).toBe(15);
+    s = pickerReducer(s, { type: "reveal", total: 15 });
+    expect(s.visibleCount).toBe(15);
+  });
+  it("reveal stops at the row count when fewer than 15 (7 rows: 5 then 7)", () => {
+    const rows = Array.from({ length: 7 }, (_, i) => row(i + 1));
+    const s = pickerReducer(initialPickerState(rows), { type: "reveal", total: 7 });
+    expect(s.visibleCount).toBe(7);
+  });
+  it("a chosen rank 8 on reload reveals through 10", () => {
+    const s = initialPickerState(fifteen({ 8: { selected: true } }));
+    expect(s).toMatchObject({ visibleCount: 10, chosenRank: 8, mode: "chosen" });
+  });
+  it("a rejected rank beyond the first five does not reveal more", () => {
+    expect(initialPickerState(fifteen({ 12: { rejected: true } })).visibleCount).toBe(5);
+  });
+  it("wantedSent is set once and stays set", () => {
+    let s = pickerReducer(initialPickerState(fifteen()), { type: "wantedSent" });
+    expect(s.wantedSent).toBe(true);
+    const again = pickerReducer(s, { type: "wantedSent" });
+    expect(again.wantedSent).toBe(true);
+    s = pickerReducer(again, { type: "reveal", total: 15 });
+    expect(s.wantedSent).toBe(true);
+  });
+  it("moreControl: Show 5 more while rows remain; the box when none remain or every visible row is rejected", () => {
+    const rows = fifteen();
+    let s = initialPickerState(rows);
+    expect(moreControl(s, rows)).toBe("more");
+    for (const r of [1, 2, 3, 4, 5]) s = pickerReducer(s, { type: "reject", rank: r });
+    expect(moreControl(s, rows)).toBe("wanted");
+    s = initialPickerState(rows);
+    s = pickerReducer(pickerReducer(s, { type: "reveal", total: 15 }), { type: "reveal", total: 15 });
+    expect(moreControl(s, rows)).toBe("wanted");
+    expect(moreControl(initialPickerState([row(1), row(2), row(3)]), [row(1), row(2), row(3)])).toBe("wanted");
   });
 });

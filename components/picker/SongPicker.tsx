@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { PickerData, Rank } from "@/src/shared/types";
 import { formatTime } from "@/src/shared/format";
-import { allRejected, initialPickerState, pickerReducer, type PickerAction } from "@/src/picker/state";
+import { allRejected, initialPickerState, moreControl, nextBatch, pickerReducer, type PickerAction } from "@/src/picker/state";
 import { useSyncedPlayback } from "./useSyncedPlayback";
 import { VideoPane } from "./VideoPane";
 import { SongSheet } from "./SongSheet";
 import { SongRow } from "./SongRow";
 import { UseItPanel, type Destination } from "./UseItPanel";
 import { Attribution } from "./Attribution";
+import { MorePicks } from "./MorePicks";
 
 type UiEvent = "song_previewed" | "explanation_opened" | "title_copied" | "open_app" | "song_not_found";
 
@@ -51,6 +52,25 @@ export function SongPicker({
     },
     [id],
   );
+
+  const postSheetEvent = (body: { name: "more_requested"; batch: number } | { name: "wanted_instead"; text: string }) => {
+    void fetch(`/api/submissions/${id}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    }).catch(() => undefined);
+  };
+
+  const showMore = () => {
+    postSheetEvent({ name: "more_requested", batch: nextBatch(state) });
+    dispatch({ type: "reveal", total: rows.length });
+  };
+  const sendWanted = (text: string) => {
+    if (state.wantedSent) return;
+    postSheetEvent({ name: "wanted_instead", text });
+    dispatch({ type: "wantedSent" });
+  };
 
   const save = async (body: { action: "select" | "reject"; rank: Rank } | { action: "all_rejected" }) => {
     const res = await fetch(`/api/submissions/${id}/feedback`, {
@@ -162,7 +182,8 @@ export function SongPicker({
   const chosenRow = rows.find((r) => r.rank === state.chosenRank) ?? null;
   const chosenMode = state.mode === "chosen" && chosenRow !== null;
   // Chosen mode: the chosen song moves to the top and the others collapse away (kept mounted so it animates).
-  const ordered = chosenMode ? [chosenRow, ...rows.filter((r) => r.rank !== chosenRow.rank)] : rows;
+  const visible = rows.slice(0, state.visibleCount);
+  const ordered = chosenMode ? [chosenRow, ...visible.filter((r) => r.rank !== chosenRow.rank)] : visible;
   const deezerHref = rows.find((r) => r.rank === pb.currentRank)?.deezer_url ?? null;
   const sounding = pb.state === "playing";
 
@@ -242,6 +263,15 @@ export function SongPicker({
               );
             })}
           </ul>
+
+          {!chosenMode && (
+            <MorePicks
+              control={moreControl(state, rows)}
+              wantedSent={state.wantedSent}
+              onShowMore={showMore}
+              onSend={sendWanted}
+            />
+          )}
 
           {chosenMode && (
             <>
