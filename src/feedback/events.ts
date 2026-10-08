@@ -30,6 +30,7 @@ export const EVENT_NAMES = [
   "video_chosen",
   "sign_in_started",
   "sign_in_completed",
+  "vibe_set",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

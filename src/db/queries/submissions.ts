@@ -92,6 +92,18 @@ export async function updateSubmission(
   if (error) throw error;
 }
 
+/** Columns from 0008_vibe.sql. Not yet in the generated types: drop this after `pnpm db:types`. */
+export type SubmissionVibeColumns = { vibe_tags: string[]; vibe_note: string | null };
+
+/** Stores the creator's "What's the vibe?" answer on the submission. */
+export async function setSubmissionVibe(id: string, vibe: SubmissionVibeColumns): Promise<void> {
+  const { error } = await createServiceClient()
+    .from("submissions")
+    .update({ vibe_tags: vibe.vibe_tags, vibe_note: vibe.vibe_note } as SubmissionUpdate)
+    .eq("id", id);
+  if (error) throw error;
+}
+
 /** Sets viewed_at only the first time. Returns true if this call set it. */
 export async function markSubmissionViewed(id: string): Promise<boolean> {
   const { data, error } = await createServiceClient()
