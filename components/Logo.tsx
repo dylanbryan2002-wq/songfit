@@ -1,6 +1,6 @@
 /**
  * Songfit logo (mark + wordmark), from Dylan's brand file in `public/brand/`.
- * `mix-blend-multiply` lets the JPEG's off-white background disappear into any light page background;
+ * `mix-blend-darken` lets the JPEG's off-white background disappear into any light page background;
  * swap the file for an SVG/transparent PNG when one exists and drop the blend.
  * Named export: `import { Logo } from "@/components/Logo"`.
  */
@@ -14,7 +14,7 @@ export function Logo({ size = "sm", className = "" }: { size?: "sm" | "lg"; clas
         alt="Songfit"
         width={540}
         height={200}
-        className={`${height} w-auto select-none mix-blend-multiply`}
+        className={`${height} w-auto select-none mix-blend-darken`}
         draggable={false}
       />
     </span>
