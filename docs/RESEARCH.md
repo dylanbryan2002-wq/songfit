@@ -244,3 +244,24 @@ distinct songs were dropped as unverified, most of them famous.
 - Licensed route to recover them later: Apple Music API / MusicKit (catalogue + previews under a
   developer agreement, $99 Developer Program), see the 2026-10-07 picker notes above.
 - `scripts/probe-match2.ts` stays as the measurement probe for Deezer misses.
+
+## 2026-10-07 — Six video-to-music products (Dylan's list)
+
+- Epidemic Sound "Search by video" API: library music only (~55k tracks they own), one JPEG frame
+  per call → ranked tracks; free self-serve key, paid terms unpublished; requires privacy-policy
+  disclosure of frame sharing. Usable later as a "safe to post anywhere" fallback, not for trending songs.
+- AIMS API: B2B search tech (audio embeddings + video narrative/tone/pace) over the CUSTOMER's own
+  catalogue; no music of its own, no public pricing. We would have to bring and licence the catalogue.
+- Kliptune (India): the closest product to Songfit — upload image/video, pick language + vibe, get
+  real platform-library songs with a single "best hook timestamp", captions and hashtags; ₹99–399
+  plans; no API; method undisclosed. No start+end section, no reason.
+- MyPart / Songhunt: B2B song search (lyrics, composition, sound); added image/video → playlist in
+  2024; likely commercial catalogue (unverified); contact-only pricing. Playlists, no section timing.
+- Soundstripe Supe: chat assistant over stock music (Soundstripe + Warner Chappell production);
+  inputs include video and reference song links; refine conversationally ("more piano"). Library only.
+- Tempolor: AI music GENERATOR from video mood; original royalty-free output; API ~$10. Not trending songs.
+- Takeaways: nobody else returns real commercial songs with an exact start+end and a reason.
+  Ideas: accept a reference song link as an input; one-tap refine chips ("slower", "more energy");
+  bundle captions/hashtags with each pick; Kliptune's "available in this platform's library" filter.
+  Positioning: "Library tools find music you're allowed to use. Songfit finds the song everyone's
+  actually using, and the exact seconds to post."
