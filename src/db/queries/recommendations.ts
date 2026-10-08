@@ -6,7 +6,7 @@ import type { Rank } from "@/src/shared/types";
 export type RecommendationRow = Database["public"]["Tables"]["recommendations"]["Row"];
 export type RecommendationInsert = Database["public"]["Tables"]["recommendations"]["Insert"];
 
-/** Idempotent per stage run: replaces the submission's 3 recommendations. */
+/** Idempotent per stage run: replaces the submission's recommendations (up to 15). */
 export async function replaceRecommendations(
   submissionId: string,
   rows: RecommendationInsert[],

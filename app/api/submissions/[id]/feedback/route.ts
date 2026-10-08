@@ -6,7 +6,7 @@ import { isUuid } from "@/src/shared/ids";
 
 export const dynamic = "force-dynamic";
 
-/** Select or reject one song, or record that all three were rejected. Owner only (admins too are refused). */
+/** Select or reject one song, or record that every pick was rejected. Owner only (admins too are refused). */
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const creator = await getCreator();
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
