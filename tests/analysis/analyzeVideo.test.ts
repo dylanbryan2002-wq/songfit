@@ -45,6 +45,8 @@ const input = {
   transcript: "",
   transcriptSegments: [],
   creatorIntent: null,
+  vibeTags: [] as string[],
+  vibeNote: null as string | null,
   durationSeconds: 12,
 };
 
@@ -188,5 +190,43 @@ describe("analyzeVideo", () => {
       }
     });
     expect(labels).toEqual(["t=0.5s", "t=2.0s"]);
+  });
+});
+
+describe("analyzeVideo: creator's own description", () => {
+  const texts = (create: ReturnType<typeof vi.fn>) =>
+    (create.mock.calls[0]![0].messages[0].content as { type: string; text?: string }[])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text ?? "");
+
+  it("is analyze-v4 and the system prompt says a named vibe sets the primary direction", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo(input, { client });
+    expect(PROMPT_VERSION).toBe("analyze-v4");
+    expect(create.mock.calls[0]![0].system).toContain("If the creator named a vibe, the brief's primary direction must honour it; still describe what you see.");
+  });
+
+  it("omits the block entirely when tags and note are empty", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo(input, { client });
+    expect(texts(create).some((t) => t.includes("CREATOR'S OWN DESCRIPTION"))).toBe(false);
+  });
+
+  it("includes tags joined by ', ' and the note", async () => {
+    const { client, create } = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo({ ...input, vibeTags: ["Funny", "Day in the Life"], vibeNote: "the song is the punchline" }, { client });
+    expect(texts(create)).toContain(
+      "CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): vibe: Funny, Day in the Life; note: the song is the punchline",
+    );
+  });
+
+  it("includes only the part that was given", async () => {
+    const tagsOnly = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo({ ...input, vibeTags: ["Chill"] }, { client: tagsOnly.client });
+    expect(texts(tagsOnly.create)).toContain("CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): vibe: Chill");
+
+    const noteOnly = fakeClient([JSON.stringify(validPayload)]);
+    await analyzeVideo({ ...input, vibeNote: "make it sad" }, { client: noteOnly.client });
+    expect(texts(noteOnly.create)).toContain("CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): note: make it sad");
   });
 });

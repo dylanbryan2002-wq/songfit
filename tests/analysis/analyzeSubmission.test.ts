@@ -100,6 +100,20 @@ describe("analyzeSubmission", () => {
     expect(d.removeDir).toHaveBeenCalledWith("/tmp/x");
   });
 
+  it("passes the creator's vibe into analysis, and nothing when the row has none", async () => {
+    const d = deps();
+    await analyzeSubmission("sub-1", ctx, d);
+    expect(d.analyzeVideo).toHaveBeenCalledWith(expect.objectContaining({ vibeTags: [], vibeNote: null }), ctx);
+
+    const v = deps();
+    v.getSubmission.mockResolvedValue({ ...submission, vibe_tags: ["Funny", "Chill"], vibe_note: "the song is the punchline" });
+    await analyzeSubmission("sub-1", ctx, v);
+    expect(v.analyzeVideo).toHaveBeenCalledWith(
+      expect.objectContaining({ vibeTags: ["Funny", "Chill"], vibeNote: "the song is the punchline" }),
+      ctx,
+    );
+  });
+
   it("cleans up the work dir even when analysis throws", async () => {
     const d = deps();
     d.analyzeVideo.mockRejectedValue(new Error("boom"));

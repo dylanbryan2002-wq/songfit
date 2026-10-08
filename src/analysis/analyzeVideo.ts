@@ -8,7 +8,7 @@ import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
-export const PROMPT_VERSION = "analyze-v3";
+export const PROMPT_VERSION = "analyze-v4";
 
 export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
 const momentTypeSet = new Set<string>(MOMENT_TYPES);
@@ -27,6 +27,9 @@ export type AnalyzeInput = {
   transcript: string;
   transcriptSegments: TranscriptSegment[];
   creatorIntent: string | null;
+  /** The creator's "What's the vibe?" chips and note; empty/null when skipped. */
+  vibeTags: string[];
+  vibeNote: string | null;
   durationSeconds: number;
 };
 
@@ -46,6 +49,7 @@ Rules:
 - important_moments: the moments a song should react to, each with a timestamp in seconds taken from the frame labels. type must be exactly one of: ${MOMENT_TYPES.join(", ")}. Use main_visual_reveal for the single biggest reveal (outfit, before/after, product, location), climax for the emotional or energetic peak, transition for a hard visual transition, beat_cut for a rhythmic cut pattern starting, scene_change for a location/scene change, text_overlay for a text card that carries meaning. Include at most 6. Include at least one if the video has any identifiable peak.
 - content_category must be exactly one of: ${CONTENT_CATEGORIES.join(", ")}.
 - energy is one of: low, medium, medium-high, high. pacing is one of: slow, medium, fast.
+- If the creator named a vibe, the brief's primary direction must honour it; still describe what you see.
 - The music brief combines WHAT THE VIDEO IS with WHAT THE CREATOR WANTS IT TO BECOME. If the creator gave no intent, infer the most likely intended feel from the content and say in the brief text that it was inferred.
 - brief.text is 3–6 sentences in plain language, written for a human music supervisor: the feel, the energy, the cultural register (current vs timeless, mainstream vs niche), vocal considerations given any dialogue, and where in the video a musical lift or hit should land (reference timestamps).
 - brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either — when dialogue_present is true, choose instrumental, or either and state in brief.text that vocals must not sit over speech), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present (same value as analysis.dialogue_present), desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
@@ -116,6 +120,16 @@ function buildUserContent(input: AnalyzeInput): Block[] {
       ? `Creator intent — what they want this to feel like: """${input.creatorIntent.trim()}"""`
       : "Creator intent: none given. Infer a likely direction from the content and state in the brief that it was inferred.",
   });
+  const own = [
+    input.vibeTags.length > 0 ? `vibe: ${input.vibeTags.join(", ")}` : null,
+    input.vibeNote?.trim() ? `note: ${input.vibeNote.trim()}` : null,
+  ].filter((p): p is string => p !== null);
+  if (own.length > 0) {
+    blocks.push({
+      type: "text",
+      text: `CREATOR'S OWN DESCRIPTION (authoritative over your guess when they conflict): ${own.join("; ")}`,
+    });
+  }
   blocks.push({ type: "text", text: "Now output the single JSON object." });
   return blocks;
 }

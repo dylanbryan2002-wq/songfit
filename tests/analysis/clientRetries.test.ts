@@ -33,7 +33,7 @@ describe("SDK clients", () => {
   it("analyzeVideo's client has maxRetries 0", async () => {
     m.anthropicOpts.length = 0;
     const { analyzeVideo } = await import("../../src/analysis/analyzeVideo");
-    await analyzeVideo({ frames: [], transcript: "", transcriptSegments: [], creatorIntent: null, durationSeconds: 5 })
+    await analyzeVideo({ frames: [], transcript: "", transcriptSegments: [], creatorIntent: null, vibeTags: [], vibeNote: null, durationSeconds: 5 })
       .catch(() => undefined);
     expect(m.anthropicOpts).toEqual([expect.objectContaining({ maxRetries: 0 })]);
   });

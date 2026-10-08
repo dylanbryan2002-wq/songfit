@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getSubmission, updateSubmission } from "../db/queries/submissions";
+import { getSubmission, updateSubmission, type SubmissionVibeColumns } from "../db/queries/submissions";
 import { upsertAnalysis } from "../db/queries/analyses";
 import { downloadToTmp, playbackPathFor, uploadPlayback } from "../media/storage";
 import { extractMedia } from "../media/extract";
@@ -81,6 +81,9 @@ export async function analyzeSubmission(
         transcript: transcript.text,
         transcriptSegments: transcript.segments,
         creatorIntent: sub.creator_intent ?? null,
+        // Optional until `pnpm db:types` includes 0008_vibe.sql; rows before 0008 have neither.
+        vibeTags: (sub as Partial<SubmissionVibeColumns>).vibe_tags ?? [],
+        vibeNote: (sub as Partial<SubmissionVibeColumns>).vibe_note ?? null,
         durationSeconds: media.durationSeconds,
       },
       { deadlineAt: ctx.deadlineAt },
