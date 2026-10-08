@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-/** "How should it feel?" chips in display order, in groups separated by spacing only. Stored verbatim. */
+/** "How should it feel?" chips in display order, in groups separated by spacing only. Stored verbatim.
+ *  "Day in the Life" and "Travel" were removed 2026-10-08; rows written earlier keep them. */
 export const VIBE_GROUPS = [
   ["Funny", "Emotional", "Motivational", "Energetic", "Romantic", "Deep", "Nostalgic"],
-  ["Day in the Life", "Travel", "Educational", "Challenge"],
+  ["Educational", "Challenge"],
   ["Positive Storytelling", "Emotional Storytelling", "Sad Storytelling"],
 ] as const;
 export const VIBE_TAGS = VIBE_GROUPS.flat();

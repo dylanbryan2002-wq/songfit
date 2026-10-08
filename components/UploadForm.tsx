@@ -8,6 +8,7 @@ import { durationVerdict } from "./durationVerdict";
 import { uploadVideo } from "./upload";
 import { checkVideoFile, TOO_LONG } from "./videoChecks";
 import { VibePicker } from "./VibePicker";
+import { FileCard, VideoIcon } from "./landing/FileCard";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
 
@@ -46,7 +47,6 @@ export function UploadForm({
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(initialFile ?? null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [intent, setIntent] = useState(""); // the "Anything else?" note
   const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -56,16 +56,23 @@ export function UploadForm({
   const [blocked, setBlocked] = useState<Blocked | null>(null);
   // State updates are async; a second tap in the same frame must not start a second upload.
   const running = useRef(false);
+  const videoInput = useRef<HTMLInputElement>(null);
+  const noteInput = useRef<HTMLInputElement>(null);
+  const [noteFlash, setNoteFlash] = useState(false); // "Something else…" points at the note
 
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    if (!noteFlash) return;
+    const t = setTimeout(() => setNoteFlash(false), 1500);
+    return () => clearTimeout(t);
+  }, [noteFlash]);
+
+  function onSomethingElse() {
+    const el = noteInput.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setNoteFlash(true);
+  }
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
@@ -176,35 +183,37 @@ export function UploadForm({
   const busy = phase === "checking" || phase === "uploading" || phase === "creating";
 
   return (
-    <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-4">
-      <label
-        htmlFor="video"
-        className="flex h-[200px] w-full cursor-pointer items-center justify-center overflow-hidden rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
-      >
-        {previewUrl ? (
-          <video src={previewUrl} muted playsInline autoPlay loop preload="auto" className="h-full w-full object-cover" />
-        ) : (
+    <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-8">
+      <input ref={videoInput} id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
+      {file ? (
+        <FileCard file={file} onChange={() => videoInput.current?.click()} disabled={busy} />
+      ) : (
+        <label
+          htmlFor="video"
+          className="flex h-[150px] w-full cursor-pointer items-center justify-center rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
+        >
           <span className="flex flex-col items-center gap-1 px-6 text-center">
+            <VideoIcon />
             <span className="text-base font-semibold text-ink">Tap to choose a video</span>
             <span>MP4 or MOV, up to 150 MB (up to 3 minutes)</span>
           </span>
-        )}
-        <input id="video" type="file" accept="video/*" className="sr-only" onChange={onPick} disabled={busy} />
-      </label>
+        </label>
+      )}
 
-      {file && <p className="truncate text-center text-sm text-muted">{file.name}</p>}
-
-      <VibePicker tags={vibeTags} onChange={setVibeTags} disabled={busy} />
+      <VibePicker tags={vibeTags} onChange={setVibeTags} onSomethingElse={onSomethingElse} disabled={busy} />
 
       <label className="flex flex-col gap-1">
         <span className="text-sm font-semibold text-ink">Anything else?</span>
         <input
+          ref={noteInput}
           type="text"
           value={intent}
           onChange={(e) => setIntent(e.target.value)}
           maxLength={VIBE_NOTE_MAX}
           placeholder="e.g. the song is the punchline"
-          className="min-h-11 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base"
+          className={`min-h-11 w-full rounded-2xl border bg-white px-4 py-3 text-base transition-shadow ${
+            noteFlash ? "border-ink ring-2 ring-ink/20" : "border-gray-200"
+          }`}
           disabled={busy}
         />
       </label>
@@ -230,7 +239,7 @@ export function UploadForm({
         <button
           type="submit"
           disabled={busy}
-          className="steel-gradient w-full rounded-2xl px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-2xl bg-ink px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
         >
           {phase === "checking" && "Checking your video"}
           {phase === "uploading" && `Uploading ${progress}%`}

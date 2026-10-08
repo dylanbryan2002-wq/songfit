@@ -10,7 +10,7 @@ export function toggleVibeTag(tags: string[], tag: string): string[] {
   return VIBE_TAGS.filter((t) => t === tag || tags.includes(t));
 }
 
-/** Results echo under the video, e.g. "For your Funny · Day in the Life video"; null without tags. */
+/** Results echo under the video, e.g. "For your Funny · Educational video"; null without tags. */
 export function vibeLine(tags: string[]): string | null {
   return tags.length > 0 ? `For your ${tags.join(" · ")} video` : null;
 }

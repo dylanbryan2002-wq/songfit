@@ -133,9 +133,8 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
       ) : chosen ? (
         <>
           <FileCard
-            name={chosen.file.name}
+            file={chosen.file}
             durationSeconds={chosen.durationSeconds}
-            size={chosen.file.size}
             onChange={choose}
             disabled={busy || checking}
           />

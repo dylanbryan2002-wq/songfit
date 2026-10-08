@@ -61,10 +61,10 @@ describe("POST /api/submissions: vibe", () => {
   });
 
   it("stores tags and the trimmed note, and fires vibe_set once", async () => {
-    expect((await post({ vibe_tags: ["Funny", "Travel"], creatorIntent: "  song is the punchline " })).status).toBe(201);
+    expect((await post({ vibe_tags: ["Funny", "Educational"], creatorIntent: "  song is the punchline " })).status).toBe(201);
     expect(m.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ creatorIntent: "song is the punchline" }));
-    expect(m.setSubmissionVibe).toHaveBeenCalledWith(ID, ["Funny", "Travel"]);
-    expect(vibeEvent()).toEqual(expect.objectContaining({ metadata: { tags: ["Funny", "Travel"], has_note: true } }));
+    expect(m.setSubmissionVibe).toHaveBeenCalledWith(ID, ["Funny", "Educational"]);
+    expect(vibeEvent()).toEqual(expect.objectContaining({ metadata: { tags: ["Funny", "Educational"], has_note: true } }));
     expect(names().filter((n) => n === "vibe_set")).toHaveLength(1);
   });
 
@@ -76,7 +76,7 @@ describe("POST /api/submissions: vibe", () => {
 
   it("rejects an unknown tag, a 4th tag and a note over 140 chars", async () => {
     expect((await post({ vibe_tags: ["Spooky"] })).status).toBe(400);
-    expect((await post({ vibe_tags: ["Funny", "Travel", "Deep", "Romantic"] })).status).toBe(400);
+    expect((await post({ vibe_tags: ["Funny", "Educational", "Deep", "Romantic"] })).status).toBe(400);
     expect((await post({ creatorIntent: "a".repeat(141) })).status).toBe(400);
     expect(m.createSubmission).not.toHaveBeenCalled();
   });
