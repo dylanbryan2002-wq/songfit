@@ -1,7 +1,8 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCreator } from "@/src/auth/session";
+import { getViewer } from "@/src/auth/session";
+import { dailyUploadLimit, overDailyLimit } from "@/src/billing/rateLimit";
 import { createSubmission, countSubmissionsForCreator, getSubmission, setSubmissionVibe } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
 import { isExactStoragePath, objectInfo } from "@/src/media/storage";
@@ -24,7 +25,7 @@ const Body = z.object({
 });
 
 export async function POST(request: Request) {
-  const creator = await getCreator();
+  const creator = await getViewer(); // anonymous visitors included; their runs are claimed at sign-in
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
@@ -41,6 +42,9 @@ export async function POST(request: Request) {
   // The path must be exactly the one the server issued for this creator + id + ext.
   if (!isExactStoragePath(path, creator.id, submissionId, ext)) {
     return NextResponse.json({ error: "forbidden_path" }, { status: 403 });
+  }
+  if (await overDailyLimit(creator.id, dailyUploadLimit(creator.anonymous))) {
+    return NextResponse.json({ error: "daily_limit" }, { status: 429 });
   }
   const info = await objectInfo(path);
   if (!info) return NextResponse.json({ error: "upload_not_found" }, { status: 400 });
@@ -77,7 +81,7 @@ export async function POST(request: Request) {
     }
   }
   // Only the second submission marks a return; later ones are not new returns.
-  if ((await countSubmissionsForCreator(creator.id)) === 2) {
+  if (!creator.anonymous && (await countSubmissionsForCreator(creator.id)) === 2) {
     await logEvent({ name: "returned_with_second_submission", creatorId: creator.id, submissionId: submission.id });
   }
 

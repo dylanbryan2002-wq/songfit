@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const m = vi.hoisted(() => ({ getCreator: vi.fn(), logEvent: vi.fn() }));
-vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator }));
+const m = vi.hoisted(() => ({ getCreator: vi.fn(), getViewer: vi.fn(), logEvent: vi.fn() }));
+vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator, getViewer: m.getViewer }));
 vi.mock("@/src/feedback/events", () => ({ logEvent: m.logEvent }));
 
 import { POST } from "@/app/api/landing-events/route";
@@ -23,6 +23,7 @@ const call = (body: unknown, fromIp = ip) =>
 beforeEach(() => {
   ip = `203.0.113.${++ipSeq}`; // a fresh IP per test so the per-IP limiter starts empty
   m.getCreator.mockReset().mockResolvedValue(null);
+  m.getViewer.mockReset().mockResolvedValue(null);
   m.logEvent.mockReset().mockResolvedValue(undefined);
 });
 
@@ -41,6 +42,16 @@ describe("POST /api/landing-events", () => {
     m.getCreator.mockResolvedValue({ id: "c1", email: "a@b.co" });
     expect((await call({ name: "sign_in_completed", flow_id: FLOW })).status).toBe(204);
     expect(m.logEvent).toHaveBeenLastCalledWith({ name: "sign_in_completed", creatorId: "c1", metadata: { flow_id: FLOW } });
+  });
+
+  it("logs anon_session_started only for an anonymous session, with the anonymous id", async () => {
+    expect((await call({ name: "anon_session_started", flow_id: FLOW })).status).toBe(401);
+    m.getViewer.mockResolvedValue({ id: "c1", anonymous: false, email: "a@b.co" });
+    expect((await call({ name: "anon_session_started", flow_id: FLOW })).status).toBe(401);
+    expect(m.logEvent).not.toHaveBeenCalled();
+    m.getViewer.mockResolvedValue({ id: "a1", anonymous: true, email: null });
+    expect((await call({ name: "anon_session_started", flow_id: FLOW })).status).toBe(204);
+    expect(m.logEvent).toHaveBeenLastCalledWith({ name: "anon_session_started", creatorId: "a1", metadata: { flow_id: FLOW } });
   });
 
   it("400 for other names, bad flow_id, extra fields, junk", async () => {

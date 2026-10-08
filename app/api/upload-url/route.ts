@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCreator } from "@/src/auth/session";
+import { getViewer } from "@/src/auth/session";
 import { canSubmit } from "@/src/billing/paywall";
-import { checkUploadRate } from "@/src/billing/rateLimit";
+import { checkUploadRate, dailyUploadLimit } from "@/src/billing/rateLimit";
 import { getSignedUploadUrl } from "@/src/media/storage";
 import { LIMITS } from "@/src/shared/config";
 
@@ -15,7 +15,8 @@ const Body = z.object({
 });
 
 export async function POST(request: Request) {
-  const creator = await getCreator();
+  // Anonymous visitors upload too (own folder via RLS), with a lower daily cap.
+  const creator = await getViewer();
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const parsed = Body.safeParse(await request.json().catch(() => null));
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
-  const rate = await checkUploadRate(creator.id);
+  const rate = await checkUploadRate(creator.id, dailyUploadLimit(creator.anonymous));
   if (rate !== "ok") return NextResponse.json({ error: rate }, { status: 429 });
 
   const gate = await canSubmit(creator.id);

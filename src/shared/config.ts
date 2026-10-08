@@ -23,6 +23,7 @@ export const LIMITS = {
   inFlightStaleMinutes: 6,
   maxRetriesPerSubmission: 3, // creator retries of one failing video
   dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
+  dailyUploadsAnonymous: 3, // same cap before Google sign-in (anonymous session)
 } as const;
 
 /** Ranked picks per submission, shown PICKS_PER_BATCH at a time; fewer than PICKS_MIN verified fails the stage. */

@@ -1,6 +1,6 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
-import { getCreator, isAdmin } from "@/src/auth/session";
+import { getViewer, isAdmin } from "@/src/auth/session";
 import { getSubmission, listRecentReadyTimings } from "@/src/db/queries/submissions";
 import { runSubmission } from "@/src/pipeline/run";
 import { etaSeconds, stageMedians, type StageMedians } from "@/src/shared/eta";
@@ -24,7 +24,7 @@ async function recentMedians(now: number): Promise<StageMedians> {
 }
 
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const creator = await getCreator();
+  const creator = await getViewer(); // an anonymous owner polls while the run goes
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { id } = await ctx.params;

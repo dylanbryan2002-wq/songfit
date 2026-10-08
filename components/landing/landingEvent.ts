@@ -1,6 +1,11 @@
 "use client";
 
-export type LandingEventName = "landing_viewed" | "video_chosen" | "sign_in_started" | "sign_in_completed";
+export type LandingEventName =
+  | "landing_viewed"
+  | "video_chosen"
+  | "sign_in_started"
+  | "sign_in_completed"
+  | "anon_session_started";
 
 /** Fire-and-forget funnel event. Only the name and the random flow id leave the device. */
 export function sendLandingEvent(name: LandingEventName, flowId: string): void {

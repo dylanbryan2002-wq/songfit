@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const m = vi.hoisted(() => ({ countSubmissionsSince: vi.fn() }));
 vi.mock("@/src/db/queries/submissions", () => ({ countSubmissionsSince: m.countSubmissionsSince }));
 
-import { checkUploadRate } from "@/src/billing/rateLimit";
+import { checkUploadRate, dailyUploadLimit } from "@/src/billing/rateLimit";
 import { LIMITS } from "@/src/shared/config";
 
 const NOW = Date.parse("2026-10-07T12:00:00Z");
@@ -16,22 +16,36 @@ const counts = (day: number, minute: number) =>
 
 beforeEach(() => m.countSubmissionsSince.mockReset());
 
+describe("dailyUploadLimit", () => {
+  it("is 3 for an anonymous viewer and 10 for a signed-in creator", () => {
+    expect(LIMITS.dailyUploadsAnonymous).toBe(3);
+    expect(dailyUploadLimit(true)).toBe(3);
+    expect(dailyUploadLimit(false)).toBe(LIMITS.dailyUploadsPerCreator);
+  });
+});
+
 describe("checkUploadRate", () => {
   it("caps a creator at 10 uploads a day", async () => {
     expect(LIMITS.dailyUploadsPerCreator).toBe(10);
     counts(10, 0);
-    expect(await checkUploadRate(creator(), NOW)).toBe("daily_limit");
+    expect(await checkUploadRate(creator(), 10, NOW)).toBe("daily_limit");
+  });
+  it("caps an anonymous viewer at 3", async () => {
+    counts(3, 0);
+    expect(await checkUploadRate(creator(), 3, NOW)).toBe("daily_limit");
+    counts(2, 0);
+    expect(await checkUploadRate(creator(), 3, NOW)).toBe("ok");
   });
   it("allows under the daily cap", async () => {
     counts(9, 0);
-    expect(await checkUploadRate(creator(), NOW)).toBe("ok");
+    expect(await checkUploadRate(creator(), 10, NOW)).toBe("ok");
   });
   it("keeps the 5-per-minute burst limit, in the database and in memory", async () => {
     counts(5, 5);
-    expect(await checkUploadRate(creator(), NOW)).toBe("rate_limited");
+    expect(await checkUploadRate(creator(), 10, NOW)).toBe("rate_limited");
     counts(0, 0);
     const c = creator();
-    for (let i = 0; i < 5; i++) expect(await checkUploadRate(c, NOW)).toBe("ok");
-    expect(await checkUploadRate(c, NOW)).toBe("rate_limited");
+    for (let i = 0; i < 5; i++) expect(await checkUploadRate(c, 10, NOW)).toBe("ok");
+    expect(await checkUploadRate(c, 10, NOW)).toBe("rate_limited");
   });
 });

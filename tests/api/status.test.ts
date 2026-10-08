@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const m = vi.hoisted(() => ({
-  getCreator: vi.fn(),
+  getViewer: vi.fn(),
   getSubmission: vi.fn(),
   listRecentReadyTimings: vi.fn(),
   runSubmission: vi.fn(),
   waitUntil: vi.fn(),
 }));
-vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator, isAdmin: () => false }));
+vi.mock("@/src/auth/session", () => ({ getViewer: m.getViewer, isAdmin: () => false }));
 vi.mock("@/src/db/queries/submissions", () => ({
   getSubmission: m.getSubmission,
   listRecentReadyTimings: m.listRecentReadyTimings,
@@ -26,7 +26,7 @@ const sub = (status: string, updatedMin = 1, creator_id = "c1") => ({
 });
 
 beforeEach(() => {
-  m.getCreator.mockReset().mockResolvedValue({ id: "c1", email: "a@b.co" });
+  m.getViewer.mockReset().mockResolvedValue({ id: "c1", anonymous: false, email: "a@b.co" });
   m.getSubmission.mockReset().mockResolvedValue(sub("analyzing"));
   m.listRecentReadyTimings.mockReset().mockResolvedValue([]);
   m.runSubmission.mockReset().mockResolvedValue(undefined);
@@ -41,8 +41,15 @@ describe("GET /api/submissions/[id]", () => {
     expect((await call("nope")).status).toBe(404);
     m.getSubmission.mockResolvedValueOnce(sub("ready", 1, "other"));
     expect((await call()).status).toBe(404);
-    m.getCreator.mockResolvedValue(null);
+    m.getViewer.mockResolvedValue(null);
     expect((await call()).status).toBe(401);
+  });
+  it("lets an anonymous viewer poll their own submission, not someone else's", async () => {
+    m.getViewer.mockResolvedValue({ id: "a1", anonymous: true, email: null });
+    m.getSubmission.mockResolvedValue(sub("analyzing", 1, "a1"));
+    expect((await (await call()).json()).status).toBe("analyzing");
+    m.getSubmission.mockResolvedValue(sub("analyzing", 1, "c1"));
+    expect((await call()).status).toBe(404);
   });
   it("returns status, error and eta only, never the raw message", async () => {
     m.getSubmission.mockResolvedValue(sub("ready", 30));

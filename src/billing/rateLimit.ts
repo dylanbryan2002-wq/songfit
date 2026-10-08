@@ -32,10 +32,19 @@ const issuances = new Map<string, number[]>();
 
 export type UploadRate = "ok" | "rate_limited" | "daily_limit";
 
+/** Daily submissions cap: lower for an anonymous viewer (no Google sign-in yet). */
+export function dailyUploadLimit(anonymous: boolean): number {
+  return anonymous ? LIMITS.dailyUploadsAnonymous : LIMITS.dailyUploadsPerCreator;
+}
+
+/** True when this creator already created `limit` submissions in the last 24 h. */
+export async function overDailyLimit(creatorId: string, limit: number, now = Date.now()): Promise<boolean> {
+  return (await countSubmissionsSince(creatorId, new Date(now - DAY_MS).toISOString())) >= limit;
+}
+
 /** Whether this creator may be issued another upload URL right now: daily spend cap, then the burst limit. */
-export async function checkUploadRate(creatorId: string, now = Date.now()): Promise<UploadRate> {
-  const today = await countSubmissionsSince(creatorId, new Date(now - DAY_MS).toISOString());
-  if (today >= LIMITS.dailyUploadsPerCreator) return "daily_limit";
+export async function checkUploadRate(creatorId: string, dailyLimit: number, now = Date.now()): Promise<UploadRate> {
+  if (await overDailyLimit(creatorId, dailyLimit, now)) return "daily_limit";
   const created = await countSubmissionsSince(creatorId, new Date(now - UPLOAD_URL_WINDOW_MS).toISOString());
   if (created >= UPLOAD_URL_LIMIT) return "rate_limited";
   return takeToken(issuances, creatorId, UPLOAD_URL_LIMIT, UPLOAD_URL_WINDOW_MS, now) ? "ok" : "rate_limited";

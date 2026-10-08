@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCreator } from "@/src/auth/session";
+import { getCreator, getViewer } from "@/src/auth/session";
 import { takeToken } from "@/src/billing/rateLimit";
 import { logEvent } from "@/src/feedback/events";
 
@@ -13,7 +13,7 @@ const PER_MINUTE = 30;
  *  filename, size or duration). sign_in_completed needs a session and is logged with the creator. */
 const Body = z
   .object({
-    name: z.enum(["landing_viewed", "video_chosen", "sign_in_started", "sign_in_completed"]),
+    name: z.enum(["landing_viewed", "video_chosen", "sign_in_started", "sign_in_completed", "anon_session_started"]),
     flow_id: z.string().uuid(),
   })
   .strict();
@@ -49,6 +49,11 @@ export async function POST(request: Request) {
     const creator = await getCreator();
     if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
     creatorId = creator.id;
+  }
+  if (name === "anon_session_started") {
+    const viewer = await getViewer();
+    if (!viewer?.anonymous) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+    creatorId = viewer.id;
   }
   await logEvent({ name, creatorId, metadata: { flow_id } });
   return new Response(null, { status: 204 });

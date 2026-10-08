@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 const m = vi.hoisted(() => ({
-  getCreator: vi.fn(), getSubmission: vi.fn(), createSubmission: vi.fn(), countSubmissionsForCreator: vi.fn(), setSubmissionVibe: vi.fn(),
+  getViewer: vi.fn(), countSubmissionsSince: vi.fn(), getSubmission: vi.fn(), createSubmission: vi.fn(), countSubmissionsForCreator: vi.fn(), setSubmissionVibe: vi.fn(),
   logEvent: vi.fn(), objectInfo: vi.fn(), runSubmission: vi.fn(),
 }));
 vi.mock("@vercel/functions", () => ({ waitUntil: () => undefined }));
-vi.mock("@/src/auth/session", () => ({ getCreator: m.getCreator }));
+vi.mock("@/src/auth/session", () => ({ getViewer: m.getViewer }));
 vi.mock("@/src/db/queries/submissions", () => ({
   getSubmission: m.getSubmission, createSubmission: m.createSubmission, countSubmissionsForCreator: m.countSubmissionsForCreator,
-  setSubmissionVibe: m.setSubmissionVibe,
+  setSubmissionVibe: m.setSubmissionVibe, countSubmissionsSince: m.countSubmissionsSince,
 }));
 vi.mock("@/src/feedback/events", () => ({ logEvent: m.logEvent }));
 vi.mock("@/src/media/storage", () => ({ isExactStoragePath: () => true, objectInfo: m.objectInfo }));
@@ -26,7 +26,8 @@ const names = () => m.logEvent.mock.calls.map((c) => (c[0] as { name: string }).
 
 beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset();
-  m.getCreator.mockResolvedValue({ id: "c1", email: "a@b.co" });
+  m.getViewer.mockResolvedValue({ id: "c1", anonymous: false, email: "a@b.co" });
+  m.countSubmissionsSince.mockResolvedValue(0);
   m.getSubmission.mockResolvedValue(null);
   m.objectInfo.mockResolvedValue({ sizeBytes: 1000 });
   m.createSubmission.mockResolvedValue({ id: ID });
@@ -85,5 +86,29 @@ describe("POST /api/submissions: vibe", () => {
     m.setSubmissionVibe.mockRejectedValue(new Error("db down"));
     expect((await post({ vibe_tags: ["Deep"] })).status).toBe(201);
     expect(vibeEvent()).toBeUndefined();
+  });
+});
+
+describe("POST /api/submissions: anonymous viewer", () => {
+  beforeEach(() => m.getViewer.mockResolvedValue({ id: "c1", anonymous: true, email: null }));
+
+  it("creates the run under the anonymous id, never a returned_with_second_submission", async () => {
+    m.countSubmissionsForCreator.mockResolvedValue(2);
+    expect((await post()).status).toBe(201);
+    expect(m.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ creatorId: "c1" }));
+    expect(names()).not.toContain("returned_with_second_submission");
+  });
+
+  it("429 daily_limit at 3 submissions in 24 h", async () => {
+    m.countSubmissionsSince.mockResolvedValue(3);
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "daily_limit" });
+    expect(m.createSubmission).not.toHaveBeenCalled();
+  });
+
+  it("401 without any session", async () => {
+    m.getViewer.mockResolvedValue(null);
+    expect((await post()).status).toBe(401);
   });
 });
