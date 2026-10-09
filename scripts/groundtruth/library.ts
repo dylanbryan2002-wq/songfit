@@ -61,6 +61,7 @@ async function main() {
     home: { type: "string" }, "max-dollars": { type: "string", default: "4" }, "skip-tags": { type: "boolean", default: false },
     "tags-only": { type: "boolean", default: false }, // tag the untagged songs in an existing library.json
     batches: { type: "string" }, // stop after this many tagging batches (for a first check)
+    recover: { type: "string" }, // re-read saved replies library-tags-raw-0..N-1 instead of calling the model for those batches
   } });
   const home = path.resolve((args.home ?? "~/Songfit-groundtruth").replace(/^~(?=$|\/)/, os.homedir()));
   const cap = Number(args["max-dollars"]);
@@ -162,13 +163,23 @@ async function main() {
     const list = all.filter((s) => !s.tags);
     const maxBatches = args.batches ? Number(args.batches) : Infinity;
     for (let i = 0; i < list.length && i / 40 < maxBatches; i += 40) {
-      if (spentDollars() + 0.4 > cap) { console.log(`STOP tagging: spent $${spentDollars().toFixed(2)} of $${cap}`); break; }
+      const b = i / 40;
+      const recovering = args.recover != null && b < Number(args.recover);
+      if (!recovering && spentDollars() + 0.4 > cap) { console.log(`STOP tagging: spent $${spentDollars().toFixed(2)} of $${cap}`); break; }
       const chunk = list.slice(i, i + 40);
       const user = `Tag each song for matching it to short-form videos. Use what you know about the actual recording; if you do not know it, say unknown and confidence low, never guess. lead_vocals means a singer is heard (a sung hook counts as yes).\n` +
         chunk.map((s, j) => `${j}. ${s.title} — ${s.artist} (released ${s.first_release ?? s.release_date ?? "?"}${s.bpm ? `, ${Math.round(s.bpm)} bpm` : ""})`).join("\n") +
-        `\nReturn ONE JSON array, one object per song: {"i": index, "mood": up to 4 words, "energy": 1-5, "jobs": subset of ${MusicJob.options.join("|")} this song can do for a video, "lead_vocals": "yes"|"no"|"unknown", "familiarity": "household"|"known"|"niche"|"unknown" (to US Gen Z), "era": e.g. "2009 club" or "2020s TikTok", "hook": what the title or hook says or evokes (for title/joke matches), "" if nothing, "confidence": "high"|"medium"|"low"}`;
-      const text = await callClaude({ model: MODELS.study, system: "You are a music supervisor tagging songs accurately. Reply with JSON only.", user, maxTokens: 16_000, effort: "medium" });
-      await fs.writeFile(path.join(home, "catalog", `library-tags-raw-${i / 40}.md`), text);
+        `\nReturn ONE JSON array, one object per song: {"i": index, "mood": up to 4 words, "energy": 1-5, "jobs": subset of ${MusicJob.options.join("|")} this song can do for a video, "lead_vocals": "yes"|"no"|"unknown", "familiarity": "household"|"known"|"niche"|"unknown" (to US Gen Z), "era": e.g. "2009 club" or "2020s TikTok", "hook": what the title or hook says or evokes, in your own words (never quote lyrics), "" if nothing, "confidence": "high"|"medium"|"low"}`;
+      let text: string;
+      try {
+        text = recovering
+          ? await fs.readFile(path.join(home, "catalog", `library-tags-raw-${b}.md`), "utf8")
+          : await callClaude({ model: MODELS.study, system: "You are a music supervisor tagging songs accurately. Reply with JSON only. Never quote song lyrics.", user, maxTokens: 16_000, effort: "medium" });
+      } catch (err) {
+        console.log(`batch ${b}: call failed, skipped (${(err instanceof Error ? err.message : String(err)).slice(0, 120)})`);
+        continue;
+      }
+      if (!recovering) await fs.writeFile(path.join(home, "catalog", `library-tags-raw-${b}.md`), text);
       // Parse each song on its own: one bad field must not discard the whole batch.
       let items: unknown[] = [];
       try { const j = extractJson(text); items = Array.isArray(j) ? j : []; } catch { items = []; }
@@ -178,7 +189,8 @@ async function main() {
         if (t.success) { const s = chunk[t.data.i]; if (s) { s.tags = t.data; ok++; } }
         else errors.push(t.error.issues.map((x) => `${x.path.join(".")}: ${x.message}`).join("; "));
       }
-      console.log(`batch ${i / 40}: ${ok}/${chunk.length} tagged${errors.length ? `; first problem: ${errors[0]}` : ""}`);
+      console.log(`batch ${b}: ${ok}/${chunk.length} tagged${recovering ? " (recovered)" : ""}${errors.length ? `; first problem: ${errors[0]}` : ""}`);
+      await fs.writeFile(path.join(home, "catalog", "library.json"), JSON.stringify(all, null, 1)); // save after every batch
     }
     console.log(`tagged ${all.filter((s) => s.tags).length} of ${all.length}; spent $${spentDollars().toFixed(2)}`);
   }
