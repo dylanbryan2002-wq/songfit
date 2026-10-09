@@ -216,7 +216,7 @@ export function SongPicker({
           sound={alone ? { playing: pb.videoSound, onToggle: toggleVideo } : undefined}
         />
 
-        <SongSheet hint={!chosenMode}>
+        <SongSheet hint={chosenMode ? null : alone ? "Tap one to hear a sample." : "Tap one to hear it over your video."}>
           <div className="flex flex-col px-2 pb-2">
             {pb.voiceControl && (
               <MixSlider

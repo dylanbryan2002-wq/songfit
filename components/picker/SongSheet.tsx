@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /** The white sheet over the bottom of the video, with a grab handle like TikTok's "Add sound" sheet. */
-export function SongSheet({ hint, children }: { hint: boolean; children: ReactNode }) {
+export function SongSheet({ hint, children }: { hint: string | null; children: ReactNode }) {
   return (
     <section
       aria-label="Songs"
@@ -10,7 +10,7 @@ export function SongSheet({ hint, children }: { hint: boolean; children: ReactNo
       <div aria-hidden className="mx-auto mb-3 h-1 w-9 rounded-full bg-ink/15" />
       <div className="px-2 pb-2">
         <h1 className="text-xl font-semibold text-ink">Your songs</h1>
-        {hint && <p className="mt-0.5 text-sm text-muted">Tap one to hear it over your video.</p>}
+        {hint && <p className="mt-0.5 text-sm text-muted">{hint}</p>}
       </div>
       {children}
     </section>
