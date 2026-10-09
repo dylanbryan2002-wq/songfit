@@ -9,6 +9,8 @@ import { metadata } from "@/app/layout";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { size } from "@/app/opengraph-image";
+import { size as iconSize } from "@/app/icon";
+import { size as appleSize } from "@/app/apple-icon";
 import { SUBLINE } from "@/components/landing/copy";
 
 describe("share previews and SEO basics", () => {
@@ -22,6 +24,11 @@ describe("share previews and SEO basics", () => {
 
   it("draws a 1200×630 share image", () => {
     expect(size).toEqual({ width: 1200, height: 630 });
+  });
+
+  it("ships a favicon and an apple-touch icon, so browsers stop asking for /favicon.ico", () => {
+    expect(iconSize).toEqual({ width: 32, height: 32 });
+    expect(appleSize).toEqual({ width: 180, height: 180 });
   });
 
   it("lists / and /privacy in the sitemap and points robots.txt at it", () => {

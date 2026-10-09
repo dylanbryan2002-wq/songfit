@@ -12,6 +12,9 @@ export const NOW_PLAYING = "NOW PLAYING";
 export const EXAMPLE = "EXAMPLE";
 export const DEMO_SONG = "Waiting Room · Fugazi";
 export const DEMO_USE = "USE 0:00–0:14";
+/** public/brand/demo.mp4 is not recorded yet: false = DemoLoop shows the still and never requests the video.
+ *  Dylan flips this to true when the recording lands. */
+export const DEMO_VIDEO_AVAILABLE = false;
 
 /** Chosen-video state. */
 export const PICK_A_FEEL = "Now pick a feel.";

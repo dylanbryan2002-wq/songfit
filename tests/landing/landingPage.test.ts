@@ -126,13 +126,23 @@ describe("(b) chosen on the signed-in form", () => {
 
 describe("DemoLoop", () => {
   it("poster first: still, play control, EXAMPLE caption (not NOW PLAYING until it plays)", () => {
-    const html = render(createElement(DemoLoop));
+    const html = render(createElement(DemoLoop, { videoAvailable: true }));
     expect(html).toContain('src="/brand/demo-poster.jpg"');
     expect(html).not.toContain("<video");
     expect(html).toContain('aria-label="Play demo"');
     expect(html).toContain("EXAMPLE  Waiting Room · Fugazi");
     expect(text(html)).toContain(copy.DEMO_USE);
     expect(html).not.toContain(copy.NOW_PLAYING);
+  });
+
+  it("while the recording is missing (DEMO_VIDEO_AVAILABLE false): the still, no play control, no video", () => {
+    expect(copy.DEMO_VIDEO_AVAILABLE).toBe(false);
+    const html = render(createElement(DemoLoop));
+    expect(html).toContain('src="/brand/demo-poster.jpg"');
+    expect(html).not.toContain("<video");
+    expect(html).not.toContain("demo.mp4");
+    expect(html).not.toContain('aria-label="Play demo"');
+    expect(html).toContain("EXAMPLE  Waiting Room · Fugazi");
   });
 
   it("with neither file, the ink box still carries the caption", () => {
