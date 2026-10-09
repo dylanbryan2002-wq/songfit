@@ -58,3 +58,25 @@ what it does for the viewer".
 
 - Examples also guide the scorer, so energetic or funny picks stop losing to calm ones.
 - Creators' own choices in Songfit become new examples automatically (the self-learning loop).
+
+## v2 after Codex review (2026-10-09): small pilot
+
+Codex: do not import all 45 write-ups (errors inside role_note / why_it_works, e.g. "Bad" described as
+having no vocals); use 8–12 checked contrast lessons; freeze identical inputs; blind listening; enforce the cap.
+
+- **Lessons**: 12 drafted from tune clips (Stereo Love, Miss Alissa, Vivaldi Summer, Law & Order, My Life,
+  Bad, Brazil, Way Too Self Aware, Iris, Lazy Eye, Evergreen, Adagio in C Minor), each with what transfers
+  and what is incidental. Dylan checks each against the original Reel:
+  https://claude.ai/artifact/4RCxr53ergtCfZicM6FYmW (answers in its db collection `lessons`).
+- **Test clips, fixed before any treatment run** (reserved/test split, 10): amplify or lift — Florida,
+  Sparks, EARFQUAKE, I Need a Dollar (instrumental), Sailor Song; comic — Le Chat du Rabbin (napping);
+  quiet bed — Akatsuki (monk mode), Odysseus, Overcome, One More Light. Excluded: Dimensions (song also in
+  tune), clips without a base run or video.
+  Ids: 19-12-44, 23-42-21, 23-02-48, 23-24-40, 19-20-01, 23-26-36, 19-03-11, 22-56-06, 22-57-54, 22-49-29
+  (screenrecording-10-08-2026-<id>-1).
+- **Arms**: identical frozen analysis and brief (the round-2 analysis, i.e. older briefs without
+  music_job), identical downstream code; only the lesson block differs. This tests lessons on old
+  briefs, not the whole current pipeline.
+- **Cap**: $15 enforced in the runner; first 2 clips measure real cost before continuing.
+- **Judgement**: Dylan's blind listening (local page: original video with each candidate's 30 s sample,
+  shuffled, A / B / both / neither; labelled a sample-level audition). Model judge skipped.
