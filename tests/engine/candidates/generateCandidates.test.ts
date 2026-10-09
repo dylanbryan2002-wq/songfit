@@ -71,6 +71,35 @@ describe("generateCandidates", () => {
     expect(safeCalls).toHaveLength(2);
     expect((safeCalls[1]![0] as { user: string }).user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
   });
+  it("retries a truncated direction once at low effort with the same prompt (round 1, finding 6)", async () => {
+    let safeCalls = 0;
+    const call = vi.fn(async ({ user }: { user: string; effort?: string }) => {
+      if (user.includes("DIRECTION: safe") && safeCalls++ === 0) throw new Error("claude: output truncated at max_tokens");
+      return JSON.stringify(many("ok"));
+    });
+    const out = await generateCandidates(brief, analysis, { call });
+    expect(out).toHaveLength(20);
+    const safe = call.mock.calls.map((c) => c[0]).filter((a) => a.user.includes("DIRECTION: safe"));
+    expect(safe).toHaveLength(2);
+    expect(safe[0]!.effort).toBe("medium");
+    expect(safe[1]!.effort).toBe("low");
+    expect(safe[1]!.user).toBe(safe[0]!.user);
+    expect(call).toHaveBeenCalledTimes(4);
+  });
+  it("rethrows when the low-effort retry is truncated too, and never retries other errors", async () => {
+    const truncated = vi.fn(async ({ user }: { user: string }) => {
+      if (user.includes("DIRECTION: safe")) throw new Error("claude: output truncated at max_tokens");
+      return JSON.stringify(many("ok"));
+    });
+    await expect(generateCandidates(brief, analysis, { call: truncated })).rejects.toThrow(/truncated at max_tokens/);
+    expect(truncated.mock.calls.filter((c) => c[0].user.includes("DIRECTION: safe"))).toHaveLength(2);
+    const other = vi.fn(async ({ user }: { user: string }) => {
+      if (user.includes("DIRECTION: safe")) throw new Error("claude: no text in response");
+      return JSON.stringify(many("ok"));
+    });
+    await expect(generateCandidates(brief, analysis, { call: other })).rejects.toThrow(/no text/);
+    expect(other.mock.calls.filter((c) => c[0].user.includes("DIRECTION: safe"))).toHaveLength(1);
+  });
   it("derives timeoutMs from ctx", async () => {
     const call = vi.fn(async (_a: { timeoutMs?: number }) => JSON.stringify(many("z")));
     await generateCandidates(brief, analysis, { call, ctx: { deadlineAt: Date.now() + 60_000 } });

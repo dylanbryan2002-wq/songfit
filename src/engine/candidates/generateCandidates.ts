@@ -157,7 +157,16 @@ async function generateDirection(
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
   const started = Date.now();
-  const first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+  let first: string;
+  try {
+    first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+  } catch (e) {
+    // About 1 run in 8 at medium effort spends the whole cap on hidden reasoning (docs/review/19, finding 6).
+    // The wrapper throws before parseCandidateList runs; retry this one direction at low effort, same prompt.
+    if (!(e instanceof Error && e.message.includes("truncated at max_tokens"))) throw e;
+    logger.warn("candidates.truncated_retry", { direction, ms: Date.now() - started });
+    first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: "low", timeoutMs: remainingBudget(opts.ctx) });
+  }
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
     logger.info("candidates.generated", { direction, count: r1.items.length, ms: Date.now() - started });
