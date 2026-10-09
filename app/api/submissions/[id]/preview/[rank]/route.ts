@@ -3,6 +3,7 @@ import { getCreator, isAdmin } from "@/src/auth/session";
 import { getSubmission } from "@/src/db/queries/submissions";
 import { ProviderError } from "@/src/engine/catalog/deezer";
 import { refreshPreview } from "@/src/feedback/picker";
+import { mayRefreshPreview } from "@/src/feedback/previewThrottle";
 import { isUuid } from "@/src/shared/ids";
 import { PICKS_TOTAL } from "@/src/shared/config";
 
@@ -21,6 +22,9 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   if (!submission) return notFound();
   if (submission.creator_id !== creator.id && !isAdmin(creator)) return notFound();
   if (submission.status !== "ready") return notFound();
+  if (!mayRefreshPreview(id, Number(rank))) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
 
   try {
     return NextResponse.json({ preview_url: await refreshPreview(id, Number(rank)) });

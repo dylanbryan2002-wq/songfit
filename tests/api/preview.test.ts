@@ -7,15 +7,20 @@ vi.mock("@/src/db/queries/submissions", () => ({ getSubmission: m.getSubmission 
 vi.mock("@/src/feedback/picker", () => ({ refreshPreview: m.refreshPreview }));
 
 import { GET } from "@/app/api/submissions/[id]/preview/[rank]/route";
+import { takeRefresh } from "@/src/feedback/previewThrottle";
 import { ProviderError } from "@/src/engine/catalog/deezer";
 
-const ID = "11111111-1111-4111-8111-111111111111";
+let n = 0;
+/** A fresh submission id per case: the refresh throttle is module-level. */
+const freshId = () => `11111111-1111-4111-8111-${String(++n).padStart(12, "0")}`;
+let ID = freshId();
 const call = (id = ID, rank = "1") =>
   GET(new Request("http://x"), { params: Promise.resolve({ id, rank }) });
 
 beforeEach(() => {
+  ID = freshId();
   m.getCreator.mockReset().mockResolvedValue({ id: "c1", email: "a@b.co" });
-  m.getSubmission.mockReset().mockResolvedValue({ id: ID, creator_id: "c1", status: "ready" });
+  m.getSubmission.mockReset().mockImplementation(async (id: string) => ({ id, creator_id: "c1", status: "ready" }));
   m.refreshPreview.mockReset().mockResolvedValue("https://fresh.mp3");
 });
 
@@ -54,5 +59,23 @@ describe("GET /api/submissions/[id]/preview/[rank]", () => {
     const res = await call();
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "provider" });
+  });
+  it("429 on a second refresh of the same pick within 60 s; other picks are unaffected", async () => {
+    expect((await call(ID, "3")).status).toBe(200);
+    const res = await call(ID, "3");
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "rate_limited" });
+    expect((await call(ID, "4")).status).toBe(200);
+    expect(m.refreshPreview).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("takeRefresh", () => {
+  it("allows one refresh per key per 60 s", () => {
+    const store = new Map<string, number>();
+    expect(takeRefresh(store, "s:1", 1_000)).toBe(true);
+    expect(takeRefresh(store, "s:1", 60_999)).toBe(false);
+    expect(takeRefresh(store, "s:2", 2_000)).toBe(true);
+    expect(takeRefresh(store, "s:1", 61_000)).toBe(true);
   });
 });
