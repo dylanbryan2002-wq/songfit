@@ -9,6 +9,7 @@ const config: Config = {
         steel: { light: "#8FA8C8", DEFAULT: "#5B7190", dark: "#2E3A4A" },
         canvas: "#F7F8FA",
         muted: "#6B7280",
+        brand: "#E0262B",
       },
       fontFamily: {
         sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
