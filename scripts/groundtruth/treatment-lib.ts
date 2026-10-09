@@ -1,39 +1,49 @@
-/* Experiment B for the creator-lists plan (docs/review/24 v3): rebuild one clip's recommendations from a cached control
-   run, changing only the safe direction. Everything the control already paid for is reused: the analysis and brief, the
-   current and unexpected lists, Deezer verification and component scores of any song+window the control scored. Only new
-   songs are verified and only new song+windows are scored. Then the production combine (cached totals) → diversify →
-   selectSections. No explanations: the paired judge sees title, artist and section only.
-   Replay (safe = "replay") reuses everything and must reproduce the control's picks exactly; that is the check before
-   any treatment number is trusted. */
+/* Experiment B for the creator-lists plan (docs/review/24 v3): a SHORTLIST SCREENING experiment, not a preview of
+   shipping B. It rebuilds one clip's recommendations from a cached control run, changing only the safe direction.
+   Reused from the control: the analysis and brief, the current and unexpected lists, Deezer identity of any candidate the
+   control verified, and component scores of any candidate whose scoring inputs are unchanged. Everything else is verified
+   and scored fresh. Then production combine (cached totals) → diversify → selectSections, in production's order.
+   Not reproduced: the insufficient-candidate regeneration, explanations, and scoring batch context for new candidates
+   (they are scored in their own batch). Validate any winner through the full production path before shipping.
+   Replay (safe = "replay") must reproduce the control's picks exactly. */
+import { createHash } from "node:crypto";
 import type { GeneratedCandidate, Pick, ScoredCandidate, VerifiedCandidate, VideoAnalysis } from "../../src/shared/types";
 import type { CandidateInsert } from "../../src/db/queries/candidates";
 import { mergeCandidates } from "../../src/engine/candidates/generateCandidates";
 import { normalizeKey } from "../../src/engine/catalog/normalize";
-import { validateSection } from "../../src/engine/catalog/verifyCandidates";
+import { validateSection, type UnverifiedCandidate } from "../../src/engine/catalog/verifyCandidates";
 import { diversify } from "../../src/engine/diversify/diversify";
 import { selectSections } from "../../src/engine/sections/selectSections";
 import type { CreatorPick } from "../../src/engine/catalog/creatorLists";
 import type { OursResult } from "./ours";
 
 export type RebuildDeps = {
-  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[] }>;
+  verify: (cands: GeneratedCandidate[]) => Promise<{ verified: VerifiedCandidate[]; unverified: UnverifiedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
   score: (cands: VerifiedCandidate[]) => Promise<ScoredCandidate[]>;
 };
 
-export type Funnel = { offered: number; generated: number; verified: number; top15: number; top5: number };
+/** Per offered recording: was it newly proposed in safe, is it in the verified pool (any direction), and was it picked. */
+export type Funnel = { offered: number; safe_generated: number; in_pool: number; top15: number; top5: number };
 
 export type RebuildResult = {
   picks: Pick[];
   generated: GeneratedCandidate[];
+  scored: ScoredCandidate[]; // the full verified pool with scores, in production's sorted order
+  unverified: UnverifiedCandidate[];
+  lookupFailed: GeneratedCandidate[];
   reused_verified: number; newly_verified: number; reused_scores: number; newly_scored: number;
   funnel: Funnel | null;
 };
 
 const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.artist);
-const windowKey = (c: { catalog_key: string; proposed_start: number; proposed_end: number; anchor_seconds: number }) =>
-  `${c.catalog_key}|${c.proposed_start}|${c.proposed_end}|${c.anchor_seconds}`;
 
-/** A verified control row back into the engine's VerifiedCandidate, carrying the (possibly new) candidate's window. */
+/** Everything the scorer reads from a candidate (model scores and the rule dimensions). */
+export const scoringKey = (c: {
+  catalog_key: string; proposed_start: number; proposed_end: number; anchor_seconds: number;
+  section_is_vocal: boolean; section_reason: string; fit_reason: string;
+}) => [c.catalog_key, c.proposed_start, c.proposed_end, c.anchor_seconds, c.section_is_vocal, c.section_reason, c.fit_reason].join("\u0001");
+
+/** A verified control row back into the engine's VerifiedCandidate, carrying this candidate's window. Null = verify again. */
 function fromRow(row: CandidateInsert, c: GeneratedCandidate): VerifiedCandidate | null {
   if (!row.verified || !row.deezer_id || row.duration_seconds == null || !row.preview_url || !row.canonical_title || !row.canonical_artist) return null;
   const valid = validateSection(c, row.duration_seconds);
@@ -59,66 +69,78 @@ export async function rebuild(
 ): Promise<RebuildResult> {
   const generated = safe === "replay" ? base.generated : mergeCandidates([safe, withoutSafe(base.generated)]);
 
-  // Control rows, verified first in the control's scored order (which is also the stable-sort tie order).
-  const rowByKey = new Map<string, CandidateInsert>();
-  for (const r of base.candidates) if (!rowByKey.has(keyOf(r)) || (r.verified && !rowByKey.get(keyOf(r))!.verified)) rowByKey.set(keyOf(r), r);
-  const scoreByWindow = new Map<string, { component_scores: ScoredCandidate["component_scores"]; total_score: number }>();
-  const controlOrder = new Map<string, number>();
-  base.candidates.forEach((r, i) => {
-    if (!r.verified || !r.deezer_id || r.total_score == null || !r.component_scores) return;
-    const ck = `deezer:${r.deezer_id}`;
-    if (!controlOrder.has(ck)) controlOrder.set(ck, i);
-    scoreByWindow.set(windowKey({ catalog_key: ck, proposed_start: r.proposed_start, proposed_end: r.proposed_end, anchor_seconds: r.anchor_seconds }),
+  const verifiedRow = new Map<string, CandidateInsert>();
+  for (const r of base.candidates) if (r.verified && !verifiedRow.has(keyOf(r))) verifiedRow.set(keyOf(r), r);
+  const cachedScore = new Map<string, { component_scores: ScoredCandidate["component_scores"]; total_score: number }>();
+  for (const r of base.candidates) {
+    if (!r.verified || !r.deezer_id || r.total_score == null || !r.component_scores) continue;
+    cachedScore.set(scoringKey({
+      catalog_key: `deezer:${r.deezer_id}`, proposed_start: r.proposed_start, proposed_end: r.proposed_end, anchor_seconds: r.anchor_seconds,
+      section_is_vocal: !!r.section_is_vocal, section_reason: r.section_reason ?? "", fit_reason: r.fit_reason ?? "",
+    }),
       { component_scores: r.component_scores as ScoredCandidate["component_scores"], total_score: r.total_score });
-  });
-
-  const reused: VerifiedCandidate[] = [];
-  const unknown: GeneratedCandidate[] = [];
-  for (const c of generated) {
-    const row = rowByKey.get(keyOf(c));
-    if (!row) { unknown.push(c); continue; }
-    const v = fromRow(row, c);
-    if (v) reused.push(v); // a control row that was unverified stays unverified: never shown
   }
-  const fresh = unknown.length ? (await deps.verify(unknown)).verified : [];
 
-  // Dedupe by recording, keeping the first and merging directions (as verifyCandidates does).
+  // Identity is reused only from a verified control row with a still-valid window; anything else is verified again
+  // (a control miss, missing sample, provider failure or impossible window may differ for this candidate).
+  const slots: (VerifiedCandidate | GeneratedCandidate)[] = [];
+  const toVerify: GeneratedCandidate[] = [];
+  let reusedVerified = 0;
+  for (const c of generated) {
+    const row = verifiedRow.get(keyOf(c));
+    const v = row ? fromRow(row, c) : null;
+    if (v) { slots.push(v); reusedVerified++; } else { slots.push(c); toVerify.push(c); }
+  }
+  const fresh = toVerify.length ? await deps.verify(toVerify) : { verified: [], unverified: [], lookupFailed: [] };
+  const freshByCand = new Map<GeneratedCandidate, VerifiedCandidate>();
+  // verifyCandidates keeps input order and drops duplicates of a recording; map results back to their candidate.
+  for (const v of fresh.verified) {
+    const c = toVerify.find((x) => !freshByCand.has(x) && keyOf(x) === keyOf(v));
+    if (c) freshByCand.set(c, v);
+  }
+
+  // Production order: generated order, first candidate per recording wins, later ones only add directions.
   const byKey = new Map<string, VerifiedCandidate>();
   const verified: VerifiedCandidate[] = [];
-  for (const v of [...reused, ...fresh]) {
+  for (const s of slots) {
+    const v = "catalog_key" in s ? s : freshByCand.get(s);
+    if (!v) continue;
     const prev = byKey.get(v.catalog_key);
     if (prev) { for (const d of v.directions) if (!prev.directions.includes(d)) prev.directions.push(d); continue; }
-    byKey.set(v.catalog_key, v);
-    verified.push(v);
+    const copy = { ...v, directions: [...v.directions] };
+    byKey.set(copy.catalog_key, copy);
+    verified.push(copy);
   }
 
-  const cached: ScoredCandidate[] = [];
-  const toScore: VerifiedCandidate[] = [];
-  for (const v of verified) {
-    const s = scoreByWindow.get(windowKey(v));
-    if (s) cached.push({ ...v, component_scores: s.component_scores, total_score: s.total_score });
-    else toScore.push(v);
-  }
+  const toScore = verified.filter((v) => !cachedScore.has(scoringKey(v)));
   const newlyScored = toScore.length ? await deps.score(toScore) : [];
-
-  // Control's order first (reproduces its stable-sort ties), new ones after; then the production sort.
-  const ordered = [
-    ...cached.sort((a, b) => (controlOrder.get(a.catalog_key) ?? 1e9) - (controlOrder.get(b.catalog_key) ?? 1e9)),
-    ...newlyScored,
-  ].sort((a, b) => b.total_score - a.total_score);
-  const picks = selectSections(diversify(ordered), analysis);
+  const newByKey = new Map(newlyScored.map((s) => [s.catalog_key, s]));
+  const pool: ScoredCandidate[] = verified.map((v) => {
+    const cached = cachedScore.get(scoringKey(v));
+    if (cached) return { ...v, ...cached };
+    const s = newByKey.get(v.catalog_key);
+    if (!s) throw new Error(`scorer returned no score for ${v.catalog_key}`);
+    return { ...v, component_scores: s.component_scores, total_score: s.total_score };
+  });
+  const scored = [...pool].sort((a, b) => b.total_score - a.total_score); // stable: ties keep generated order, as production
+  const picks = selectSections(diversify(scored), analysis);
 
   const ids = new Set(offered.map((o) => `deezer:${o.deezer_id}`));
-  const offeredKeys = new Set(offered.map((o) => keyOf(o)));
   const funnel: Funnel | null = offered.length && safe !== "replay" ? {
     offered: offered.length,
-    generated: safe.filter((g) => offeredKeys.has(keyOf(g))).length,
-    verified: verified.filter((v) => ids.has(v.catalog_key)).length,
+    // In B every safe-direction candidate is new (the control's safe list was removed), so an offered recording counts
+    // as generated when the new safe list named it, or when its pool entry carries the safe direction.
+    safe_generated: offered.filter((o) => safe.some((g) => keyOf(g) === keyOf(o)) || !!byKey.get(`deezer:${o.deezer_id}`)?.directions.includes("safe")).length,
+    in_pool: scored.filter((v) => ids.has(v.catalog_key)).length,
     top15: picks.filter((p) => ids.has(p.catalog_key)).length,
     top5: picks.slice(0, 5).filter((p) => ids.has(p.catalog_key)).length,
   } : null;
 
-  return { picks, generated, reused_verified: reused.length, newly_verified: fresh.length, reused_scores: cached.length, newly_scored: newlyScored.length, funnel };
+  return {
+    picks, generated, scored, unverified: fresh.unverified, lookupFailed: fresh.lookupFailed,
+    reused_verified: reusedVerified, newly_verified: fresh.verified.length,
+    reused_scores: pool.length - newlyScored.length, newly_scored: newlyScored.length, funnel,
+  };
 }
 
 /** Same song and same section at every rank: the replay check. Returns the first difference, or null. */
@@ -133,3 +155,5 @@ export function firstDifference(a: { rank: number; catalog_key: string; start_se
   }
   return null;
 }
+
+export const sha = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 16);

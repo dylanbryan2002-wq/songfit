@@ -52,3 +52,22 @@ describe("statistics", () => {
     expect(sameness([run("X", "deezer:1"), run("X", "deezer:1"), run("Y", "deezer:2"), null])).toEqual({ key: "deezer:1", title: "X", clips: 2 });
   });
 });
+
+import { isStale, wilson, top } from "@/scripts/groundtruth/pair-judge";
+describe("provenance and interval", () => {
+  it("marks a result stale when a top pick changed", async () => {
+    const A = run("X", "deezer:1"), B = run("Y", "deezer:2");
+    const r = await judgePair(analysis, A, B, vi.fn().mockResolvedValue('{"winner":"A","confidence":"low","reason":"r"}'));
+    expect(isStale(r, A, B)).toBe(false);
+    expect(isStale(r, A, run("Z", "deezer:3"))).toBe(true);
+    expect(top(B)?.catalog_key).toBe("deezer:2");
+  });
+  it("formats 59.6 s as 1:00 in the prompt", () => {
+    expect(buildPairPrompt(analysis, { title: "X", artist: "a", start_seconds: 59.6, end_seconds: 74.6, catalog_key: "k" }, { title: "Y", artist: "b", start_seconds: 0, end_seconds: 15, catalog_key: "j" })).toContain("use 1:00–1:15");
+  });
+  it("Wilson interval", () => {
+    const [lo, hi] = wilson(7, 10);
+    expect(lo).toBeCloseTo(0.397, 2);
+    expect(hi).toBeCloseTo(0.892, 2);
+  });
+});

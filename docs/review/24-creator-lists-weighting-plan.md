@@ -367,3 +367,34 @@ the group counts drop further.
 - Known limits: the shortlist per type is fixed (same 5–8 songs for every clip of that type; ties broken by
   title), so sameness is the main risk to watch; songs in both the control's safe and another direction keep
   the control's safe window.
+
+### 11a. After Codex's code review (2026-10-09)
+
+Codex reviewed 788d9b7 (no live-engine activation found; judge inputs symmetric). Fixed before any paid run:
+
+1. **Population.** Scripts no longer filter on a known song; only the hit-rate denominator does. The comparison
+   population is every clip with a round-2 control artifact. Round 2 only ran on identified clips, so unidentified
+   clips are outside this comparison and listed as such by `treatment.ts`. Adding them needs a round-2 control run
+   on them first (≈ $14 for the tune ones); not done (budget). The decision threshold scales with the population:
+   +7 of 63 ≈ 11 %, so B must beat A by net ≥ ceil(0.11 × N) on the N tune clips judged, and be positive on test.
+2. **Failures.** Every scheduled clip ends with an artifact (`ok`, `ineligible`, `failed`, `control_failed`); a
+   failure is retried once on a later invocation, then final. Failed B artifacts keep eligibility. The pair judge
+   includes both-arm failures, keeps judge errors (retried up to 2 attempts across invocations) and reports pending
+   and stale clips in `--summary`.
+3. **Score reuse** requires every scoring input to match: recording, window, anchor, vocal flag, section reason and
+   fit reason. Regression test covers each.
+4. **Verification reuse** only from a verified control row with a still-valid window; anything else is verified
+   again. Recording precedence follows generated order (new safe first), as production.
+5. **Framing.** This is a shortlist screening experiment. Not reproduced: regeneration on too few candidates,
+   explanations, scoring batch context for new candidates. A winner is validated through the full production path
+   before shipping. Verify and score now get the stage deadline.
+6. **Artifacts** keep the enriched analysis (probed duration) and the full candidate pool with component scores,
+   unverified and failed lookups, so C can be computed offline and B audited.
+7. **Stale results.** Treatment artifacts carry the control file hash, lists and prompt versions; pair results carry
+   hashes of both top picks and the judge version. Either changing forces a rebuild or re-judge.
+8. **Funnel**: offered → newly generated in safe → in the verified pool (any direction) → top 15 → top 5, all by
+   recording identity.
+
+Also: the summary reports a Wilson 95% interval for B's share of decided pairs and per-song offered frequency vs
+top-5 reach; `mm:ss` rounding fixed; prompt parity checked against the parent commit on 336 real prompts (0 diff).
+Replay after the fixes: 57 of 57 finished round-2 clips identical.

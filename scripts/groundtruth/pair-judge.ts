@@ -1,10 +1,13 @@
 /* Paired judge (docs/review/24 v3 §8–9): rank 1 of run A vs rank 1 of run B on the same clip, symmetric inputs.
-     pnpm local scripts/groundtruth/pair-judge.ts --root <batch> --a round2 --b listsB [--split tune|test|all] [--only <id>] [--force] [--summary]
+     pnpm local scripts/groundtruth/pair-judge.ts --root <batch>[,<batch>] --a round2 --b listsB [--split tune|test|all] [--only <id>] [--force] [--summary]
    Both options get title, artist and the section to use; nothing else (no explanations, no Gemini text, no truth).
-   The video description is A's analysis, which B reuses by construction. A/B order is shuffled per clip.
-   Identical song and section → tie without a call. A missing or failed run is a loss for that arm (both missing: failure).
-   A judge call that fails is retried once, then recorded as judge_error. Writes work/<id>/pair.<a>-vs-<b>.json.
-   --summary: no calls; prints wins / losses / ties, decided, failures, a two-sided sign test, hit rates and sameness. */
+   The video description is the shared analysis (B's copy carries the probed duration). A/B order is shuffled per clip.
+   Population: every clip in the split with an artifact in either arm (identified song or not). Identical song and
+   section → tie without a call. A missing or failed run is a loss for that arm; both failed is a failure.
+   A judge call is attempted twice per invocation; a judge_error result is kept and retried on later invocations until
+   MAX_JUDGE_ATTEMPTS, then final. A result is stale (re-judged) when either arm's top pick or the prompt version changed.
+   Writes work/<id>/pair.<a>-vs-<b>.json.
+   --summary: no calls; every scheduled clip is reported, pending and stale ones included. */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +20,8 @@ import type { FinalRecommendation, VideoAnalysis } from "../../src/shared/types"
 import { compareClip } from "./compare";
 import { parseClipsCsv, type ClipSpec } from "./intake";
 import type { OursResult } from "./ours";
+import { sha } from "./treatment-lib";
+import type { TreatmentResult } from "./treatment";
 
 export const PROMPT_VERSION = "pair-judge-v1";
 
@@ -30,14 +35,15 @@ const Answer = z.object({ winner: z.enum(["A", "B", "tie"]), confidence: z.enum(
 
 export type Arm = "a" | "b";
 export type PairStatus = "win_a" | "win_b" | "tie" | "tie_identical" | "fail_a" | "fail_b" | "fail_both" | "judge_error";
+export const MAX_JUDGE_ATTEMPTS = 2;
 export type PairResult = {
-  status: PairStatus; confidence: "low" | "medium" | "high" | null; reason: string | null;
+  status: PairStatus; attempts?: number; a_sha?: string; b_sha?: string; confidence: "low" | "medium" | "high" | null; reason: string | null;
   order: { A: Arm; B: Arm } | null; a: Option | null; b: Option | null; prompt_version: string; model: string;
 };
 type Option = { title: string; artist: string; start_seconds: number; end_seconds: number; catalog_key: string };
 
-const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-const top = (r: OursResult | null): Option | null => {
+const mmss = (s: number) => { const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+export const top = (r: OursResult | null): Option | null => {
   const f = r && !r.recommend_error ? [...r.finals].sort((x, y) => x.rank - y.rank)[0] : undefined;
   return f ? { title: f.canonical_title, artist: f.canonical_artist, start_seconds: f.start_seconds, end_seconds: f.end_seconds, catalog_key: f.catalog_key } : null;
 };
@@ -65,7 +71,7 @@ export async function judgePair(
   call: ClaudeCall = callClaude, random: () => number = Math.random,
 ): Promise<PairResult> {
   const a = top(runA), b = top(runB);
-  const base = { confidence: null, reason: null, order: null, a, b, prompt_version: PROMPT_VERSION, model: MODELS.analysis };
+  const base = { confidence: null, reason: null, order: null, a, b, a_sha: optSha(a), b_sha: optSha(b), prompt_version: PROMPT_VERSION, model: MODELS.analysis };
   if (!a && !b) return { ...base, status: "fail_both" };
   if (!a) return { ...base, status: "fail_a" };
   if (!b) return { ...base, status: "fail_b" };
@@ -82,6 +88,21 @@ export async function judgePair(
     } catch { /* retried once, then judge_error */ }
   }
   return { ...base, status: "judge_error", order };
+}
+
+export const optSha = (o: Option | null) => sha(JSON.stringify(o));
+
+/** A cached result no longer describes the current runs (or the judge prompt changed). */
+export function isStale(r: PairResult, runA: OursResult | null, runB: OursResult | null): boolean {
+  return r.prompt_version !== PROMPT_VERSION || r.a_sha !== optSha(top(runA)) || r.b_sha !== optSha(top(runB));
+}
+
+/** Wilson 95% interval for B's share of decided pairs. */
+export function wilson(wins: number, n: number): [number, number] {
+  if (n === 0) return [0, 1];
+  const z = 1.96, p = wins / n, d = 1 + (z * z) / n;
+  const c = (p + (z * z) / (2 * n)) / d, h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return [Math.max(0, c - h), Math.min(1, c + h)];
 }
 
 /** Two-sided exact sign test over decided pairs. */
@@ -126,7 +147,7 @@ export function sameness(runs: (OursResult | null)[]): { key: string | null; tit
   return best;
 }
 
-const readRun = (file: string) => fs.readFile(file, "utf8").then((t) => JSON.parse(t) as OursResult).catch(() => null);
+const readRun = (file: string) => fs.readFile(file, "utf8").then((t) => JSON.parse(t) as TreatmentResult).catch(() => null);
 
 async function main() {
   const { values: args } = parseArgs({
@@ -138,38 +159,58 @@ async function main() {
   });
   if (!args.root) { console.error("usage: pair-judge.ts --root <batch>[,<batch>...] --a <tag> --b <tag> [--split tune|test|all] [--summary]"); process.exit(1); }
   const roots = args.root.split(",").map((r) => path.resolve(r.replace(/^~(?=$|\/)/, os.homedir())));
-  const rows: { clip: ClipSpec; root: string; result: PairResult; A: OursResult | null; B: OursResult | null }[] = [];
+  type Row = { clip: ClipSpec; result: PairResult | null; state: "done" | "pending" | "stale"; A: OursResult | null; B: TreatmentResult | null };
+  const rows: Row[] = [];
   for (const root of roots) {
-    let clips = parseClipsCsv(await fs.readFile(path.join(root, "clips.csv"), "utf8")).filter((c) => c.song && c.artist);
+    let clips = parseClipsCsv(await fs.readFile(path.join(root, "clips.csv"), "utf8"));
     if (args.split !== "all") clips = clips.filter((c) => c.split === args.split);
     if (args.only) clips = clips.filter((c) => c.id === args.only);
     for (const clip of clips) {
       const work = path.join(root, "work", clip.id);
       const A = await readRun(path.join(work, `ours.${args.a}.json`));
       const B = await readRun(path.join(work, `ours.${args.b}.json`));
-      if (!A && !B) continue; // clip never ran in either arm (no video): not part of the comparison
+      if (!A && !B) continue; // never scheduled in either arm (treatment.ts lists these as outside the comparison)
       const out = path.join(work, `pair.${args.a}-vs-${args.b}.json`);
-      let result = args.force ? null : await fs.readFile(out, "utf8").then((t) => JSON.parse(t) as PairResult).catch(() => null);
-      if (result?.status === "judge_error") result = null; // predeclared: one more attempt on the next run
-      if (!result) {
-        if (args.summary) continue;
-        const analysis = (A ?? B)!.analysis;
-        result = await judgePair(analysis, A, B);
-        await fs.writeFile(out, JSON.stringify(result, null, 2));
-        console.log(`${clip.id}: ${result.status}${result.reason ? ` (${result.confidence}) ${result.reason}` : ""}`);
-      }
-      rows.push({ clip, root, result, A, B });
+      const cached = args.force ? null : await fs.readFile(out, "utf8").then((t) => JSON.parse(t) as PairResult).catch(() => null);
+      const stale = !!cached && isStale(cached, A, B);
+      const retry = !!cached && !stale && cached.status === "judge_error" && (cached.attempts ?? 1) < MAX_JUDGE_ATTEMPTS;
+      if (cached && !stale && !retry) { rows.push({ clip, result: cached, state: "done", A, B }); continue; }
+      if (args.summary) { rows.push({ clip, result: retry ? cached : null, state: stale ? "stale" : retry ? "done" : "pending", A, B }); continue; }
+      const analysis = (B?.analysis ?? A?.analysis)!;
+      const result: PairResult = { ...(await judgePair(analysis, A, B)), attempts: (retry ? (cached!.attempts ?? 1) : 0) + 1 };
+      await fs.writeFile(out, JSON.stringify(result, null, 2));
+      console.log(`${clip.id}: ${result.status}${result.reason ? ` (${result.confidence}) ${result.reason}` : ""}`);
+      rows.push({ clip, result, state: "done", A, B });
     }
   }
 
-  const eligible = (r: (typeof rows)[number]) => !!(r.B as (OursResult & { treatment?: { eligible: boolean } }) | null)?.treatment?.eligible;
-  const fmt = (t: Tally) => `${t.clips} clips: B wins ${t.win_b}, A wins ${t.win_a}, ties ${t.tie}; decided ${t.decided}, net B ${t.net_b >= 0 ? "+" : ""}${t.net_b}, sign test p=${t.p.toFixed(3)}; failures A ${t.fail_a} / B ${t.fail_b} / both ${t.fail_both}; judge errors ${t.judge_error}`;
-  console.log(`\nAll        ${fmt(tally(rows.map((r) => r.result)))}`);
-  console.log(`Eligible   ${fmt(tally(rows.filter(eligible).map((r) => r.result)))}`);
-  const hits = (arm: "A" | "B") => rows.filter((r) => r[arm] && !r[arm]!.recommend_error && compareClip({ song: r.clip.song!, artist: r.clip.artist!, start_seconds: r.clip.start_seconds }, r[arm]!).result === "hit").length;
-  console.log(`Hit rate   A ${hits("A")}/${rows.length}, B ${hits("B")}/${rows.length} (clips with an identified song)`);
+  const done = rows.filter((r) => r.state === "done" && r.result).map((r) => ({ ...r, result: r.result! }));
+  const eligible = (r: Row) => !!r.B?.treatment?.eligible;
+  const fmt = (t: Tally) => {
+    const [lo, hi] = wilson(t.win_b, t.decided);
+    return `${t.clips} clips: B wins ${t.win_b}, A wins ${t.win_a}, ties ${t.tie}; decided ${t.decided}, net B ${t.net_b >= 0 ? "+" : ""}${t.net_b}; B share of decided ${t.decided ? Math.round((100 * t.win_b) / t.decided) : "-"}% (95% ${Math.round(lo * 100)}–${Math.round(hi * 100)}%), sign test p=${t.p.toFixed(3)}; failures A ${t.fail_a} / B ${t.fail_b} / both ${t.fail_both}; judge errors ${t.judge_error}`;
+  };
+  console.log(`\nScheduled ${rows.length}; judged ${done.length}; pending ${rows.filter((r) => r.state === "pending").length}; stale ${rows.filter((r) => r.state === "stale").length}`);
+  console.log(`All        ${fmt(tally(done.map((r) => r.result)))}`);
+  console.log(`Eligible   ${fmt(tally(done.filter(eligible).map((r) => r.result)))}`);
+  const identified = rows.filter((r) => r.clip.song && r.clip.artist);
+  const hits = (arm: "A" | "B") => identified.filter((r) => r[arm] && !r[arm]!.recommend_error && compareClip({ song: r.clip.song!, artist: r.clip.artist!, start_seconds: r.clip.start_seconds }, r[arm]!).result === "hit").length;
+  console.log(`Hit rate   A ${hits("A")}/${identified.length}, B ${hits("B")}/${identified.length} (identified clips only)`);
   const sa = sameness(rows.map((r) => r.A)), sb = sameness(rows.map((r) => r.B));
   console.log(`Sameness   A: ${sa.title ?? "-"} in ${sa.clips} of ${rows.length} top-5s; B: ${sb.title ?? "-"} in ${sb.clips} of ${rows.length}`);
+  const reach = new Map<string, { title: string; offered: number; top5: number }>();
+  for (const r of rows) {
+    const t = r.B?.treatment;
+    if (!t?.eligible) continue;
+    const top5 = new Set([...(r.B!.finals ?? [])].sort((x, y) => x.rank - y.rank).slice(0, 5).map((f) => f.catalog_key));
+    for (const o of t.offered) {
+      const e = reach.get(o.deezer_id) ?? { title: `${o.title} — ${o.artist}`, offered: 0, top5: 0 };
+      e.offered++; if (top5.has(`deezer:${o.deezer_id}`)) e.top5++;
+      reach.set(o.deezer_id, e);
+    }
+  }
+  console.log("Offered songs: clips offered → clips with it in B's top 5");
+  for (const e of [...reach.values()].sort((x, y) => y.top5 - x.top5 || y.offered - x.offered)) console.log(`  ${e.title}: ${e.offered} → ${e.top5}`);
 }
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
