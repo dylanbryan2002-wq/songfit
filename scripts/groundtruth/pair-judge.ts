@@ -40,7 +40,7 @@ export type PairResult = {
   status: PairStatus; attempts?: number; a_sha?: string; b_sha?: string; confidence: "low" | "medium" | "high" | null; reason: string | null;
   order: { A: Arm; B: Arm } | null; a: Option | null; b: Option | null; prompt_version: string; model: string;
 };
-type Option = { title: string; artist: string; start_seconds: number; end_seconds: number; catalog_key: string };
+type Option = { title: string; artist: string; start_seconds: number; end_seconds: number; catalog_key: string; moment?: number };
 
 const mmss = (s: number) => { const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 export const top = (r: OursResult | null): Option | null => {
@@ -48,7 +48,50 @@ export const top = (r: OursResult | null): Option | null => {
   return f ? { title: f.canonical_title, artist: f.canonical_artist, start_seconds: f.start_seconds, end_seconds: f.end_seconds, catalog_key: f.catalog_key } : null;
 };
 
-export function buildPairPrompt(a: VideoAnalysis, A: Option, B: Option): string {
+export const TOP3_PROMPT_VERSION = "pair-judge-top3-v1";
+const TOP3_SYSTEM = `You judge which of two short lists of song sections gives a creator better choices for their short-form
+video (Reel / TikTok). You never see the video: you get a written description of it from a muted viewing and two lists
+labelled A and B, each three songs with the part to use and when its musical moment lands. Both lists come from
+recommendation systems. Judge how well the three options fit the video as described (mood, energy, pacing, speech, what
+the music should do for the viewer) and whether a creator in this niche would plausibly use them. Not fame, not your own
+taste. Reply with one JSON object only.`;
+
+export const topN = (r: OursResult | null, n: number): Option[] | null => {
+  const fs_ = r && !r.recommend_error ? [...r.finals].sort((x, y) => x.rank - y.rank).slice(0, n) : [];
+  return fs_.length ? fs_.map((f) => ({ title: f.canonical_title, artist: f.canonical_artist, start_seconds: f.start_seconds, end_seconds: f.end_seconds, catalog_key: f.catalog_key, moment: Math.round((f.anchor_seconds - f.start_seconds) * 10) / 10 })) : null;
+};
+const setKey = (o: Option[]) => o.map((x) => `${x.catalog_key}@${x.start_seconds}-${x.end_seconds}`).sort().join("|");
+
+export function buildTop3Prompt(a: VideoAnalysis, A: Option[], B: Option[]): string {
+  const list = (o: Option[]) => o.map((x, i) => `  ${i + 1}. ${x.title} — ${x.artist}, use ${mmss(x.start_seconds)}–${mmss(x.end_seconds)}${x.moment != null ? `, musical moment ${x.moment} s in` : ""}`).join("\n");
+  return videoBlock(a).join("\n") + `\n\nLIST A\n${list(A)}\n\nLIST B\n${list(B)}\n\nWhich list gives this creator better choices? Answer with exactly:\n{"winner": "A" | "B" | "tie", "confidence": "low" | "medium" | "high", "reason": "one sentence"}`;
+}
+
+/** Top-3 comparison: same statuses and failure rules as judgePair. */
+export async function judgeTop3(
+  analysis: VideoAnalysis, runA: OursResult | null, runB: OursResult | null,
+  call: ClaudeCall = callClaude, random: () => number = Math.random,
+): Promise<PairResult> {
+  const a = topN(runA, 3), b = topN(runB, 3);
+  const base = { confidence: null, reason: null, order: null, a: a?.[0] ?? null, b: b?.[0] ?? null, a_sha: sha(JSON.stringify(a)), b_sha: sha(JSON.stringify(b)), prompt_version: TOP3_PROMPT_VERSION, model: MODELS.analysis };
+  if (!a && !b) return { ...base, status: "fail_both" };
+  if (!a) return { ...base, status: "fail_a" };
+  if (!b) return { ...base, status: "fail_b" };
+  if (setKey(a) === setKey(b)) return { ...base, status: "tie_identical" };
+  const order: { A: Arm; B: Arm } = random() < 0.5 ? { A: "a", B: "b" } : { A: "b", B: "a" };
+  const user = buildTop3Prompt(analysis, order.A === "a" ? a : b, order.B === "a" ? a : b);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const text = await call({ model: MODELS.analysis, system: TOP3_SYSTEM, user, maxTokens: 2000 });
+      const p = Answer.parse(extractJson(text));
+      const status: PairStatus = p.winner === "tie" ? "tie" : order[p.winner] === "a" ? "win_a" : "win_b";
+      return { ...base, status, confidence: p.confidence, reason: p.reason, order };
+    } catch { /* retried once, then judge_error */ }
+  }
+  return { ...base, status: "judge_error", order };
+}
+
+function videoBlock(a: VideoAnalysis): string[] {
   return [
     "VIDEO (description from a muted viewing)",
     `summary: ${a.summary}`,
@@ -57,6 +100,12 @@ export function buildPairPrompt(a: VideoAnalysis, A: Option, B: Option): string 
     `energy: ${a.energy}; pacing: ${a.pacing}; someone talking: ${a.dialogue_present ? "yes" : "no"}${a.duration_seconds != null ? `; length ${Math.round(a.duration_seconds)} s` : ""}`,
     "key moments:",
     ...a.important_moments.map((m) => `- ${m.time}s ${m.type}${m.note ? `: ${m.note}` : ""}`),
+  ];
+}
+
+export function buildPairPrompt(a: VideoAnalysis, A: Option, B: Option): string {
+  return [
+    ...videoBlock(a),
     "",
     `OPTION A: ${A.title} — ${A.artist}, use ${mmss(A.start_seconds)}–${mmss(A.end_seconds)}`,
     `OPTION B: ${B.title} — ${B.artist}, use ${mmss(B.start_seconds)}–${mmss(B.end_seconds)}`,
@@ -94,6 +143,7 @@ export const optSha = (o: Option | null) => sha(JSON.stringify(o));
 
 /** A cached result no longer describes the current runs (or the judge prompt changed). */
 export function isStale(r: PairResult, runA: OursResult | null, runB: OursResult | null): boolean {
+  if (r.prompt_version === TOP3_PROMPT_VERSION) return r.a_sha !== sha(JSON.stringify(topN(runA, 3))) || r.b_sha !== sha(JSON.stringify(topN(runB, 3)));
   return r.prompt_version !== PROMPT_VERSION || r.a_sha !== optSha(top(runA)) || r.b_sha !== optSha(top(runB));
 }
 
@@ -155,8 +205,11 @@ async function main() {
       root: { type: "string" }, a: { type: "string", default: "round2" }, b: { type: "string", default: "listsB" },
       split: { type: "string", default: "tune" }, only: { type: "string" }, force: { type: "boolean", default: false },
       summary: { type: "boolean", default: false },
+      top: { type: "string", default: "1" }, // 1 = rank-1 comparison (pair-judge-v1); 3 = top-3 lists (pair-judge-top3-v1)
     },
   });
+  if (args.top !== "1" && args.top !== "3") throw new Error(`--top must be 1 or 3, got ${args.top}`);
+  const top3 = args.top === "3";
   if (!args.root) { console.error("usage: pair-judge.ts --root <batch>[,<batch>...] --a <tag> --b <tag> [--split tune|test|all] [--summary]"); process.exit(1); }
   const roots = args.root.split(",").map((r) => path.resolve(r.replace(/^~(?=$|\/)/, os.homedir())));
   type Row = { clip: ClipSpec; result: PairResult | null; state: "done" | "pending" | "stale"; A: OursResult | null; B: TreatmentResult | null };
@@ -170,14 +223,14 @@ async function main() {
       const A = await readRun(path.join(work, `ours.${args.a}.json`));
       const B = await readRun(path.join(work, `ours.${args.b}.json`));
       if (!A && !B) continue; // never scheduled in either arm (treatment.ts lists these as outside the comparison)
-      const out = path.join(work, `pair.${args.a}-vs-${args.b}.json`);
+      const out = path.join(work, `pair.${args.a}-vs-${args.b}${top3 ? ".top3" : ""}.json`);
       const cached = args.force ? null : await fs.readFile(out, "utf8").then((t) => JSON.parse(t) as PairResult).catch(() => null);
       const stale = !!cached && isStale(cached, A, B);
       const retry = !!cached && !stale && cached.status === "judge_error" && (cached.attempts ?? 1) < MAX_JUDGE_ATTEMPTS;
       if (cached && !stale && !retry) { rows.push({ clip, result: cached, state: "done", A, B }); continue; }
       if (args.summary) { rows.push({ clip, result: retry ? cached : null, state: stale ? "stale" : retry ? "done" : "pending", A, B }); continue; }
       const analysis = (B?.analysis ?? A?.analysis)!;
-      const result: PairResult = { ...(await judgePair(analysis, A, B)), attempts: (retry ? (cached!.attempts ?? 1) : 0) + 1 };
+      const result: PairResult = { ...(await (top3 ? judgeTop3 : judgePair)(analysis, A, B)), attempts: (retry ? (cached!.attempts ?? 1) : 0) + 1 };
       await fs.writeFile(out, JSON.stringify(result, null, 2));
       console.log(`${clip.id}: ${result.status}${result.reason ? ` (${result.confidence}) ${result.reason}` : ""}`);
       rows.push({ clip, result, state: "done", A, B });

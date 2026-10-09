@@ -71,3 +71,23 @@ describe("provenance and interval", () => {
     expect(hi).toBeCloseTo(0.892, 2);
   });
 });
+
+import { judgeTop3, buildTop3Prompt } from "@/scripts/groundtruth/pair-judge";
+describe("top-3 mode", () => {
+  const three = (keys: string[]): OursResult => ({ ...run("X", "k"), finals: keys.map((k, i) => ({ ...pick({ canonical_title: k, catalog_key: k, rank: i + 1, start_seconds: 10, end_seconds: 25, anchor_seconds: 14 }), explanation: "hidden", spotify_url: "" })) });
+  it("ties the same three songs in a different order without a call", async () => {
+    const call = vi.fn();
+    expect((await judgeTop3(analysis, three(["a", "b", "c"]), three(["c", "a", "b"]), call)).status).toBe("tie_identical");
+    expect(call).not.toHaveBeenCalled();
+  });
+  it("shows both lists with the same fields, including where the moment lands, and no explanations", async () => {
+    const call = vi.fn().mockResolvedValue('{"winner":"B","confidence":"low","reason":"r"}');
+    const r = await judgeTop3(analysis, three(["a", "b", "c"]), three(["a", "b", "d"]), call, () => 0.1); // A label = arm a
+    expect(r.status).toBe("win_b");
+    const user = call.mock.calls[0]![0].user as string;
+    expect(user).toContain("LIST A");
+    expect(user).toContain("musical moment 4 s in");
+    expect(user).not.toContain("hidden");
+    expect(buildTop3Prompt(analysis, [], []).length).toBeGreaterThan(0);
+  });
+});
