@@ -57,7 +57,8 @@ export async function runOurs(mutedPath: string, durationSeconds: number, deadli
       await fs.copyFile(p, copy);
       return copy;
     },
-    analyzeVideo: async (input: AnalyzeInput, opts) => { analysed = await analyzeVideo(input, opts); return analysed; },
+    // The eval copy is muted: tell the analyst audio is unavailable rather than silent (Codex review, 2026-10-09).
+    analyzeVideo: async (input: AnalyzeInput, opts) => { analysed = await analyzeVideo({ ...input, audioUnavailable: true }, opts); return analysed; },
     transcodeForPlayback: async () => null,
     uploadPlayback: async () => {},
     upsertAnalysis: async () => ({}) as never,

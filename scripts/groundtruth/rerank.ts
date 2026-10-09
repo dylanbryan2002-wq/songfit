@@ -79,7 +79,10 @@ async function main() {
       console.log(`${clip.id}: ok${args.rescore ? ` rescored ${scored.length}` : ""} (${Math.round((Date.now() - t0) / 1000)} s)`);
     } catch (err) {
       counts.failed!++;
-      console.error(`${clip.id}: FAILED ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`${clip.id}: FAILED ${error}`);
+      // Persist the failure so the judge counts it against this arm instead of dropping the clip.
+      await fs.writeFile(out, JSON.stringify({ ...src, finals: [], recommend_error: error, treatment: { ...src.treatment, status: "failed", error } }, null, 2));
     }
   }
   console.log(`\n${JSON.stringify(counts)}`);

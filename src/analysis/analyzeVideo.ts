@@ -32,6 +32,8 @@ export type AnalyzeInput = {
   /** The creator's "How should it feel?" chips and "Anything else?" note; null when both were skipped. */
   creatorVibe: { tags: string[]; note: string | null } | null;
   durationSeconds: number;
+  /** Eval harness: the audio track was removed, so an empty transcript means "not available", not silence. */
+  audioUnavailable?: boolean;
 };
 
 let singleton: Anthropic | null = null;
@@ -60,6 +62,10 @@ Rules:
   quiet_bed (stays under the voice; the words carry the video), drive_energy (pushes pace and momentum: routines, hustle, fast cuts, a build),
   emotional_lift (raises the feeling where the story turns), comic_cue (part of the joke: a title, an era or an ironic contrast),
   familiar_anthem (a song everyone knows whose identity is the point: nostalgia, an era, a celebration).
+  Pick the PRIMARY job; say any secondary effect in brief.text (a familiar anthem can also drive energy).
+  The job can reinforce what is visible or deliberately contrast it: a visibly exhausted creator in a frantic routine may call for
+  relentless, funny momentum (drive_energy), and a risky career story told with a grin may call for cheerful bounce, not reflection.
+  Decide which the video is doing and say so in brief.text.
   Someone talking does NOT by itself make it quiet_bed: if the edit is fast, the creator is energised, the story is a joke or the moment is a
   celebration, pick the job that matches, and write the brief's energy and moods for that job. Only for quiet_bed may genre_avoid rule out
   drums, beats or a pulse; for every other job keep the energy the footage and the creator ask for.
@@ -157,7 +163,9 @@ function buildUserContent(input: AnalyzeInput): Block[] {
   const transcript = renderTranscript(input);
   blocks.push({
     type: "text",
-    text: `Words heard (spoken or sung), with [start–end] seconds. Empty means nothing was heard:\n"""${transcript}"""`,
+    text: input.audioUnavailable
+      ? "The audio track is unavailable for this video (it was removed, it is not silence). Decide dialogue_present from the frames alone: a person talking to camera, mouth movement, interview framing or word-by-word captions of speech mean dialogue is present."
+      : `Words heard (spoken or sung), with [start–end] seconds. Empty means nothing was heard:\n"""${transcript}"""`,
   });
   if (input.creatorVibe) blocks.push({ type: "text", text: renderVibe(input.creatorVibe) });
   blocks.push({ type: "text", text: "Now output the single JSON object." });

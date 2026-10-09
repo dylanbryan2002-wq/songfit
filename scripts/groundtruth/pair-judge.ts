@@ -37,7 +37,7 @@ export type Arm = "a" | "b";
 export type PairStatus = "win_a" | "win_b" | "tie" | "tie_identical" | "fail_a" | "fail_b" | "fail_both" | "judge_error";
 export const MAX_JUDGE_ATTEMPTS = 2;
 export type PairResult = {
-  status: PairStatus; attempts?: number; a_sha?: string; b_sha?: string; confidence: "low" | "medium" | "high" | null; reason: string | null;
+  status: PairStatus; attempts?: number; a_sha?: string; b_sha?: string; desc_tag?: string; desc_sha?: string; confidence: "low" | "medium" | "high" | null; reason: string | null;
   order: { A: Arm; B: Arm } | null; a: Option | null; b: Option | null; prompt_version: string; model: string;
 };
 type Option = { title: string; artist: string; start_seconds: number; end_seconds: number; catalog_key: string; moment?: number };
@@ -205,7 +205,10 @@ async function main() {
       root: { type: "string" }, a: { type: "string", default: "round2" }, b: { type: "string", default: "listsB" },
       split: { type: "string", default: "tune" }, only: { type: "string" }, force: { type: "boolean", default: false },
       summary: { type: "boolean", default: false },
-      top: { type: "string", default: "1" }, // 1 = rank-1 comparison (pair-judge-v1); 3 = top-3 lists (pair-judge-top3-v1)
+      top: { type: "string", default: "1" },
+      // The video description both arms are judged against, frozen per clip: this tag's analysis (default the round-2 control's),
+      // so an arm that re-analyses the video cannot judge itself by its own reading (Codex review, 2026-10-09).
+      desc: { type: "string", default: "round2" }, // 1 = rank-1 comparison (pair-judge-v1); 3 = top-3 lists (pair-judge-top3-v1)
     },
   });
   if (args.top !== "1" && args.top !== "3") throw new Error(`--top must be 1 or 3, got ${args.top}`);
@@ -225,12 +228,17 @@ async function main() {
       if (!A && !B) continue; // never scheduled in either arm (treatment.ts lists these as outside the comparison)
       const out = path.join(work, `pair.${args.a}-vs-${args.b}${top3 ? ".top3" : ""}.json`);
       const cached = args.force ? null : await fs.readFile(out, "utf8").then((t) => JSON.parse(t) as PairResult).catch(() => null);
-      const stale = !!cached && isStale(cached, A, B);
+      const descRun = await readRun(path.join(work, `ours.${args.desc}.json`));
+      const descAnalysis = descRun?.analysis ?? null;
+      const descSha = descAnalysis ? sha(JSON.stringify(descAnalysis)) : null;
+      const stale = !!cached && (isStale(cached, A, B) || (cached.desc_sha ?? null) !== descSha);
       const retry = !!cached && !stale && cached.status === "judge_error" && (cached.attempts ?? 1) < MAX_JUDGE_ATTEMPTS;
       if (cached && !stale && !retry) { rows.push({ clip, result: cached, state: "done", A, B }); continue; }
       if (args.summary) { rows.push({ clip, result: retry ? cached : null, state: stale ? "stale" : retry ? "done" : "pending", A, B }); continue; }
-      const analysis = (B?.analysis ?? A?.analysis)!;
-      const result: PairResult = { ...(await (top3 ? judgeTop3 : judgePair)(analysis, A, B)), attempts: (retry ? (cached!.attempts ?? 1) : 0) + 1 };
+      if (!descAnalysis) { console.log(`${clip.id}: no ${args.desc} description, skipped`); continue; }
+      const duration = B?.analysis?.duration_seconds ?? A?.analysis?.duration_seconds ?? null; // a fact, not an interpretation
+      const analysis = { ...descAnalysis, duration_seconds: duration };
+      const result: PairResult = { ...(await (top3 ? judgeTop3 : judgePair)(analysis, A, B)), desc_tag: args.desc, desc_sha: descSha ?? undefined, attempts: (retry ? (cached!.attempts ?? 1) : 0) + 1 };
       await fs.writeFile(out, JSON.stringify(result, null, 2));
       console.log(`${clip.id}: ${result.status}${result.reason ? ` (${result.confidence}) ${result.reason}` : ""}`);
       rows.push({ clip, result, state: "done", A, B });
@@ -246,6 +254,8 @@ async function main() {
   console.log(`\nScheduled ${rows.length}; judged ${done.length}; pending ${rows.filter((r) => r.state === "pending").length}; stale ${rows.filter((r) => r.state === "stale").length}`);
   console.log(`All        ${fmt(tally(done.map((r) => r.result)))}`);
   console.log(`Eligible   ${fmt(tally(done.filter(eligible).map((r) => r.result)))}`);
+  // Quality and reliability reported apart: pairs where both arms produced picks, then failures on their own.
+  console.log(`Both ran   ${fmt(tally(done.filter((r) => !r.result.status.startsWith("fail")).map((r) => r.result)))}`);
   const identified = rows.filter((r) => r.clip.song && r.clip.artist);
   const hits = (arm: "A" | "B") => identified.filter((r) => r[arm] && !r[arm]!.recommend_error && compareClip({ song: r.clip.song!, artist: r.clip.artist!, start_seconds: r.clip.start_seconds }, r[arm]!).result === "hit").length;
   console.log(`Hit rate   A ${hits("A")}/${identified.length}, B ${hits("B")}/${identified.length} (identified clips only)`);

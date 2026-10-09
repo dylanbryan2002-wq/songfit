@@ -9,7 +9,9 @@ import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dime
 
 // v5 (2026-10-09): the moment is given in seconds after the clip starts; v4 gave the song timestamp and the scorer
 // compared it with video time ("Lift at 58s, misses 12s climax" for a moment 8 s into the clip).
-export const PROMPT_VERSION = "scoring-v5";
+// v6 (2026-10-09): familiarity rules follow brief.fields.music_job when present (Codex review of analyze-v6);
+// older briefs keep the v5 rule keyed on dialogue.
+export const PROMPT_VERSION = "scoring-v6";
 // Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
 // ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
 // scoring-v3 (2026-10-08): its conditional rules raised a 20-item chunk to 3.9k–4.4k and truncated at 4400.
@@ -44,9 +46,16 @@ export const SHORT_VIDEO_PACING_RULE =
   "This video is under 15 s: a hook, drop or vocal entry inside the first 5 s of the section is a PLUS (it lands on the cut), never a miss.";
 const SHORT_VIDEO_SECONDS = 15;
 
-function dimensionDefinitions(analysis: VideoAnalysis): Record<ModelDimension, string> {
+/** True when someone is talking AND the music's job is to stay under them: the only case where an obvious song is a miss.
+ *  Without a job (briefs before analyze-v6) speech alone decides, as in scoring-v5. */
+export function quietBedUnderSpeech(analysis: VideoAnalysis, brief?: MusicBrief): boolean {
+  const job = brief?.fields.music_job;
+  return job ? job === "quiet_bed" && analysis.dialogue_present : analysis.dialogue_present;
+}
+
+function dimensionDefinitions(analysis: VideoAnalysis, brief?: MusicBrief): Record<ModelDimension, string> {
   const defs = { ...DIMENSION_DEFINITIONS };
-  if (analysis.dialogue_present) {
+  if (quietBedUnderSpeech(analysis, brief)) {
     defs.originality += ` ${STOCK_CHOICE_RULE}`;
   } else {
     defs.cultural += ` ${SONG_CARRIES_EDIT_RULE}`;
@@ -61,7 +70,7 @@ const Item = z.object({ index: z.number().int().min(0) }).and(
 );
 
 export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[]): string {
-  const definitions = dimensionDefinitions(analysis);
+  const definitions = dimensionDefinitions(analysis, brief);
   const defs = MODEL_DIMENSIONS.map((d) => `- ${d}: ${definitions[d]}`).join("\n");
   const list = cands
     .map((c, i) => `${i}. "${c.canonical_title}" — ${c.canonical_artist} | song ${c.proposed_start}s–${c.proposed_end}s (${Math.round((c.proposed_end - c.proposed_start) * 10) / 10} s clip), musical moment ${Math.round((c.anchor_seconds - c.proposed_start) * 10) / 10} s after the clip starts | ${c.section_reason} | proposed because: ${c.fit_reason}`)
@@ -71,7 +80,7 @@ export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, c
 ${analysis.summary}
 Duration: ${analysis.duration_seconds != null ? `${analysis.duration_seconds.toFixed(1)}s` : "unknown"}.
 Category: ${analysis.content_category}. Aesthetic: ${analysis.aesthetic.join(", ")}. Mood: ${analysis.mood.join(", ")}.
-Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialogue_present ? "yes" : "no"}. Key moments: ${moments}.
+Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialogue_present ? "yes" : "no"}. Key moments: ${moments}.${brief.fields.music_job ? `\nMusic's job: ${brief.fields.music_job}.` : ""}
 
 MUSIC BRIEF
 ${brief.text}

@@ -3,7 +3,7 @@ import { combine, WEIGHTS } from "@/src/engine/scoring/weights";
 import { dialogueScore } from "@/src/engine/scoring/dialogue";
 import { overuseScore } from "@/src/engine/scoring/overuse";
 import type { ComponentScores, VideoAnalysis } from "@/src/shared/types";
-import { analysis, ver } from "../fixtures";
+import { analysis, brief, ver } from "../fixtures";
 
 describe("combine", () => {
   it("is a weighted mean", () => {
@@ -38,5 +38,10 @@ describe("overuseScore", () => {
   });
   it("passes everything else", () => {
     expect(overuseScore(talky, { title: "Obscure Tune", artist: "Nobody" }).score).toBe(1);
+  });
+  it("follows the brief's music job when there is one (scoring-v6)", () => {
+    const job = (music_job: "quiet_bed" | "familiar_anthem") => ({ ...brief, fields: { ...brief.fields, music_job } });
+    expect(overuseScore(talky, { title: "Sailor Song", artist: "Gigi Perez" }, job("familiar_anthem")).score).toBe(1);
+    expect(overuseScore(talky, { title: "Sailor Song", artist: "Gigi Perez" }, job("quiet_bed")).score).toBe(0.4);
   });
 });

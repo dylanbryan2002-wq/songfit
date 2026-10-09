@@ -55,7 +55,7 @@ describe("modelScores", () => {
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
-    expect(PROMPT_VERSION).toBe("scoring-v5");
+    expect(PROMPT_VERSION).toBe("scoring-v6");
   });
   it("states the video duration in the VIDEO block", () => {
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 4.5 }, brief, [vc("A", "1")])).toContain("Duration: 4.5s.");
@@ -88,5 +88,18 @@ describe("scoring-v5 timing", () => {
     const p = buildScoringPrompt(analysis, brief, [ver({ proposed_start: 50, proposed_end: 66, anchor_seconds: 58 })]);
     expect(p).toContain("musical moment 8 s after the clip starts");
     expect(p).not.toContain("anchor 58s");
+  });
+});
+
+describe("scoring-v6: familiarity follows the music's job", () => {
+  const talking = { ...analysis, dialogue_present: true };
+  const withJob = (job: "quiet_bed" | "comic_cue" | undefined) => ({ ...brief, fields: { ...brief.fields, ...(job ? { music_job: job } : {}) } });
+  it("applies the stock-choice rule only to a quiet bed under speech", () => {
+    expect(buildScoringPrompt(talking, withJob("quiet_bed"), [ver()])).toContain(STOCK_CHOICE_RULE);
+    expect(buildScoringPrompt(talking, withJob("comic_cue"), [ver()])).not.toContain(STOCK_CHOICE_RULE);
+    expect(buildScoringPrompt(talking, withJob("comic_cue"), [ver()])).toContain("Music's job: comic_cue.");
+  });
+  it("keeps the v5 behaviour for briefs without a job", () => {
+    expect(buildScoringPrompt(talking, withJob(undefined), [ver()])).toContain(STOCK_CHOICE_RULE);
   });
 });
