@@ -4,6 +4,9 @@ import { PICKS_MIN, PICKS_PER_BATCH, PICKS_TOTAL } from "@/src/shared/config";
 import { normalizeArtist } from "@/src/engine/catalog/normalize";
 
 const ARTIST_TOLERANCE = 0.1;
+/** The first picks are the best matches by score (artist variety only); direction balancing starts after them.
+ *  Codex review 2026-10-09: forcing safe/recent/unexpected into the top 3 pushed better-scored matches down. */
+export const TOP_BY_SCORE = 3;
 const DIRECTIONS = DirectionTag.options; // safe → current → unexpected
 
 export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTag {
@@ -11,7 +14,7 @@ export function primaryDirection(c: { directions: DirectionTag[] }): DirectionTa
 }
 
 /**
- * Rank 1 = top total ("Best fit"). Then batch by batch (rank 1 opens batch 1), each slot asks for the
+ * Ranks 1–TOP_BY_SCORE = best totals, preferring a new artist within 0.1 (rank 1 = "Best fit"). Then batch by batch, each slot asks for the
  * direction least covered in its batch (ties: safe → current → unexpected) and takes the best unused
  * candidate whose primary direction is that one, then any whose directions include it, then next best
  * overall. Coverage counts primary directions because that is the label the creator sees.
@@ -46,8 +49,12 @@ export function diversify(scored: ScoredCandidate[], total = PICKS_TOTAL, batch 
       ?? first;
   };
 
-  take(sorted[0]!);
   const n = Math.min(total, sorted.length);
+  while (picks.length < Math.min(TOP_BY_SCORE, n)) {
+    const choice = preferNewArtist(sorted.filter((c) => !usedIds.has(c.catalog_key)));
+    if (!choice) break;
+    take(choice);
+  }
   while (picks.length < n) {
     if (picks.length % batch === 0) batchPicks = [];
     const count = (d: DirectionTag) => batchPicks.filter((c) => primaryDirection(c) === d).length;

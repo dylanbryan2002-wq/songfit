@@ -7,7 +7,9 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dimensions";
 
-export const PROMPT_VERSION = "scoring-v4";
+// v5 (2026-10-09): the moment is given in seconds after the clip starts; v4 gave the song timestamp and the scorer
+// compared it with video time ("Lift at 58s, misses 12s climax" for a moment 8 s into the clip).
+export const PROMPT_VERSION = "scoring-v5";
 // Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
 // ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
 // scoring-v3 (2026-10-08): its conditional rules raised a 20-item chunk to 3.9k–4.4k and truncated at 4400.
@@ -25,7 +27,7 @@ const DIMENSION_DEFINITIONS: Record<ModelDimension, string> = {
   semantic: "Does the song make sense for what is literally happening in the video (subject, setting, story)?",
   emotional: "Does the emotional character of this section match or productively contrast the video's feel and the creator's intent?",
   aesthetic: "Does the sound match the visual world (luxury vs raw, modern vs retro, polished vs lo-fi)?",
-  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment? If the video is under 10 s and the anchor is more than 5 s after the section start, the creator never hears the moment: score ≤ 0.3.",
+  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment? The moment is given as seconds after the clip starts playing, which is the same clock as the video's key moments. If the video is under 10 s and the moment is more than 5 s in, the creator never hears it: score ≤ 0.3.",
   cultural: "Would this creator realistically use this song on Instagram or TikTok right now, given their niche and audience? Songs whose social moment peaked in 2020–2023 read dated: ≤ 0.5 unless the brief asks for nostalgia.",
   originality: "Is it good without being painfully obvious or exhausted?",
 };
@@ -62,7 +64,7 @@ export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, c
   const definitions = dimensionDefinitions(analysis);
   const defs = MODEL_DIMENSIONS.map((d) => `- ${d}: ${definitions[d]}`).join("\n");
   const list = cands
-    .map((c, i) => `${i}. "${c.canonical_title}" — ${c.canonical_artist} | section ${c.proposed_start}s–${c.proposed_end}s, anchor ${c.anchor_seconds}s | ${c.section_reason} | proposed because: ${c.fit_reason}`)
+    .map((c, i) => `${i}. "${c.canonical_title}" — ${c.canonical_artist} | song ${c.proposed_start}s–${c.proposed_end}s (${Math.round((c.proposed_end - c.proposed_start) * 10) / 10} s clip), musical moment ${Math.round((c.anchor_seconds - c.proposed_start) * 10) / 10} s after the clip starts | ${c.section_reason} | proposed because: ${c.fit_reason}`)
     .join("\n");
   const moments = analysis.important_moments.map((m) => `${m.time}s ${m.type}`).join("; ") || "none";
   return `VIDEO

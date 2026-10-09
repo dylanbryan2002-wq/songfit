@@ -55,7 +55,7 @@ describe("modelScores", () => {
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
-    expect(PROMPT_VERSION).toBe("scoring-v4");
+    expect(PROMPT_VERSION).toBe("scoring-v5");
   });
   it("states the video duration in the VIDEO block", () => {
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 4.5 }, brief, [vc("A", "1")])).toContain("Duration: 4.5s.");
@@ -79,5 +79,14 @@ describe("buildScoringPrompt (scoring-v4 conditional rules)", () => {
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 15 }, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE);
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 42 }, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE);
     expect(buildScoringPrompt(analysis, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE); // duration unknown
+  });
+});
+
+describe("scoring-v5 timing", () => {
+  it("states the musical moment in clip seconds, not the song timestamp", async () => {
+    const { buildScoringPrompt } = await import("@/src/engine/scoring/modelScores");
+    const p = buildScoringPrompt(analysis, brief, [ver({ proposed_start: 50, proposed_end: 66, anchor_seconds: 58 })]);
+    expect(p).toContain("musical moment 8 s after the clip starts");
+    expect(p).not.toContain("anchor 58s");
   });
 });
