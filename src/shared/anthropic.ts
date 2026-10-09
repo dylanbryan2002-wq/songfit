@@ -2,6 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { env, LIMITS } from "./config";
 import { logger } from "./logger";
 
+/** Tokens used per model in this process; read by the eval harness to enforce a spending cap. */
+export const usageTotals = new Map<string, { input: number; output: number }>();
+
 export type ClaudeCall = (args: {
   model: string;
   system: string;
@@ -39,6 +42,10 @@ export function makeClaudeCall(
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("");
+    const used = usageTotals.get(model) ?? { input: 0, output: 0 };
+    used.input += res.usage?.input_tokens ?? 0;
+    used.output += res.usage?.output_tokens ?? 0;
+    usageTotals.set(model, used);
     // One structured line per model call so cost and truncation are visible in logs (ruling I1).
     logger.info("model.call", {
       model,

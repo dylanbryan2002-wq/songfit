@@ -11,12 +11,15 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 import type { CreatorPick } from "@/src/engine/catalog/creatorLists";
+import { lessonsBlock } from "@/src/engine/candidates/creatorLessons";
 
 // v7 (2026-10-09): example song titles removed; v6 named four and the model put one of them in a third of all top 5s.
 // v8 (2026-10-09): guidance keyed on the brief's music_job instead of "talking means a quiet bed" (Codex root-cause review).
 export const PROMPT_VERSION = "candidates-v8";
 /** Prompt variant used when creatorPicks are passed (experiment B, docs/review/24 v3). Production does not pass them yet. */
 export const CREATOR_PICKS_PROMPT_VERSION = `${PROMPT_VERSION}+picks`;
+/** Prompt variant with the creator lessons appended to the system prompt (docs/review/27). Production does not pass it yet. */
+export const LESSONS_PROMPT_VERSION = `${PROMPT_VERSION}+lessons`;
 
 export type GenerateOpts = {
   note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx;
@@ -26,6 +29,8 @@ export type GenerateOpts = {
   directions?: DirectionTag[];
   /** Model override (eval harness only); default MODELS.candidates. Must be an id from MODELS. */
   model?: string;
+  /** Append the creator lessons to the system prompt (eval harness only for now). */
+  lessons?: boolean;
 };
 
 export const SYSTEM_PROMPT = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
@@ -178,20 +183,23 @@ export function mergeCandidates(lists: GeneratedCandidate[][]): GeneratedCandida
   return [...byKey.values()];
 }
 
+export const systemPromptFor = (opts: { lessons?: boolean } = {}) => (opts.lessons ? `${SYSTEM_PROMPT}\n\n${lessonsBlock()}` : SYSTEM_PROMPT);
+
 async function generateDirection(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis, opts: GenerateOpts, call: ClaudeCall,
 ): Promise<GeneratedCandidate[]> {
   const user = buildCandidatePrompt(direction, brief, analysis, opts);
+  const system = systemPromptFor(opts);
   const started = Date.now();
   let first: string;
   try {
-    first = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+    first = await call({ model: opts.model ?? MODELS.candidates, system, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   } catch (e) {
     // About 1 run in 8 at medium effort spends the whole cap on hidden reasoning (docs/review/19, finding 6).
     // The wrapper throws before parseCandidateList runs; retry this one direction at low effort, same prompt.
     if (!(e instanceof Error && e.message.includes("truncated at max_tokens"))) throw e;
     logger.warn("candidates.truncated_retry", { direction, ms: Date.now() - started });
-    first = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: "low", timeoutMs: remainingBudget(opts.ctx) });
+    first = await call({ model: opts.model ?? MODELS.candidates, system, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: "low", timeoutMs: remainingBudget(opts.ctx) });
   }
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
@@ -200,7 +208,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user: retryUser, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+  const second = await call({ model: opts.model ?? MODELS.candidates, system, user: retryUser, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) {
     logger.info("candidates.generated", { direction, count: r2.items.length, ms: Date.now() - started });

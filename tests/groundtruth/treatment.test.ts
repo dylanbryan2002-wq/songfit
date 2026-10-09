@@ -120,3 +120,11 @@ describe("model run (docs/review/24 §13)", () => {
     expect(needsRun(t, "s", { ...run, picks: true })).toBe(true);
   });
 });
+
+import { spentDollars } from "@/scripts/groundtruth/treatment";
+describe("spending cap", () => {
+  it("prices Sonnet tokens and refuses unknown models", () => {
+    expect(spentDollars(new Map([["claude-sonnet-5-5", { input: 1_000_000, output: 100_000 }]]))).toBeCloseTo(4.5, 5);
+    expect(() => spentDollars(new Map([["claude-fable-5-1", { input: 1, output: 1 }]]))).toThrow(/no price/);
+  });
+});

@@ -189,3 +189,16 @@ describe("model override (eval harness)", () => {
     expect(call.mock.calls.map((c) => c[0].model)).toEqual([MODELS.candidates, MODELS.candidatesStrong]);
   });
 });
+
+describe("creator lessons (docs/review/27)", () => {
+  it("appends the lessons to the system prompt only when asked, and production stays unchanged", async () => {
+    const { systemPromptFor, SYSTEM_PROMPT: sp } = await import("@/src/engine/candidates/generateCandidates");
+    expect(systemPromptFor()).toBe(sp);
+    expect(systemPromptFor({ lessons: true })).toContain("Learn the pattern, not the list");
+    const call = vi.fn().mockResolvedValue(JSON.stringify(many("S")));
+    await generateCandidates(brief, analysis, { call, directions: ["safe"] });
+    await generateCandidates(brief, analysis, { call, directions: ["safe"], lessons: true });
+    expect(call.mock.calls[0]![0].system).toBe(sp);
+    expect(call.mock.calls[1]![0].system).toContain("HOW CREATORS IN THIS NICHE ACTUALLY CHOOSE");
+  });
+});
