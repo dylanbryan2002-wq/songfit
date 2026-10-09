@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { Energy, Pacing } from "../../src/shared/types";
 
 export const PROMPT_VERSION = "gemini-paste-v1";
 /** The exact text Dylan pastes into the Gemini app; bump PROMPT_VERSION when GEMINI_PROMPT.md changes. */
@@ -18,8 +17,8 @@ export const GeminiAnalysis = z.object({
   content_category: z.string(), // Gemini strays off our list ("technology"); kept verbatim for the side-by-side diff
   setting: z.string().nullable(),
   story: z.string().nullable(),
-  energy: Energy,
-  pacing: Pacing,
+  energy: z.string(), // Gemini writes values like "medium-fast" off our lists; kept verbatim for the diff
+  pacing: z.string(),
   mood: z.array(z.string()),
   aesthetic: z.array(z.string()),
   dialogue_present: z.boolean(),

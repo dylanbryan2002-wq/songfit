@@ -27,13 +27,13 @@ describe("parseGeminiReply", () => {
   it("ignores extra keys but rejects a missing or invalid listed key, with the raw text attached", () => {
     const withExtra = reply.replace('"summary":', '"extra": 1, "summary":');
     expect(parseGeminiReply(withExtra)).not.toHaveProperty("extra");
-    const badEnergy = reply.replace('"energy": "low"', '"energy": "loud"');
-    expect(() => parseGeminiReply(badEnergy)).toThrow(/energy/);
+    const badFlag = reply.replace('"dialogue_present": false', '"dialogue_present": "no"');
+    expect(() => parseGeminiReply(badFlag)).toThrow(/dialogue_present/);
     try {
-      parseGeminiReply(badEnergy);
+      parseGeminiReply(badFlag);
     } catch (e) {
       expect(e).toBeInstanceOf(GeminiParseError);
-      expect((e as GeminiParseError).raw).toBe(badEnergy);
+      expect((e as GeminiParseError).raw).toBe(badFlag);
     }
   });
 
