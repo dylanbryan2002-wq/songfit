@@ -30,6 +30,9 @@ export const LIMITS = {
   // tests/shared/limitsMatchMigration.test.ts keeps the SQL literals equal to these.
 } as const;
 
+/** Where creators ask for deletion: the privacy page and "My Songfits" both show it. */
+export const CONTACT_EMAIL = "dylanbryan2002@gmail.com";
+
 /** Ranked picks per submission, shown PICKS_PER_BATCH at a time; fewer than PICKS_MIN verified fails the stage. */
 export const PICKS_TOTAL = 15;
 export const PICKS_PER_BATCH = 5;

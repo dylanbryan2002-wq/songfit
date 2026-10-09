@@ -42,6 +42,12 @@ export async function overDailyLimit(creatorId: string, limit: number, now = Dat
   return (await countSubmissionsSince(creatorId, new Date(now - DAY_MS).toISOString())) >= limit;
 }
 
+/** Uploads left under the same 24 h count and cap: the upload screen's "7 uploads left". Never below 0. */
+export async function uploadsLeft(creatorId: string, anonymous: boolean, now = Date.now()): Promise<number> {
+  const used = await countSubmissionsSince(creatorId, new Date(now - DAY_MS).toISOString());
+  return Math.max(0, dailyUploadLimit(anonymous) - used);
+}
+
 /** Whether this creator may be issued another upload URL right now: daily spend cap, then the burst limit. */
 export async function checkUploadRate(creatorId: string, dailyLimit: number, now = Date.now()): Promise<UploadRate> {
   if (await overDailyLimit(creatorId, dailyLimit, now)) return "daily_limit";

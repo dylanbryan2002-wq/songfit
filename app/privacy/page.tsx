@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { CONTACT_EMAIL as CONTACT } from "@/src/shared/config";
 
 export const metadata = { title: "Privacy · Songfit" };
-
-const CONTACT = "dylanbryan2002@gmail.com";
 
 /** Plain-language privacy policy. Required by Google's OAuth consent screen to publish the app. */
 export default function PrivacyPage() {

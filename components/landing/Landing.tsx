@@ -37,8 +37,17 @@ function tabFlowId(): { id: string; existing: boolean } {
 
 /** Signed-out first screen: choose a video, then the upload form runs under an anonymous session
  *  (Google sign-in comes at the results). If anonymous sign-in fails, sign in with Google first.
- *  `anonymousLive` shows "No sign-up to start."; true only once anonymous sign-in is switched on. */
-export function Landing({ authFailed, anonymousLive = false }: { authFailed: boolean; anonymousLive?: boolean }) {
+ *  `anonymousLive` shows "No sign-up to start."; true only once anonymous sign-in is switched on.
+ *  `uploadsLeft`: an existing anonymous session's allowance, counted server-side; null when unknown. */
+export function Landing({
+  authFailed,
+  anonymousLive = false,
+  uploadsLeft = null,
+}: {
+  authFailed: boolean;
+  anonymousLive?: boolean;
+  uploadsLeft?: number | null;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const flowId = useRef("");
   const selection = useRef(0); // bumps on every pick; an older async check never replaces a newer pick
@@ -152,6 +161,7 @@ export function Landing({ authFailed, anonymousLive = false }: { authFailed: boo
         notice={notice}
         error={error}
         anonymousLive={anonymousLive}
+        uploadsLeft={uploadsLeft}
         onChoose={choose}
         onContinue={onContinue}
         onRemove={() => {
@@ -175,6 +185,7 @@ export function LandingView({
   notice = null,
   error = null,
   anonymousLive = false,
+  uploadsLeft = null,
   onChoose = () => {},
   onContinue = () => {},
   onRemove = () => {},
@@ -187,6 +198,7 @@ export function LandingView({
   notice?: string | null;
   error?: string | null;
   anonymousLive?: boolean;
+  uploadsLeft?: number | null;
   onChoose?: () => void;
   onContinue?: () => void;
   onRemove?: () => void;
@@ -201,7 +213,7 @@ export function LandingView({
   if (view === "anon" && anonFile) {
     return (
       <>
-        <UploadForm creator={{ email: null }} initialFile={anonFile} />
+        <UploadForm creator={{ email: null }} initialFile={anonFile} uploadsLeft={uploadsLeft} />
         <div className={`flex flex-col gap-3 ${AREA.note}`}>
           <p className="text-xs text-muted">
             Your video is stored by Songfit and analyzed with third-party AI services to find your songs.

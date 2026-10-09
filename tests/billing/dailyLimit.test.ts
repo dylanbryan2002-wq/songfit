@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const m = vi.hoisted(() => ({ countSubmissionsSince: vi.fn() }));
 vi.mock("@/src/db/queries/submissions", () => ({ countSubmissionsSince: m.countSubmissionsSince }));
 
-import { checkUploadRate, dailyUploadLimit } from "@/src/billing/rateLimit";
+import { checkUploadRate, dailyUploadLimit, uploadsLeft } from "@/src/billing/rateLimit";
 import { LIMITS } from "@/src/shared/config";
 
 const NOW = Date.parse("2026-10-07T12:00:00Z");
@@ -47,5 +47,16 @@ describe("checkUploadRate", () => {
     const c = creator();
     for (let i = 0; i < 5; i++) expect(await checkUploadRate(c, 10, NOW)).toBe("ok");
     expect(await checkUploadRate(c, 10, NOW)).toBe("rate_limited");
+  });
+});
+
+describe("uploadsLeft", () => {
+  it("is the cap minus the same 24 h count, never below 0", async () => {
+    counts(3, 0);
+    expect(await uploadsLeft("c", false, NOW)).toBe(7);
+    expect(await uploadsLeft("c", true, NOW)).toBe(0);
+    counts(12, 0);
+    expect(await uploadsLeft("c", false, NOW)).toBe(0);
+    expect(m.countSubmissionsSince).toHaveBeenCalledWith("c", DAY_AGO);
   });
 });

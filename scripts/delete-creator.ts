@@ -1,10 +1,10 @@
 /* Delete one creator on request: their videos (also those under the anonymous folder they claimed
-   runs from), the event rows that survive the cascade, the anonymous auth users those runs came from,
-   then their auth user (cascade: creators → submissions → analyses, candidates, recommendations,
-   subscriptions). Dry run unless --yes.
+   runs from), the event rows that survive the cascade, the anonymous auth users those runs came from
+   (only once such a user has no submission and no object left), then their auth user (cascade:
+   creators → submissions → analyses, candidates, recommendations, subscriptions). Dry run unless --yes.
    Usage: pnpm local scripts/delete-creator.ts <email> [--yes]  (docs/RUNBOOK.md → Deletion on request) */
 import { createServiceClient } from "../src/db/client";
-import { deleteAuthUser, deleteEvents, parseArgs, planCleanup, removeObjects } from "./lib/creatorCleanup";
+import { deleteCreators, parseArgs, planCleanup } from "./lib/creatorCleanup";
 
 async function main() {
   const { positional, yes } = parseArgs(process.argv.slice(2));
@@ -26,36 +26,28 @@ async function main() {
   }
 
   const plan = await planCleanup(supabase, [creator.id]);
-  // Anonymous ids the claimed runs came from (their folder ≠ the creator's id). Only rows with no email.
+  // Folders other than the creator's own: possibly the anonymous ids claimed runs came from. A folder
+  // proves nothing: deleteCreators deletes such a user only if it is anonymous with nothing left.
   const anonCandidates = plan.folders.filter((f) => f !== creator.id);
-  const { data: anonRows, error: anonErr } = anonCandidates.length
-    ? await supabase.from("creators").select("id").in("id", anonCandidates).is("email", null)
-    : { data: [], error: null };
-  if (anonErr) throw new Error(`anonymous lookup: ${anonErr.message}`);
-  const anonIds = (anonRows ?? []).map((r) => r.id);
 
   console.log(`creator ${creator.id} <${creator.email}>`);
   console.log(`submissions: ${plan.submissionIds.length}`);
   console.log(`folders: ${plan.folders.join(", ") || "-"}`);
   console.log(`storage objects to delete (${plan.paths.length}):`);
   for (const p of plan.paths) console.log(`  ${p}`);
-  if (plan.keptForOthers.length) console.log(`kept, used by another creator's run: ${plan.keptForOthers.join(", ")}`);
-  console.log(`anonymous auth users to delete: ${anonIds.join(", ") || "-"}`);
+  if (plan.keptForOthers.length) console.log(`kept, used by another run: ${plan.keptForOthers.join(", ")}`);
+  console.log(`anonymous auth users to check and delete: ${anonCandidates.join(", ") || "-"}`);
 
   if (!yes) {
     console.log("\nDRY RUN. Nothing deleted. Re-run with --yes to delete.");
     return;
   }
 
-  await removeObjects(supabase, plan.paths);
-  console.log(`deleted ${plan.paths.length} storage objects`);
-  const events = await deleteEvents(supabase, [creator.id, ...anonIds], plan.submissionIds);
-  console.log(`deleted ${events} event rows`);
-  for (const id of anonIds) {
-    await deleteAuthUser(supabase, id);
-    console.log(`deleted anonymous auth user ${id}`);
-  }
-  await deleteAuthUser(supabase, creator.id);
+  // Throws at the first failure; nothing is reported as deleted until every step succeeded.
+  const done = await deleteCreators(supabase, plan, { creatorIds: [creator.id], anonymousIds: anonCandidates });
+  console.log(`deleted ${done.objects} storage objects, ${done.events} event rows`);
+  console.log(`deleted anonymous auth users: ${done.anonymousDeleted.join(", ") || "-"}`);
+  if (done.anonymousKept.length) console.log(`kept (not anonymous, or runs/files left): ${done.anonymousKept.join(", ")}`);
   console.log(`deleted auth user ${creator.id}; creators, submissions, analyses, candidates, recommendations, subscriptions cascaded`);
 }
 

@@ -1,9 +1,10 @@
 /* Monthly purge of unclaimed anonymous runs: every creator with `email is null` created more than
    30 days ago, with no submission in the last 30 days, loses its storage objects (except files a Google creator's claimed run still uses),
-   its event rows and its auth user (cascade removes its creators row and submissions). Dry run unless --yes.
+   its event rows and its auth user (cascade removes its creators row and submissions). An auth user whose
+   folder still holds a file another run uses, or that has a run outside the purge, is kept. Dry run unless --yes.
    Usage: pnpm local scripts/purge-anonymous.ts [--yes]  (docs/RUNBOOK.md → Deletion on request) */
 import { createServiceClient } from "../src/db/client";
-import { deleteAuthUser, deleteEvents, parseArgs, planCleanup, removeObjects } from "./lib/creatorCleanup";
+import { deleteCreators, parseArgs, planCleanup } from "./lib/creatorCleanup";
 
 const PURGE_AFTER_DAYS = 30;
 
@@ -31,6 +32,7 @@ async function main() {
   let objects = 0;
   let events = 0;
   let purged = 0;
+  const kept: string[] = [];
   for (let i = 0; i < ids.length; i += 50) {
     // An old anonymous session can still have a recent run: skip any creator with a submission since the cutoff.
     const { data: recent, error: recentErr } = await supabase
@@ -48,11 +50,11 @@ async function main() {
     for (const p of plan.paths) console.log(`  ${p}`);
     if (plan.keptForOthers.length) console.log(`  kept (claimed by a Google creator): ${plan.keptForOthers.length}`);
     if (!yes) continue;
-    await removeObjects(supabase, plan.paths);
-    objects += plan.paths.length;
-    events += await deleteEvents(supabase, batch, plan.submissionIds);
-    for (const id of batch) await deleteAuthUser(supabase, id);
-    purged += batch.length;
+    const done = await deleteCreators(supabase, plan, { creatorIds: [], anonymousIds: batch });
+    objects += done.objects;
+    events += done.events;
+    purged += done.anonymousDeleted.length;
+    kept.push(...done.anonymousKept);
   }
 
   if (!yes) {
@@ -60,6 +62,7 @@ async function main() {
     return;
   }
   console.log(`deleted ${objects} storage objects, ${events} event rows, ${purged} anonymous auth users`);
+  if (kept.length) console.log(`kept ${kept.length} auth users (files a claimed run uses, or a newer run): ${kept.join(", ")}`);
 }
 
 main().catch((e) => {

@@ -12,11 +12,16 @@ export function ResultsHeader({ signedIn = false }: { signedIn?: boolean }) {
       <Link href="/" aria-label="Songfit home">
         <Logo />
       </Link>
-      <span className="flex items-center gap-1">
-        <Link href="/" className="min-h-11 rounded-full px-3 text-sm font-semibold text-steel-dark">
+      <span className="flex flex-wrap items-center justify-end">
+        <Link href="/" className="min-h-11 rounded-full px-2 text-sm font-semibold text-steel-dark">
           ← Upload another
         </Link>
-        {signedIn && <SignOutButton />}
+        {signedIn && (
+          <Link href="/account" className="min-h-11 rounded-full px-2 text-sm font-semibold text-steel-dark">
+            My Songfits
+          </Link>
+        )}
+        {signedIn && <SignOutButton className="!px-2" />}
       </span>
     </header>
   );
