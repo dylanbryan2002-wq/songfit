@@ -15,6 +15,7 @@ import { FileCard, VideoIcon } from "./landing/FileCard";
 import { DemoLoop } from "./landing/DemoLoop";
 import { GoogleButton } from "./landing/GoogleButton";
 import { AREA, CTA, CTA_BAR, Headline, PickAFeel, STICKY } from "./landing/Hero";
+import { CHOOSE } from "./landing/copy";
 import { signInWithGoogle } from "./auth";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
@@ -257,6 +258,7 @@ export function UploadForm({
         id="video"
         type="file"
         accept="video/*"
+        aria-label={CHOOSE}
         className="sr-only"
         onChange={(e) => void onPick(e)}
         disabled={busy}

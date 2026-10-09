@@ -124,6 +124,19 @@ describe("(b) chosen on the signed-in form", () => {
   });
 });
 
+describe("hidden file input", () => {
+  it('is labelled "Choose your video" on the landing page and in the upload form', () => {
+    const files = (html: string) => html.match(/<input[^>]*type="file"[^>]*>/g) ?? [];
+    for (const html of [
+      render(createElement(Landing, { authFailed: false })),
+      render(createElement(UploadForm, { creator: { email: "a@b.co" } })),
+    ]) {
+      expect(files(html)).toHaveLength(1);
+      expect(files(html)[0]).toContain('aria-label="Choose your video"');
+    }
+  });
+});
+
 describe("DemoLoop", () => {
   it("poster first: still, play control, EXAMPLE caption (not NOW PLAYING until it plays)", () => {
     const html = render(createElement(DemoLoop, { videoAvailable: true }));

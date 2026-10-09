@@ -151,7 +151,15 @@ export function Landing({
 
   return (
     <>
-      <input ref={input} type="file" accept="video/*" className="sr-only" tabIndex={-1} onChange={onPick} />
+      <input
+        ref={input}
+        type="file"
+        accept="video/*"
+        aria-label={CHOOSE}
+        className="sr-only"
+        tabIndex={-1}
+        onChange={onPick}
+      />
       <LandingView
         view={anonFile ? "anon" : inApp ? "inApp" : storageFailed ? "storageFailed" : chosen ? "chosen" : "empty"}
         anonFile={anonFile}
