@@ -41,7 +41,7 @@ export type LibrarySong = {
   tags: z.infer<typeof Tag> | null;
 };
 
-const Tag = z.object({
+export const Tag = z.object({
   i: z.number().int(),
   mood: z.preprocess((v) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : v), z.array(z.string()).max(6)),
   energy: z.number().int().min(1).max(5),
