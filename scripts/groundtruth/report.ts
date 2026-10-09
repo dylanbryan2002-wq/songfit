@@ -1,7 +1,10 @@
 /* Report: one summary table, then one section per clip. Markdown for reading, JSON for the next round to diff. */
 import { STAGES, type BriefDiff, type Stage, type Truth, type Verdict } from "./compare";
 import type { GeminiReply } from "./gemini";
+import type { JudgeResult } from "./judge";
 import type { OursResult } from "./ours";
+import type { Rating } from "./rating-apply";
+import type { Split } from "./split";
 
 export type ClipReport = {
   id: string;
@@ -10,11 +13,14 @@ export type ClipReport = {
   niche: string;
   notes: string;
   truth: Truth | null; // null when clips.csv has no song for this clip: brief comparison only
+  split: Split | null; // from clips.csv (split.ts); "test" rows are the headline numbers
   duration_seconds: number | null;
   verdict: Verdict | null; // null when our engine did not run
   ours: OursResult | null;
   gemini: GeminiReply | null; // null until Dylan pastes the reply into <root>/gemini/<id>.md
   brief_diff: BriefDiff | null;
+  judge: JudgeResult | null; // work/<id>/judge.<tag>.json (judge.ts), when run
+  rating: Rating | null; // work/<id>/rating.<tag>.json (rating-apply.ts), when Dylan has rated the clip
   errors: string[];
 };
 
@@ -33,9 +39,32 @@ export type Summary = {
   median_section_error_seconds: number | null;
   median_hit_rank: number | null;
   misses_by_stage: Record<Stage, number>;
+  judge: { ours: number; real: number; tie: number };
+  rated: { clips: number; picks: number; good: number };
 };
 
-export type ReportJson = RunMeta & { summary: Summary; clips: ClipReport[] };
+/** `summary` is every clip; `by` is the same summary per group (test, tune, music role, and test × role). */
+export type ReportJson = RunMeta & { summary: Summary; by: Record<string, Summary>; clips: ClipReport[] };
+
+export type MusicRole = "carries" | "bed";
+const ROLE_LABEL: Record<MusicRole, string> = { carries: "song carries the edit", bed: "quiet bed under speech" };
+
+/** Gemini's role decides when it is clear (amplify / punchline carry, narration is a bed); otherwise our dialogue flag. */
+export function musicRole(c: ClipReport): MusicRole | null {
+  const role = c.gemini?.parsed.music.role;
+  if (role === "amplify" || role === "punchline") return "carries";
+  if (role === "narration") return "bed";
+  if (c.ours) return c.ours.analysis.dialogue_present ? "bed" : "carries";
+  return null;
+}
+
+function roleLine(c: ClipReport): string {
+  const role = musicRole(c);
+  if (!role) return "music role: unknown";
+  const gemini = c.gemini?.parsed.music.role;
+  const from = gemini === "amplify" || gemini === "punchline" || gemini === "narration" ? `Gemini: ${gemini}` : c.ours?.analysis.dialogue_present ? "speech" : "no speech";
+  return `music role: ${ROLE_LABEL[role]} (${from})`;
+}
 
 function median(xs: number[]): number | null {
   if (xs.length === 0) return null;
@@ -50,6 +79,9 @@ export function summarize(clips: ClipReport[]): Summary {
   const misses_by_stage = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
   for (const v of verdicts) if (v.lost_at) misses_by_stage[v.lost_at] += 1;
   const n = verdicts.length;
+  const judge = { ours: 0, real: 0, tie: 0 };
+  for (const c of clips) if (c.judge) judge[c.judge.winner] += 1;
+  const rated = clips.flatMap((c) => c.rating?.picks ?? []);
   return {
     clips: clips.length, compared: n, without_truth: clips.filter((c) => !c.truth).length, hits: hits.length,
     artist_hits: verdicts.filter((v) => v.result === "artist_hit").length,
@@ -60,6 +92,8 @@ export function summarize(clips: ClipReport[]): Summary {
     median_section_error_seconds: median(hits.map((v) => v.section_error_seconds!)),
     median_hit_rank: median(hits.map((v) => v.rank!)),
     misses_by_stage,
+    judge,
+    rated: { clips: clips.filter((c) => c.rating).length, picks: rated.length, good: rated.filter((p) => p.rating === "good").length },
   };
 }
 
@@ -68,20 +102,24 @@ const pct = (x: number | null) => (x == null ? "-" : `${Math.round(x * 100)}%`);
 const cell = (s: string | null | undefined) => (s ?? "-").replace(/\|/g, "/").replace(/\n+/g, " ");
 const list = (xs: string[] | undefined) => (xs && xs.length ? xs.join(", ") : "-");
 
-export function summaryTable(s: Summary): string {
-  const stages = STAGES.filter((st) => s.misses_by_stage[st] > 0).map((st) => `${st} ${s.misses_by_stage[st]}`);
+/** One column per group, so test / tune / role numbers sit side by side. */
+export function summaryTable(groups: { label: string; summary: Summary }[]): string {
+  const row = (label: string, f: (s: Summary) => string) => `| ${label} | ${groups.map((g) => f(g.summary)).join(" | ")} |`;
+  const stages = (s: Summary) => STAGES.filter((st) => s.misses_by_stage[st] > 0).map((st) => `${st} ${s.misses_by_stage[st]}`);
   return [
-    "| Metric | Value |", "|---|---|",
-    `| Clips | ${s.clips} |`,
-    `| Compared (our engine ran) | ${s.compared} |`,
-    `| No known song (brief comparison only) | ${s.without_truth} |`,
-    `| Hit rate | ${s.hits}/${s.compared} (${pct(s.hit_rate)}) |`,
-    `| Artist-hit rate | ${s.artist_hits}/${s.compared} (${pct(s.artist_hit_rate)}) |`,
-    `| Misses | ${s.misses} |`,
-    `| Median section error | ${s.median_section_error_seconds == null ? "-" : `${s.median_section_error_seconds.toFixed(1)} s`} |`,
-    `| Median rank on hits | ${s.median_hit_rank ?? "-"} |`,
-    `| Misses by stage | ${stages.length ? stages.join(", ") : "-"} |`,
-    `| Clips with errors | ${s.errors} |`,
+    `| Metric | ${groups.map((g) => g.label).join(" | ")} |`, `|---|${groups.map(() => "---").join("|")}|`,
+    row("Clips", (s) => String(s.clips)),
+    row("Compared (our engine ran)", (s) => String(s.compared)),
+    row("No known song (brief comparison only)", (s) => String(s.without_truth)),
+    row("Hit rate", (s) => `${s.hits}/${s.compared} (${pct(s.hit_rate)})`),
+    row("Artist-hit rate", (s) => `${s.artist_hits}/${s.compared} (${pct(s.artist_hit_rate)})`),
+    row("Misses", (s) => String(s.misses)),
+    row("Median section error", (s) => (s.median_section_error_seconds == null ? "-" : `${s.median_section_error_seconds.toFixed(1)} s`)),
+    row("Median rank on hits", (s) => String(s.median_hit_rank ?? "-")),
+    row("Misses by stage", (s) => (stages(s).length ? stages(s).join(", ") : "-")),
+    row("Judge prefers ours / real / tie", (s) => `${s.judge.ours} / ${s.judge.real} / ${s.judge.tie}`),
+    row("Dylan rated good", (s) => `${s.rated.good} of ${s.rated.picks} picks on ${s.rated.clips} clip${s.rated.clips === 1 ? "" : "s"}`),
+    row("Clips with errors", (s) => String(s.errors)),
   ].join("\n");
 }
 
@@ -101,7 +139,10 @@ function clipSection(c: ClipReport): string[] {
   if (c.truth) p(`- real song: **${c.truth.song} — ${c.truth.artist}**, starts at ${mmss(c.truth.start_seconds)} (${c.truth.start_seconds} s)`);
   else p("- real song: unknown (no song in clips.csv), brief comparison only");
   if (c.notes) p(`- notes: ${c.notes}`);
+  p(`- split: ${c.split ?? "unassigned"} · ${roleLine(c)}`);
   p(`- verdict: ${c.truth ? verdictLine(c.verdict, c.truth) : "no hit verdict without a known song"}`);
+  if (c.judge) p(`- judge: prefers ${c.judge.winner} (${c.judge.confidence}): ${c.judge.reason}`);
+  if (c.rating) p(`- Dylan rated ${c.rating.picks.filter((x) => x.rating === "good").length} of ${c.rating.picks.length} good`);
   for (const e of c.errors) p(`- error: ${e}`);
   if (c.ours) {
     p(); p(`### Our top 5 (of ${c.ours.finals.length}; ${c.ours.candidates.length} candidates, ${c.ours.candidates.filter((x) => x.verified).length} verified, ${c.ours.generate_calls} generate calls)`); p();
@@ -142,11 +183,27 @@ function clipSection(c: ClipReport): string[] {
 
 export function buildReport(meta: RunMeta, clips: ClipReport[]): { json: ReportJson; markdown: string } {
   const summary = summarize(clips);
+  const group = (label: string, keep: (c: ClipReport) => boolean) => ({ label, summary: summarize(clips.filter(keep)) });
+  const test = (c: ClipReport) => c.split === "test";
+  const headline = [
+    group("Test", test),
+    group(`Test · ${ROLE_LABEL.carries}`, (c) => test(c) && musicRole(c) === "carries"),
+    group(`Test · ${ROLE_LABEL.bed}`, (c) => test(c) && musicRole(c) === "bed"),
+  ];
+  const full = [
+    { label: "All", summary },
+    group("Test", test),
+    group("Tune", (c) => c.split === "tune"),
+    group("Song carries the edit", (c) => musicRole(c) === "carries"),
+    group("Quiet bed under speech", (c) => musicRole(c) === "bed"),
+  ];
+  const by = Object.fromEntries([...headline, ...full.slice(1)].map((g) => [g.label.toLowerCase(), g.summary]));
   const lines = [
     `# Ground-truth eval ${meta.date} — ${meta.tag}`, "",
     `Our engine (muted clips) vs the real song, with Gemini (prompt ${meta.gemini_prompt_version}, pasted from the app) as a second watcher. Nothing here is persisted.`, "",
-    summaryTable(summary), "",
+    "## Headline (held-out test clips)", "", summaryTable(headline), "",
+    "## All clips", "", summaryTable(full), "",
     ...clips.flatMap(clipSection),
   ];
-  return { json: { ...meta, summary, clips }, markdown: lines.join("\n") };
+  return { json: { ...meta, summary, by, clips }, markdown: lines.join("\n") };
 }

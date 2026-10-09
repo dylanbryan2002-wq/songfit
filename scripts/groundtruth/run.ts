@@ -54,7 +54,8 @@ async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs)
   const report: ClipReport = {
     id: clip.id, file: clip.file, link: clip.link, niche: clip.niche, notes: clip.notes,
     truth: clip.song && clip.artist ? { song: clip.song, artist: clip.artist, start_seconds: clip.start_seconds } : null,
-    duration_seconds: null, verdict: null, ours: null, gemini: null, brief_diff: null, errors: [],
+    split: clip.split ?? null,
+    duration_seconds: null, verdict: null, ours: null, gemini: null, brief_diff: null, judge: null, rating: null, errors: [],
   };
   const fail = (stage: string, err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -96,6 +97,11 @@ async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs)
     if (report.truth) report.verdict = compareClip(report.truth, report.ours);
     if (report.gemini) report.brief_diff = briefDiff(report.ours, report.gemini.parsed);
   }
+  // Written by judge.ts and rating-apply.ts for this tag; absent until those have run.
+  const judgeFile = path.join(work, `judge.${tag}.json`);
+  if (await exists(judgeFile)) report.judge = await readJson(judgeFile);
+  const ratingFile = path.join(work, `rating.${tag}.json`);
+  if (await exists(ratingFile)) report.rating = await readJson(ratingFile);
   return report;
 }
 
@@ -123,7 +129,7 @@ async function main() {
   const base = path.join(root, "reports", `${date}-${tag}`);
   await fs.writeFile(`${base}.md`, markdown);
   await fs.writeFile(`${base}.json`, JSON.stringify(json, null, 2));
-  console.log(`\n${summaryTable(json.summary)}\n\nwrote ${base}.md and .json`);
+  console.log(`\n${summaryTable([{ label: "All", summary: json.summary }, { label: "Test", summary: json.by["test"]! }])}\n\nwrote ${base}.md and .json`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
