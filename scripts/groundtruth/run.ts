@@ -74,13 +74,16 @@ async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs)
   if (!args["skip-ours"]) {
     const file = path.join(work, `ours.${tag}.json`);
     try {
-      if (!args.force && (await exists(file))) { console.log("  ours: cached"); report.ours = await readJson<OursResult>(file); }
+      const prior = !args.force && (await exists(file)) ? await readJson<OursResult>(file) : null;
+      // A cached run whose recommend stage failed (truncated call, network drop) is retried, not reused.
+      if (prior && !prior.recommend_error) { console.log("  ours: cached"); report.ours = prior; }
       else {
         const t0 = Date.now();
         report.ours = await ours(muted, duration, LIMITS.pipelineBudgetMs);
         await fs.writeFile(file, JSON.stringify(report.ours, null, 2));
         console.log(`  ours: done in ${Math.round((Date.now() - t0) / 1000)} s`);
       }
+      if (report.ours?.recommend_error) report.errors.push(`recommend: ${report.ours.recommend_error}`);
     } catch (err) { fail("ours", err); }
   }
   if (!args["skip-gemini"]) {
