@@ -5,6 +5,15 @@ const TRACED_BINARIES = [
   "./node_modules/.pnpm/ffprobe-static*/node_modules/ffprobe-static/bin/linux/x64/ffprobe",
 ];
 
+/** Sent on every response. No Content-Security-Policy yet: Next's inline scripts and the Deezer CDN need a tested allow-list first. */
+const SECURITY_HEADERS = [
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+
 const nextConfig: NextConfig = {
   // ffmpeg-static / ffprobe-static ship native binaries; they must not be bundled.
   // Task 4.7 edits this file and MUST keep this line.
@@ -14,6 +23,9 @@ const nextConfig: NextConfig = {
     "/api/submissions/**": TRACED_BINARIES,
     "/admin/**": TRACED_BINARIES,
     "/api/health": TRACED_BINARIES,
+  },
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
   images: {
     remotePatterns: [
