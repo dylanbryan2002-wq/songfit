@@ -30,7 +30,7 @@ radius and mixed greys on everything; a gradient JPEG logo.
 
 ## The design we intend to build
 
-A music supervisor's cue sheet. Left-aligned, one display face, mono for timestamps, one accent used once.
+A music supervisor's cue sheet. Left-aligned, one display face, mono for timestamps, no colour.
 
 **Copy (decided):**
 - H1 stays: "We find the perfect song to help your video go viral." (Dylan's line; the research argued
@@ -49,14 +49,14 @@ with `next/font/google` (self-hosted, Latin subset, preload Bricolage only). Rem
 Sizes at 390 px: H1 44/0.95 tracking -0.02em; mono 15; subline 16/1.45 `text-muted` max 32ch; caption
 12. At ≥1024: H1 88/0.92.
 
-**Colour:** ink on canvas. One accent, cue orange `#FF5B1F`, used only as the 3 px rule under the
-timestamp in the demo caption. Never on text, buttons or backgrounds. `steel-gradient`/`steel-text`
+**Colour:** ink on canvas only. No accent colour anywhere (Dylan's ruling: no purple, no orange). The
+timestamp in the demo caption is underlined with a plain ink hairline. `steel-gradient`/`steel-text`
 leave the landing page.
 
 **Layout, 390 px:** 20 px gutter, all left-aligned, ragged right. Logo top-left at h-6, nothing on the
 right. H1, mono line, subline. Demo full-bleed (100vw), **4:5** crop, square corners, no ring/shadow/
 bezel, play/pause control square (h-11 w-11, `bg-ink/70`). Caption below with a hairline rule above
-(`border-t border-ink/15`). CTA sticky to the bottom (`bottom: calc(env(safe-area-inset-bottom) + 12px)`),
+(`border-t border-ink/15`); the timestamp underlined in ink. CTA sticky to the bottom (`bottom: calc(env(safe-area-inset-bottom) + 12px)`),
 full width inside the gutter, `bg-ink`, h-14, `rounded-md` (6 px), 16 px semibold. Footer one left-aligned
 12 px line: `Songfit · Privacy · Song previews by Deezer` (Privacy ≥44 px tap height).
 **Cut from the research proposal:** the three numbered "how it works" rows. Any three-step list reads
@@ -90,7 +90,7 @@ JPEG at h-6.
 
 Nothing centred except the button label · no gradients, glows, glass, blur, shadows · no cards, bento or
 icon grids · no emoji, Lucide icons, "AI-powered", eyebrow pills · exactly 2 web fonts + system; no
-Inter, Space Grotesk, Instrument Serif · one accent, one use · one radius (6 px, button only); media has
+Inter, Space Grotesk, Instrument Serif · no accent colour · one radius (6 px, button only); media has
 square corners · no device frame, no stock imagery · no scores/model names/jargon · copy is specific
 ("15 songs", "exact seconds"); no "seamless", "unlock", "elevate" · checked at 390 px in Safari and the
 Instagram in-app browser; the sticky CTA clears the home indicator.
@@ -104,7 +104,7 @@ Risks: font loading/CLS (mitigated by `next/font` fallback metrics); the demo vi
 ## Questions for Codex
 
 1. Does the design brief itself contain any remaining "generated" tells, including the mono timecode
-   caption and the single orange rule? Would you cut or change anything?
+   caption? Would you cut or change anything?
 2. Is a full-bleed 4:5 autoplaying clip as the LCP on a 390 px phone the right call for load time inside
    the Instagram in-app browser, or should the first paint be the poster with the video swapped in after
    `canplaythrough`? Say which, with the numbers you'd expect.
