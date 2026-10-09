@@ -26,7 +26,7 @@ export const LIMITS = {
   dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
   dailyUploadsAnonymous: 3, // same cap before Google sign-in (anonymous session)
   globalDailySubmissions: 150, // site-wide spend ceiling per rolling 24 h
-  // The three caps above are enforced inside create_submission() (supabase/migrations/0010_hardening.sql);
+  // The three caps above are enforced inside create_submission() (supabase/migrations/0011_usage_ledger.sql);
   // tests/shared/limitsMatchMigration.test.ts keeps the SQL literals equal to these.
 } as const;
 

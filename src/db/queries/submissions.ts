@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../client";
 import type { Database } from "../types";
 import type { SubmissionStatus } from "@/src/shared/types";
@@ -175,9 +176,14 @@ export async function countInFlightSubmissions(creatorId: string, staleMinutes: 
   return count ?? 0;
 }
 
+/**
+ * Submissions this creator created since `sinceIso`, counted from the append-only `usage` ledger (0011)
+ * like create_submission() does, so a deleted video still counts against the 24 h cap.
+ */
 export async function countSubmissionsSince(creatorId: string, sinceIso: string): Promise<number> {
-  const { count, error } = await createServiceClient()
-    .from("submissions")
+  // `usage` is not in the generated types until `pnpm db:types` runs after 0011; drop the cast then.
+  const { count, error } = await (createServiceClient() as unknown as SupabaseClient)
+    .from("usage")
     .select("id", { count: "exact", head: true })
     .eq("creator_id", creatorId)
     .gte("created_at", sinceIso);
