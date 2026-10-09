@@ -1,4 +1,4 @@
-import { VIBE_MAX_TAGS, VIBE_TAGS } from "@/src/shared/vibe";
+import { STORYTELLING_TAGS, VIBE_MAX_TAGS, VIBE_TAGS } from "@/src/shared/vibe";
 
 /**
  * Toggles one chip, keeping display order. When 3 are already picked, tapping another returns the
@@ -8,6 +8,16 @@ export function toggleVibeTag(tags: string[], tag: string): string[] {
   if (tags.includes(tag)) return tags.filter((t) => t !== tag);
   if (tags.length >= VIBE_MAX_TAGS) return tags;
   return VIBE_TAGS.filter((t) => t === tag || tags.includes(t));
+}
+
+/** The Storytelling chip shows selected while any of its sub-chips is picked. */
+export function storytellingOn(tags: string[]): boolean {
+  return tags.some((t) => (STORYTELLING_TAGS as readonly string[]).includes(t));
+}
+
+/** Sub-chips stay revealed while one is picked; otherwise a tap on the parent opens or collapses them. */
+export function storytellingOpenAfterTap(open: boolean, tags: string[]): boolean {
+  return storytellingOn(tags) || !open;
 }
 
 /** Results echo under the video, e.g. "For your Funny · Educational video"; null without tags. */

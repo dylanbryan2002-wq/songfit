@@ -1,14 +1,14 @@
 import { z } from "zod";
 
-/** "How should it feel?" chips in display order, in groups separated by spacing only. Stored verbatim.
+/** Stored "How should it feel?" tags, in display order. Stored verbatim. The UI shows the three
+ *  Storytelling tags as sub-chips under one "Storytelling" chip; that chip is never a tag.
  *  "Day in the Life" and "Travel" were removed 2026-10-08; rows written earlier keep them. */
-export const VIBE_GROUPS = [
-  ["Funny", "Emotional", "Motivational", "Energetic", "Romantic", "Deep", "Nostalgic"],
-  ["Educational", "Challenge"],
-  ["Positive Storytelling", "Emotional Storytelling", "Sad Storytelling"],
+export const STORYTELLING_TAGS = ["Positive Storytelling", "Emotional Storytelling", "Sad Storytelling"] as const;
+export const VIBE_TAGS = [
+  "Funny", "Emotional", "Motivational", "Energetic", "Romantic", "Deep", "Nostalgic", "Educational", "Challenge",
+  ...STORYTELLING_TAGS,
 ] as const;
-export const VIBE_TAGS = VIBE_GROUPS.flat();
-export type VibeTag = (typeof VIBE_GROUPS)[number][number];
+export type VibeTag = (typeof VIBE_TAGS)[number];
 
 export const VIBE_MAX_TAGS = 3;
 /** The "Anything else?" note, stored in submissions.creator_intent. */

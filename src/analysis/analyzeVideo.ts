@@ -8,7 +8,7 @@ import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
-export const PROMPT_VERSION = "analyze-v4";
+export const PROMPT_VERSION = "analyze-v5";
 
 export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
 const momentTypeSet = new Set<string>(MOMENT_TYPES);
@@ -93,7 +93,6 @@ const TAG_HINTS: { tags: string[]; line: string }[] = [
   { tags: ["Funny"], line: "- Funny: the song is part of the joke: a title or hook that says the punchline, or a knowing contrast; never neutral background." },
   { tags: ["Educational"], line: "- Educational: sits under speech; instrumental or sparse vocals." },
   { tags: ["Challenge"], line: "- Challenge: tension that pays off on the attempt or result." },
-  { tags: ["Day in the Life"], line: "- Day in the Life: warm, rolling, carries many small scenes." },
   {
     tags: ["Emotional Storytelling", "Sad Storytelling", "Positive Storytelling"],
     line: "- Emotional / Sad / Positive Storytelling: follow the arc; the lift lands where the story turns.",

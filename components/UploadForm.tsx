@@ -266,21 +266,19 @@ export function UploadForm({
 
       <VibePicker tags={vibeTags} onChange={setVibeTags} onSomethingElse={onSomethingElse} disabled={busy} />
 
-      <label className="flex flex-col gap-1">
-        <span className="text-sm font-semibold text-ink">Anything else?</span>
-        <input
-          ref={noteInput}
-          type="text"
-          value={intent}
-          onChange={(e) => setIntent(e.target.value)}
-          maxLength={VIBE_NOTE_MAX}
-          placeholder="e.g. the song is the punchline"
-          className={`min-h-11 w-full rounded-2xl border bg-white px-4 py-3 text-base transition-shadow ${
-            noteFlash ? "border-ink ring-2 ring-ink/20" : "border-gray-200"
-          }`}
-          disabled={busy}
-        />
-      </label>
+      <input
+        ref={noteInput}
+        type="text"
+        aria-label="Anything else?"
+        value={intent}
+        onChange={(e) => setIntent(e.target.value)}
+        maxLength={VIBE_NOTE_MAX}
+        placeholder="Anything else? e.g. the song is the punchline"
+        className={`h-12 w-full rounded-2xl bg-ink/5 px-4 text-base text-ink placeholder:text-muted outline-none transition-shadow ${
+          noteFlash ? "ring-2 ring-ink/30" : "focus:ring-2 focus:ring-ink/15"
+        }`}
+        disabled={busy}
+      />
 
       {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step. */}
       <div className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 bg-canvas px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
