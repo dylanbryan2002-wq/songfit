@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { forwardRef, useCallback, useState } from "react";
 
 export type VideoOverlay = { title: string; artist: string; loading: boolean };
@@ -38,6 +39,16 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
         onPlaying={() => setReady(true)}
         className="h-full w-full object-cover"
       />
+      <Link
+        href="/"
+        aria-label="Upload a different video"
+        className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+        style={{ top: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
+      >
+        <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+        </svg>
+      </Link>
       {!ready && (
         <div aria-hidden className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-ink">
           <span className="text-2xl font-semibold tracking-tight text-white/40">Songfit</span>
