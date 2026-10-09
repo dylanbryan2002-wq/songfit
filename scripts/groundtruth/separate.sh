@@ -24,7 +24,7 @@ echo "$ids" | while IFS=$'\t' read -r id file; do
   work="$ROOT/work/$id"; mkdir -p "$work"
   if [[ -f "$work/no_vocals.wav" ]]; then echo "$id: already separated"; continue; fi
   "$FFMPEG" -nostdin -v error -y -i "$ROOT/videos/$file" -vn -ac 2 -ar 44100 "$work/audio.wav"
-  "$VENV/bin/demucs" --two-stems=vocals -n htdemucs -d cpu -o "$work/sep" "$work/audio.wav" </dev/null >/dev/null 2>&1
+  "$VENV/bin/demucs" --two-stems=vocals -n htdemucs -d cpu -o "$work/sep" "$work/audio.wav" </dev/null >"$work/demucs.log" 2>&1 || { echo "$id: demucs failed, see $work/demucs.log"; continue; }
   mv "$work/sep/htdemucs/audio/no_vocals.wav" "$work/no_vocals.wav"
   rm -rf "$work/sep" "$work/audio.wav"
   echo "$id: done"
