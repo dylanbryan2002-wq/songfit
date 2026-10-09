@@ -63,7 +63,16 @@ describe("/account", () => {
     expect(t).toContain("Show more");
     expect(t).toContain("Your account details, uploaded videos, the analysis of them, song results and activity.");
     expect(html).toContain('href="/privacy"');
-    expect(t).toContain("To delete your account, email dylanbryan2002@gmail.com.");
+    expect(t).not.toContain("To delete your account, email");
+    expect(t).toContain("Delete my account");
+    // Each row: a link to its results and, outside it, a Delete button.
+    const rows = html.match(/<li[\s\S]*?<\/li>/g) ?? [];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const link = row.match(/<a [\s\S]*?<\/a>/)![0];
+      expect(link).not.toContain("<button");
+      expect(row.replace(link, "")).toMatch(/<button[^>]*>Delete<\/button>/);
+    }
     expect(t).toContain("Signed in as maya@example.com");
     expect(t).toContain("Sign out");
     expect(logEvent).toHaveBeenCalledWith({ name: "account_viewed", creatorId: "c1" });

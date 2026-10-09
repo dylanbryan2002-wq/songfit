@@ -3,11 +3,12 @@ import { redirect } from "next/navigation";
 import { getViewer } from "@/src/auth/session";
 import { listAccountRuns, parseRunCursor, type AccountRun } from "@/src/db/queries/account";
 import { logEvent } from "@/src/feedback/events";
-import { CONTACT_EMAIL } from "@/src/shared/config";
 import { ResultsHeader } from "@/components/ResultsHeader";
 import { SignOutButton } from "@/components/SignOutButton";
 import { VideoIcon } from "@/components/landing/FileCard";
 import { runDate, runLine } from "@/components/accountCopy";
+import { DeleteAccount } from "@/components/account/DeleteAccount";
+import { DeleteVideoButton } from "@/components/account/DeleteVideoButton";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "My Songfits · Songfit" };
@@ -38,8 +39,10 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       ) : (
         <ul className="flex flex-col gap-2">
           {runs.map((run) => (
-            <li key={run.id}>
+            <li key={run.id} className="flex flex-wrap items-center justify-end gap-x-2">
               <RunRow run={run} now={now} />
+              {/* Outside the row link: a tap on Delete never opens the results. */}
+              <DeleteVideoButton submissionId={run.id} label="Delete" after="refresh" />
             </li>
           ))}
         </ul>
@@ -61,12 +64,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             Privacy
           </a>
         </p>
-        <p>To delete your account, email {CONTACT_EMAIL}.</p>
         <p className="flex flex-wrap items-center gap-1">
           Signed in as {viewer.email}
           <span aria-hidden>·</span>
           <SignOutButton className="!min-h-8 !px-1 text-xs" />
         </p>
+        <DeleteAccount />
       </section>
     </main>
   );
@@ -75,7 +78,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
 function RunRow({ run, now }: { run: AccountRun; now: Date }) {
   const artwork = run.status === "ready" ? (run.chosen?.artwork_url ?? null) : null;
   return (
-    <Link href={`/results/${run.id}`} className="flex min-h-16 items-center gap-3 rounded-2xl bg-white p-2 ring-1 ring-inset ring-ink/10 active:scale-[0.99]">
+    <Link href={`/results/${run.id}`} className="flex min-h-16 min-w-0 flex-1 basis-64 items-center gap-3 rounded-2xl bg-white p-2 ring-1 ring-inset ring-ink/10 active:scale-[0.99]">
       {artwork ? (
         // Plain img: artwork hosts vary and a 56px square needs no optimisation.
         // eslint-disable-next-line @next/next/no-img-element

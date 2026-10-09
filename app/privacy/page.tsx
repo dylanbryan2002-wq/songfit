@@ -74,7 +74,7 @@ export default function PrivacyPage() {
           <p className="mt-2">
             We keep your videos and results until you ask us to delete them, so you can come back to them. There is no
             automatic expiry yet. Email {CONTACT} and we will delete your videos, your results, and your account
-            within a few days.
+            within a few days. Or delete them yourself on My Songfits.
           </p>
         </div>
 

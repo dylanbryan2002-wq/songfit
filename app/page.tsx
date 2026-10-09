@@ -10,7 +10,7 @@ import { ResumeUpload } from "@/components/landing/ResumeUpload";
 
 export const dynamic = "force-dynamic";
 
-type Search = { resume?: string | string[]; auth?: string | string[] };
+type Search = { resume?: string | string[]; auth?: string | string[]; deleted?: string | string[] };
 
 /** The viewer's allowance under the 24 h cap; null (hidden) when there is no session or the count fails. */
 async function allowance(viewer: Viewer | null): Promise<number | null> {
@@ -32,8 +32,14 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   return (
     // Phone: one left-aligned column, 20 px gutter. ≥1024: 12-col grid, 40 px gutters (see AREA).
     <main className="mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col gap-8 px-5 pt-6 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_auto_auto_auto_auto_1fr] lg:gap-x-10 lg:gap-y-0 lg:px-10 lg:pt-8">
-      <div className="flex justify-center lg:col-span-6 lg:row-start-1 lg:justify-start">
+      <div className="flex flex-col items-center gap-3 lg:col-span-6 lg:row-start-1 lg:items-start">
         <Logo size="xs" />
+        {/* After DELETE /api/account: the session is already gone. */}
+        {!creator && params.deleted === "1" && (
+          <p role="status" className="text-sm font-semibold text-ink">
+            Your account is gone.
+          </p>
+        )}
       </div>
       {/* The form components draw the headline, the clip and the button for their own state. */}
       {!creator ? (
