@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
 import { logger } from "../shared/logger";
+import { childEnv, INPUT_PROTOCOLS } from "./extractHelpers";
 
 const MAX_TRANSCODE_MS = 60_000;
 const MODEL_RESERVE_MS = 120_000;
@@ -12,6 +13,7 @@ export function transcodeArgs(input: string, output: string): string[] {
   return [
     "-y",
     "-hide_banner", "-loglevel", "error",
+    ...INPUT_PROTOCOLS,
     "-i", input,
     "-c:a", "aac", "-b:a", "96k", "-ac", "1",
     "-vf", "scale='min(540,iw)':-2",
@@ -50,7 +52,7 @@ export async function transcodeForPlayback(
       execFile(
         ffmpegPath as string,
         transcodeArgs(videoPath, out),
-        { timeout: budget, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 },
+        { timeout: budget, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024, env: childEnv() },
         (err, _stdout, stderr) => {
           if (!err) return resolve();
           const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };

@@ -13,6 +13,7 @@ describe("transcodeArgs", () => {
   it("is the exact H.264 playback argv", () => {
     expect(transcodeArgs("/in/video.mov", "/out/playback.mp4")).toEqual([
       "-y", "-hide_banner", "-loglevel", "error",
+      "-protocol_whitelist", "file,pipe",
       "-i", "/in/video.mov",
       "-c:a", "aac", "-b:a", "96k", "-ac", "1",
       "-vf", "scale='min(540,iw)':-2",

@@ -7,7 +7,16 @@ import ffprobeStatic from "ffprobe-static";
 import { LIMITS } from "../shared/config";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
-import { pickFps, frameTimestamps, timeoutFor } from "./extractHelpers";
+import {
+  audioArgs,
+  audioStreamsArgs,
+  childEnv,
+  frameTimestamps,
+  framesArgs,
+  pickFps,
+  probeDurationArgs,
+  timeoutFor,
+} from "./extractHelpers";
 
 const TIMEOUTS = { probe: 20_000, frames: 90_000, audio: 60_000 } as const;
 
@@ -28,7 +37,7 @@ function run(file: string, args: string[], step: string, timeoutMs: number): Pro
     execFile(
       file,
       args,
-      { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 },
+      { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024, env: childEnv() },
       (err, stdout, stderr) => {
         if (!err) return resolve({ stdout: String(stdout) });
         const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
@@ -44,7 +53,7 @@ function run(file: string, args: string[], step: string, timeoutMs: number): Pro
 async function probeDuration(ffprobe: string, input: string, deadlineAt?: number): Promise<number> {
   const { stdout } = await run(
     ffprobe,
-    ["-v", "error", "-show_entries", "format=duration", "-of", "json", input],
+    probeDurationArgs(input),
     "ffprobe duration",
     timeoutFor(TIMEOUTS.probe, deadlineAt),
   );
@@ -57,7 +66,7 @@ async function probeDuration(ffprobe: string, input: string, deadlineAt?: number
 async function hasAudioStream(ffprobe: string, input: string, deadlineAt?: number): Promise<boolean> {
   const { stdout } = await run(
     ffprobe,
-    ["-v", "error", "-select_streams", "a", "-show_streams", "-of", "json", input],
+    audioStreamsArgs(input),
     "ffprobe streams",
     timeoutFor(TIMEOUTS.probe, deadlineAt),
   );
@@ -88,14 +97,7 @@ export async function extractMedia(
     const framePattern = path.join(dir, "frame_%03d.jpg");
     await run(
       ffmpeg,
-      [
-        "-hide_banner", "-loglevel", "error",
-        "-i", videoPath,
-        "-frames:v", String(LIMITS.maxFrames),
-        "-vf", `fps=${fps},scale=${LIMITS.frameWidth}:-2`,
-        "-q:v", "4",
-        framePattern,
-      ],
+      framesArgs(videoPath, fps, LIMITS.maxFrames, LIMITS.frameWidth, framePattern),
       "ffmpeg frames",
       timeoutFor(TIMEOUTS.frames, deadlineAt),
     );
@@ -109,12 +111,7 @@ export async function extractMedia(
       audioPath = path.join(dir, "audio.wav");
       await run(
         ffmpeg,
-        [
-          "-hide_banner", "-loglevel", "error",
-          "-i", videoPath,
-          "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
-          audioPath,
-        ],
+        audioArgs(videoPath, audioPath),
         "ffmpeg audio",
         timeoutFor(TIMEOUTS.audio, deadlineAt),
       );
