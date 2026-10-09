@@ -7,7 +7,7 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dimensions";
 
-export const PROMPT_VERSION = "scoring-v3";
+export const PROMPT_VERSION = "scoring-v4";
 // Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
 // ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
 // scoring-v3 (2026-10-08): its conditional rules raised a 20-item chunk to 3.9k–4.4k and truncated at 4400.
@@ -25,17 +25,42 @@ const DIMENSION_DEFINITIONS: Record<ModelDimension, string> = {
   semantic: "Does the song make sense for what is literally happening in the video (subject, setting, story)?",
   emotional: "Does the emotional character of this section match or productively contrast the video's feel and the creator's intent?",
   aesthetic: "Does the sound match the visual world (luxury vs raw, modern vs retro, polished vs lo-fi)?",
-  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment? If the video is under 10 s and the anchor is more than 3 s after the section start, the creator never hears the moment: score ≤ 0.3.",
+  pacing: "Do the energy and rhythm of this section fit the edit's pace and cuts, and does its musical moment land near the key moment? If the video is under 10 s and the anchor is more than 5 s after the section start, the creator never hears the moment: score ≤ 0.3.",
   cultural: "Would this creator realistically use this song on Instagram or TikTok right now, given their niche and audience? Songs whose social moment peaked in 2020–2023 read dated: ≤ 0.5 unless the brief asks for nostalgia.",
-  originality: "Is it good without being painfully obvious or exhausted? Score ≤ 0.3 if this song is a stock TikTok/Reels choice for this kind of joke or mood (e.g. Sweater Weather, Dreams, golden hour, Mad World, Careless Whisper, Eye of the Tiger, Sailor Song) — a creator would roll their eyes.",
+  originality: "Is it good without being painfully obvious or exhausted?",
 };
+
+// scoring-v4 (docs/review/19, round 1): the rules below depend on the video, so they are appended only when they apply.
+// Someone talking over the music: a stock Reels choice is a miss.
+export const STOCK_CHOICE_RULE =
+  "Score ≤ 0.3 if this song is a stock TikTok/Reels choice for this kind of joke or mood (e.g. Sweater Weather, Dreams, golden hour, Mad World, Careless Whisper, Eye of the Tiger, Sailor Song) — a creator would roll their eyes.";
+// No dialogue: the song carries the edit, and creators pick the heavily used song on purpose (Law & Order, Stereo Love, Sailor Song).
+export const SONG_CARRIES_EDIT_RULE =
+  "No one is talking, so the song carries the edit: do NOT lower this score because the song is widely used on Reels or TikTok; heavy use is neutral to positive here.";
+// Under 15 s the edit usually cuts on the hook; round 1 scored a drop at 4.5 s as "Hook 5s in; missed".
+export const SHORT_VIDEO_PACING_RULE =
+  "This video is under 15 s: a hook, drop or vocal entry inside the first 5 s of the section is a PLUS (it lands on the cut), never a miss.";
+const SHORT_VIDEO_SECONDS = 15;
+
+function dimensionDefinitions(analysis: VideoAnalysis): Record<ModelDimension, string> {
+  const defs = { ...DIMENSION_DEFINITIONS };
+  if (analysis.dialogue_present) {
+    defs.originality += ` ${STOCK_CHOICE_RULE}`;
+  } else {
+    defs.cultural += ` ${SONG_CARRIES_EDIT_RULE}`;
+    defs.originality += ` ${SONG_CARRIES_EDIT_RULE}`;
+  }
+  if (analysis.duration_seconds != null && analysis.duration_seconds < SHORT_VIDEO_SECONDS) defs.pacing += ` ${SHORT_VIDEO_PACING_RULE}`;
+  return defs;
+}
 
 const Item = z.object({ index: z.number().int().min(0) }).and(
   z.object(Object.fromEntries(MODEL_DIMENSIONS.map((d) => [d, ComponentScore])) as Record<ModelDimension, typeof ComponentScore>),
 );
 
 export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, cands: VerifiedCandidate[]): string {
-  const defs = MODEL_DIMENSIONS.map((d) => `- ${d}: ${DIMENSION_DEFINITIONS[d]}`).join("\n");
+  const definitions = dimensionDefinitions(analysis);
+  const defs = MODEL_DIMENSIONS.map((d) => `- ${d}: ${definitions[d]}`).join("\n");
   const list = cands
     .map((c, i) => `${i}. "${c.canonical_title}" — ${c.canonical_artist} | section ${c.proposed_start}s–${c.proposed_end}s, anchor ${c.anchor_seconds}s | ${c.section_reason} | proposed because: ${c.fit_reason}`)
     .join("\n");

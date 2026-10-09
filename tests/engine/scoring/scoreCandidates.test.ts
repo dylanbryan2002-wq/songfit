@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { scoreCandidates } from "@/src/engine/scoring/scoreCandidates";
-import { modelScores, parseScores, buildScoringPrompt, PROMPT_VERSION } from "@/src/engine/scoring/modelScores";
+import {
+  modelScores, parseScores, buildScoringPrompt, PROMPT_VERSION,
+  STOCK_CHOICE_RULE, SONG_CARRIES_EDIT_RULE, SHORT_VIDEO_PACING_RULE,
+} from "@/src/engine/scoring/modelScores";
 import { DIMENSIONS, type VerifiedCandidate } from "@/src/shared/types";
 import { analysis, brief, ver } from "../fixtures";
 
@@ -52,9 +55,29 @@ describe("modelScores", () => {
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
-    expect(PROMPT_VERSION).toBe("scoring-v3");
+    expect(PROMPT_VERSION).toBe("scoring-v4");
   });
   it("states the video duration in the VIDEO block", () => {
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 4.5 }, brief, [vc("A", "1")])).toContain("Duration: 4.5s.");
+  });
+});
+
+describe("buildScoringPrompt (scoring-v4 conditional rules)", () => {
+  const cands = [vc("A", "1")];
+  const line = (p: string, dim: string) => p.split("\n").find((l) => l.startsWith(`- ${dim}:`))!;
+  it("tells cultural and originality not to penalise heavy use only when there is no dialogue", () => {
+    const quiet = buildScoringPrompt({ ...analysis, dialogue_present: false }, brief, cands);
+    expect(line(quiet, "cultural")).toContain(SONG_CARRIES_EDIT_RULE);
+    expect(line(quiet, "originality")).toContain(SONG_CARRIES_EDIT_RULE);
+    expect(quiet).not.toContain(STOCK_CHOICE_RULE);
+    const talky = buildScoringPrompt({ ...analysis, dialogue_present: true }, brief, cands);
+    expect(talky).not.toContain(SONG_CARRIES_EDIT_RULE);
+    expect(line(talky, "originality")).toContain(STOCK_CHOICE_RULE);
+  });
+  it("calls an early hook a plus only on videos under 15 s", () => {
+    expect(line(buildScoringPrompt({ ...analysis, duration_seconds: 9 }, brief, cands), "pacing")).toContain(SHORT_VIDEO_PACING_RULE);
+    expect(buildScoringPrompt({ ...analysis, duration_seconds: 15 }, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE);
+    expect(buildScoringPrompt({ ...analysis, duration_seconds: 42 }, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE);
+    expect(buildScoringPrompt(analysis, brief, cands)).not.toContain(SHORT_VIDEO_PACING_RULE); // duration unknown
   });
 });

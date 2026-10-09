@@ -18,7 +18,7 @@ export async function scoreCandidates(
     const component_scores: ComponentScores = {
       ...fromModel[i]!,
       dialogue: dialogueScore(analysis, c),
-      originality: lower(fromModel[i]!.originality, overuseScore(c)),
+      originality: lower(fromModel[i]!.originality, overuseScore(analysis, c)),
     };
     return { ...c, component_scores, total_score: combine(component_scores) };
   });

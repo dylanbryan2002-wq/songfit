@@ -29,10 +29,14 @@ describe("dialogueScore", () => {
 });
 
 describe("overuseScore", () => {
-  it("flags a known overused song regardless of formatting", () => {
-    expect(overuseScore({ title: "Oh No (Remastered)", artist: "Capone" }).score).toBe(0.4);
+  const talky: VideoAnalysis = { ...analysis, dialogue_present: true };
+  it("flags a known overused song regardless of formatting when someone is talking", () => {
+    expect(overuseScore(talky, { title: "Oh No (Remastered)", artist: "Capone" }).score).toBe(0.4);
+  });
+  it("does not penalise an overused song when the song carries the edit (no dialogue)", () => {
+    expect(overuseScore(analysis, { title: "Sailor Song", artist: "Gigi Perez" }).score).toBe(1);
   });
   it("passes everything else", () => {
-    expect(overuseScore({ title: "Obscure Tune", artist: "Nobody" }).score).toBe(1);
+    expect(overuseScore(talky, { title: "Obscure Tune", artist: "Nobody" }).score).toBe(1);
   });
 });
