@@ -398,3 +398,25 @@ Codex reviewed 788d9b7 (no live-engine activation found; judge inputs symmetric)
 Also: the summary reports a Wilson 95% interval for B's share of decided pairs and per-song offered frequency vs
 top-5 reach; `mm:ss` rounding fixed; prompt parity checked against the parent commit on 336 real prompts (0 diff).
 Replay after the fixes: 57 of 57 finished round-2 clips identical.
+
+## 12. Result on the tune split (2026-10-09): B does not pass; not shipped, test run skipped
+
+Paired judge, rank 1, round 2 (A) vs creator-list shortlist (B), 43 tune clips with a control:
+B wins 5, A wins 4, ties 34 (27 identical picks); net B +1, bar was net ≥ +5 (ceil 0.11 × 43). Sign test p = 1.0.
+Eligible clips only (27): same numbers. Hit rate A 1/43, B 0/43. Sameness unchanged (Every Living Breathing
+Moment in 15 of 43 top-5s in both). No failures, no judge errors.
+
+Funnel over 27 eligible clips: 189 songs offered → 35 proposed by the model in safe → 38 in the verified pool →
+16 in a top 15 → 8 in a top 5. The model declined about 4 in 5 offers ("include the ones that genuinely fit"), and
+the ones it kept mostly lost on pacing. B's wins were mostly reshuffles to non-list songs (Awake, Near Light, Your
+Hand in Mine), not list songs. Decision per §9: B reverted (never merged); the held-out test run is skipped since
+the tune bar was missed (saves ≈ $10). C was not computed: with 8 list songs in any top 5, a prior on them has
+little to move. The data file and harness stay on branch `creator-lists` for later use as a catalog seed.
+
+Side findings:
+- Round 2 vs round 1, same 63 identified clips: hits 1 vs 1. The real song was generated in 5 clips under round 2
+  vs 2 under round 1, then lost at scoring or diversify.
+- **Round 2 introduced a sameness regression**: Every Living Breathing Moment (Grant Steller) is in the top 5 of 22
+  of 63 clips (round 1: saman 15). candidates-v6 names it as an example of a quiet bed; the model now proposes it
+  everywhere. Fix: remove song titles from that sentence (needs Dylan's go).
+- Judge v1 (real song vs ours) on round 2: prefers ours 18/9 (batch 1) and 34/2 (batch 2). Still not credible.
