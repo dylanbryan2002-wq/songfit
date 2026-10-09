@@ -1,8 +1,6 @@
 import "server-only";
 import { createServiceClient } from "../client";
-import { countSubmissionsSince } from "./submissions";
 import { isUuid } from "@/src/shared/ids";
-import { LIMITS } from "@/src/shared/config";
 
 export const RUNS_PER_PAGE = 20;
 
@@ -64,11 +62,4 @@ export async function listAccountRuns(
   }));
   const last = runs[runs.length - 1];
   return { runs, next: rows.length > RUNS_PER_PAGE && last ? runCursor(last) : null };
-}
-
-/** Uploads left under the rolling 24 h cap that create_submission() enforces (same count, same caps). */
-export async function uploadsLeft(creatorId: string, anonymous: boolean): Promise<number> {
-  const cap = anonymous ? LIMITS.dailyUploadsAnonymous : LIMITS.dailyUploadsPerCreator;
-  const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-  return Math.max(0, cap - (await countSubmissionsSince(creatorId, since)));
 }

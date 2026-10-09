@@ -3,30 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 let rows: unknown[] = [];
-let count = 0;
 let ops: [string, ...unknown[]][] = [];
 
 function chain() {
   const q: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "or", "order", "limit", "gte"]) {
+  for (const m of ["select", "eq", "or", "order", "limit"]) {
     q[m] = (...a: unknown[]) => {
       ops.push([m, ...a]);
       return q;
     };
   }
-  q.then = (res: (v: unknown) => unknown) => res({ data: rows, count, error: null });
+  q.then = (res: (v: unknown) => unknown) => res({ data: rows, error: null });
   return q;
 }
 vi.mock("@/src/db/client", () => ({ createServiceClient: () => ({ from: chain }) }));
 
-const { listAccountRuns, parseRunCursor, runCursor, uploadsLeft, RUNS_PER_PAGE } = await import("@/src/db/queries/account");
+const { listAccountRuns, parseRunCursor, runCursor, RUNS_PER_PAGE } = await import("@/src/db/queries/account");
 
 const ID = "3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b";
 const TS = "2026-10-09T12:34:56.123456+00:00";
 
 beforeEach(() => {
   rows = [];
-  count = 0;
   ops = [];
 });
 
@@ -72,17 +70,5 @@ describe("listAccountRuns", () => {
     expect(runs).toHaveLength(RUNS_PER_PAGE);
     expect(next).toBe(runCursor(runs[RUNS_PER_PAGE - 1]!));
     expect(ops).toContainEqual(["or", `created_at.lt."${TS}",and(created_at.eq."${TS}",id.lt.${ID})`]);
-  });
-});
-
-describe("uploadsLeft", () => {
-  it("is the cap minus the creator's uploads in the last 24 h, never below 0", async () => {
-    count = 3;
-    expect(await uploadsLeft("c", false)).toBe(7);
-    expect(await uploadsLeft("c", true)).toBe(0);
-    expect(ops).toContainEqual(["eq", "creator_id", "c"]);
-    const since = ops.find((o) => o[0] === "gte");
-    expect(since?.[1]).toBe("created_at");
-    expect(Date.now() - Date.parse(since?.[2] as string)).toBeGreaterThanOrEqual(24 * 3_600_000 - 1000);
   });
 });

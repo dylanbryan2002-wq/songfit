@@ -18,6 +18,7 @@ import { AREA, CTA, CTA_BAR, Headline, PickAFeel, STICKY } from "./landing/Hero"
 import { signInWithGoogle } from "./auth";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
+import { uploadsLeftCopy } from "./accountCopy";
 
 /** email null = anonymous visitor (landing page, before Google sign-in). */
 type Creator = { email: string | null };
@@ -29,8 +30,8 @@ type Phase = "idle" | "uploading" | "creating" | "error";
 type UploadTarget = { submissionId: string; path: string; token: string; signedUrl: string; ext: string; uploaded: boolean };
 
 const FAILED = "Upload didn't finish. Try again.";
-const DAILY_LIMIT = `You've used today's ${LIMITS.dailyUploadsPerCreator} uploads. Come back tomorrow.`;
-const DAILY_LIMIT_ANONYMOUS = "Sign in to upload more.";
+export const DAILY_LIMIT = `You've used your ${LIMITS.dailyUploadsPerCreator} uploads for now. Each one frees up 24 hours after it was made.`;
+export const DAILY_LIMIT_ANONYMOUS = `You've used your ${LIMITS.dailyUploadsAnonymous} free tries for now. Sign in to upload more.`;
 const GLOBAL_LIMIT = "We're at capacity right now. Try again in a bit.";
 
 /** Why the server said 402 (src/billing/paywall.ts). The create step only knows "needs_subscription". */
@@ -50,8 +51,11 @@ export function UploadForm({
   initialFile,
   initialDurationSeconds = null,
   onStarted,
+  uploadsLeft = null,
 }: {
   creator: Creator;
+  /** Uploads left under the rolling 24 h cap, counted server-side at render; null hides it. Advisory: not refreshed after a submit. */
+  uploadsLeft?: number | null;
   /** A file kept across sign-in (landing page). Nothing starts until the creator taps the button. */
   initialFile?: File;
   /** Its length, already checked on the landing page. */
@@ -334,6 +338,7 @@ export function UploadForm({
         >
           {checking ? "Checking your video" : "Find my songs"}
         </button>
+        {uploadsLeft !== null && <UploadsLeft left={uploadsLeft} anonymous={!creator.email} />}
       </div>
       {creator.email && (
         <p className="flex flex-wrap items-center justify-center gap-1 text-xs text-muted lg:justify-start">
@@ -348,5 +353,16 @@ export function UploadForm({
       )}
       </div>
     </form>
+  );
+}
+
+/** "7 uploads left" with the smaller reset hint; anonymous: "2 free tries left". */
+function UploadsLeft({ left, anonymous }: { left: number; anonymous: boolean }) {
+  const { line, hint } = uploadsLeftCopy(left, anonymous);
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
+      <span className="font-semibold text-ink">{line}</span>
+      {hint && <span className="text-[11px]">{hint}</span>}
+    </p>
   );
 }

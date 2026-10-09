@@ -1,5 +1,7 @@
-import { getCreator } from "@/src/auth/session";
+import { getViewer, type Viewer } from "@/src/auth/session";
+import { uploadsLeft } from "@/src/billing/rateLimit";
 import { isUuid } from "@/src/shared/ids";
+import { logger } from "@/src/shared/logger";
 import { Logo } from "@/components/Logo";
 import { UploadForm } from "@/components/UploadForm";
 import { AREA } from "@/components/landing/Hero";
@@ -10,8 +12,22 @@ export const dynamic = "force-dynamic";
 
 type Search = { resume?: string | string[]; auth?: string | string[] };
 
+/** The viewer's allowance under the 24 h cap; null (hidden) when there is no session or the count fails. */
+async function allowance(viewer: Viewer | null): Promise<number | null> {
+  if (!viewer) return null;
+  try {
+    return await uploadsLeft(viewer.id, viewer.anonymous);
+  } catch (err) {
+    logger.error("uploadsLeft failed", { error: String(err) });
+    return null;
+  }
+}
+
 export default async function HomePage({ searchParams }: { searchParams: Promise<Search> }) {
-  const [creator, params] = await Promise.all([getCreator(), searchParams]);
+  const [viewer, params] = await Promise.all([getViewer(), searchParams]);
+  // Same rule as getCreator(): a Google session with a confirmed email.
+  const creator = viewer && !viewer.anonymous && viewer.email ? { id: viewer.id, email: viewer.email } : null;
+  const left = await allowance(viewer);
   const resume = typeof params.resume === "string" && isUuid(params.resume) ? params.resume : null;
   return (
     // Phone: one left-aligned column, 20 px gutter. ≥1024: 12-col grid, 40 px gutters (see AREA).
@@ -21,11 +37,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       </div>
       {/* The form components draw the headline, the clip and the button for their own state. */}
       {!creator ? (
-        <Landing authFailed={params.auth === "failed"} />
+        <Landing authFailed={params.auth === "failed"} uploadsLeft={left} />
       ) : resume ? (
-        <ResumeUpload creator={creator} flowId={resume} />
+        <ResumeUpload creator={creator} flowId={resume} uploadsLeft={left} />
       ) : (
-        <UploadForm creator={creator} />
+        <UploadForm creator={creator} uploadsLeft={left} />
       )}
       <footer className={`mt-auto pb-4 text-[12px] text-muted ${AREA.footer}`}>
         {creator && (

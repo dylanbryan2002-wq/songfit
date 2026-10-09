@@ -9,7 +9,7 @@ type Creator = { id: string; email: string };
 type State = { kind: "loading" } | { kind: "found"; file: File; durationSeconds: number | null } | { kind: "missing" };
 
 /** Back from Google with ?resume=<flowId>: offer the kept file. Nothing uploads until "Find my songs". */
-export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: string }) {
+export function ResumeUpload({ creator, flowId, uploadsLeft = null }: { creator: Creator; flowId: string; uploadsLeft?: number | null }) {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -40,13 +40,14 @@ export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: st
     return (
       <>
         <p className={`text-sm font-semibold text-ink ${AREA.note}`}>Pick your video again to continue.</p>
-        <UploadForm creator={creator} />
+        <UploadForm creator={creator} uploadsLeft={uploadsLeft} />
       </>
     );
   }
   return (
     <UploadForm
       creator={creator}
+      uploadsLeft={uploadsLeft}
       initialFile={state.file}
       initialDurationSeconds={state.durationSeconds}
       onStarted={() => {
