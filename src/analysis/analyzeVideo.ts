@@ -1,14 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { MODELS, LIMITS, CONTENT_CATEGORIES, env } from "../shared/config";
-import { VideoAnalysis, MusicBrief, type AnalysisResult } from "../shared/types";
+import { VideoAnalysis, MusicBrief, MusicBriefFields, MusicJob, type AnalysisResult } from "../shared/types";
 import { PipelineError } from "../shared/errors";
 import { extractJson } from "../shared/json";
 import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
 import type { TranscriptSegment } from "./transcribe";
 
-export const PROMPT_VERSION = "analyze-v5";
+// v6 (2026-10-09): brief.fields.music_job, what the music must do, separate from dialogue (Codex root-cause review).
+export const PROMPT_VERSION = "analyze-v6";
 
 export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
 const momentTypeSet = new Set<string>(MOMENT_TYPES);
@@ -20,7 +21,9 @@ const StrictVideoAnalysis = VideoAnalysis.extend({
     { message: `important_moments[].type must be one of: ${MOMENT_TYPES.join(", ")}` },
   ),
 });
-const ModelOutput = z.object({ analysis: StrictVideoAnalysis, brief: MusicBrief });
+/** New outputs must name the music's job; stored older rows may lack it (MusicBriefFields.music_job is optional). */
+const StrictMusicBrief = MusicBrief.extend({ fields: MusicBriefFields.extend({ music_job: MusicJob }) });
+const ModelOutput = z.object({ analysis: StrictVideoAnalysis, brief: StrictMusicBrief });
 
 export type AnalyzeInput = {
   frames: { time: number; base64: string }[];
@@ -53,6 +56,13 @@ Rules:
 - If the caption, speech or on-screen text is a joke, the song is part of the punchline: a title, hook or knowing contrast. Never a neutral or chill background fallback.
 - brief.text is 3–6 sentences in plain language, written for a human music supervisor: the feel, the energy, the cultural register (current vs timeless, mainstream vs niche), vocal considerations given any dialogue, and where in the video a musical lift or hit should land (reference timestamps).
 - brief.fields: moods (3–6 words), energy 0..1, tempo_preference (slow | medium | medium-high | high), vocal_preference (vocals | instrumental | either — when dialogue_present is true, choose instrumental, or either and state in brief.text that vocals must not sit over speech), genre_preferences (may be empty), genre_avoid (may be empty), dialogue_present (same value as analysis.dialogue_present), desired_cultural_relevance (low | medium | high), desired_familiarity (recognizable | recognizable_not_overused | unexpected).
+- brief.fields.music_job is what the music must DO for the viewer, decided separately from dialogue_present:
+  quiet_bed (stays under the voice; the words carry the video), drive_energy (pushes pace and momentum: routines, hustle, fast cuts, a build),
+  emotional_lift (raises the feeling where the story turns), comic_cue (part of the joke: a title, an era or an ironic contrast),
+  familiar_anthem (a song everyone knows whose identity is the point: nostalgia, an era, a celebration).
+  Someone talking does NOT by itself make it quiet_bed: if the edit is fast, the creator is energised, the story is a joke or the moment is a
+  celebration, pick the job that matches, and write the brief's energy and moods for that job. Only for quiet_bed may genre_avoid rule out
+  drums, beats or a pulse; for every other job keep the energy the footage and the creator ask for.
 
 Output exactly ONE JSON object with this shape and nothing else, no prose, no code fences:
 {
@@ -80,7 +90,8 @@ Output exactly ONE JSON object with this shape and nothing else, no prose, no co
       "genre_avoid": string[],
       "dialogue_present": boolean,
       "desired_cultural_relevance": "low" | "medium" | "high",
-      "desired_familiarity": "recognizable" | "recognizable_not_overused" | "unexpected"
+      "desired_familiarity": "recognizable" | "recognizable_not_overused" | "unexpected",
+      "music_job": "quiet_bed" | "drive_energy" | "emotional_lift" | "comic_cue" | "familiar_anthem"
     }
   }
 }`;

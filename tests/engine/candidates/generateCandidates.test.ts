@@ -135,18 +135,21 @@ describe("generateCandidates", () => {
   });
 });
 
-describe("SYSTEM_PROMPT (candidates-v7)", () => {
+describe("SYSTEM_PROMPT (candidates-v8)", () => {
   it("covers the creator's note and named songs or artists", async () => {
     const { SYSTEM_PROMPT: sp, PROMPT_VERSION: v } = await import("@/src/engine/candidates/generateCandidates");
-    expect(v).toBe("candidates-v7");
+    expect(v).toBe("candidates-v8");
     expect(sp).toContain("When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.");
     expect(sp).toContain("If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.");
   });
-  it("asks for the songs creators actually use, overused ones when the song carries the edit, and quiet beds under speech (round 1)", async () => {
+  it("asks for the songs creators actually use, and keys the guidance on the music's job, not on speech (v8)", async () => {
     const { SYSTEM_PROMPT: sp } = await import("@/src/engine/candidates/generateCandidates");
     expect(sp).toContain("actually used for this kind of moment in the last two years, including the heavily used ones");
-    expect(sp).toContain("a famous, even overused song that fits the joke or the drop beats a tasteful obscure one");
-    expect(sp).toContain("quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues");
+    expect(sp).toContain("For every job except quiet_bed, a famous, even overused song that does the job beats a tasteful obscure one");
+    expect(sp).toContain("Someone talking does not by itself mean a quiet bed");
+    for (const job of ["quiet_bed", "drive_energy", "emotional_lift", "comic_cue", "familiar_anthem"]) expect(sp).toContain(`- ${job}:`);
+    expect(buildCandidatePrompt("safe", { ...brief, fields: { ...brief.fields, music_job: "drive_energy" } }, analysis)).toContain("Music's job: drive_energy");
+    expect(buildCandidatePrompt("safe", brief, analysis)).toContain("Music's job: not stated (older analysis)");
     // v7: no example titles; v6 named four and one of them reached a third of all top 5s.
     expect(sp).not.toMatch(/klsr|American Dawn|Grant Steller|Max Richter/);
     // The unexpected direction still rules out meme-standard ironic picks, qualified for punchlines.

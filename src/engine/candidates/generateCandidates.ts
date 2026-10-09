@@ -13,7 +13,8 @@ import { normalizeKey } from "@/src/engine/catalog/normalize";
 import type { CreatorPick } from "@/src/engine/catalog/creatorLists";
 
 // v7 (2026-10-09): example song titles removed; v6 named four and the model put one of them in a third of all top 5s.
-export const PROMPT_VERSION = "candidates-v7";
+// v8 (2026-10-09): guidance keyed on the brief's music_job instead of "talking means a quiet bed" (Codex root-cause review).
+export const PROMPT_VERSION = "candidates-v8";
 /** Prompt variant used when creatorPicks are passed (experiment B, docs/review/24 v3). Production does not pass them yet. */
 export const CREATOR_PICKS_PROMPT_VERSION = `${PROMPT_VERSION}+picks`;
 
@@ -37,8 +38,14 @@ recording, not a live, sped-up, slowed, acoustic or remix version.
 When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.
 If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.
 Name the songs creators on Reels and TikTok have actually used for this kind of moment in the last two years, including the heavily used ones. Do not swap them for a tasteful cousin.
-When the song carries the edit (no spoken dialogue: a punchline, a reveal, a montage), a famous, even overused song that fits the joke or the drop beats a tasteful obscure one; creators pick the obvious song on purpose. "Not overused" only matters when someone is talking.
-When someone is talking over the music (spoken dialogue present), the right pick is often a quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues. Name real tracks of that kind.`;
+The brief names the music's JOB. Match the job, not just the topic:
+- quiet_bed: a quiet instrumental bed that stays under the voice (lo-fi, ambient, neo-classical, acoustic, soft score). Name real tracks of that kind.
+- drive_energy: momentum from the first second (driving rock, dance, hip-hop beats, propulsive score), even when someone is talking.
+- emotional_lift: a song that rises where the story turns; recognisable songs welcome.
+- comic_cue: the song is part of the joke: a title or hook that says it, an era reference, or a knowing contrast.
+- familiar_anthem: a song nearly everyone recognises whose identity is the point (an era, nostalgia, a celebration).
+For every job except quiet_bed, a famous, even overused song that does the job beats a tasteful obscure one; creators pick the obvious song on purpose.
+Someone talking does not by itself mean a quiet bed: when someone talks, prefer sections without lead vocals, whatever the job.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
@@ -81,6 +88,7 @@ Aesthetic: ${analysis.aesthetic.join(", ")}
 Mood: ${analysis.mood.join(", ")}
 Energy: ${analysis.energy}. Pacing: ${analysis.pacing}.
 Spoken dialogue present: ${analysis.dialogue_present ? "YES — sung vocals will compete with the speech; prefer sections without lead vocals" : "no"}
+Music's job: ${brief.fields.music_job ?? "not stated (older analysis): infer it from the brief"}
 Key moments:
 ${moments}
 

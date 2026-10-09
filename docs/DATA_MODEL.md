@@ -82,7 +82,7 @@ One per submission. Output of src/analysis.
 | important_moments   | jsonb       | [{ time: number, type: string, note?: string }] |
 | content_category    | text        | one of CONTENT_CATEGORIES; mirrored onto submissions   |
 | music_brief         | text        | natural-language brief                  |
-| music_brief_fields  | jsonb       | structured brief (moods, energy 0..1, tempo, vocals, genres, familiarity) |
+| music_brief_fields  | jsonb       | structured brief (moods, energy 0..1, tempo, vocals, genres, familiarity; `music_job` since analyze-v6: quiet_bed / drive_energy / emotional_lift / comic_cue / familiar_anthem, absent on older rows) |
 | prompt_version      | text        |                                         |
 | raw_response        | jsonb       | nullable, for debugging                 |
 | created_at          | timestamptz |                                         |

@@ -29,6 +29,10 @@ export const VideoAnalysis = z.object({
 });
 export type VideoAnalysis = z.infer<typeof VideoAnalysis>;
 
+/** What the music must do for the viewer, decided separately from whether someone talks (analyze-v6, docs/review/24 §15). */
+export const MusicJob = z.enum(["quiet_bed", "drive_energy", "emotional_lift", "comic_cue", "familiar_anthem"]);
+export type MusicJob = z.infer<typeof MusicJob>;
+
 export const MusicBriefFields = z.object({
   moods: z.array(z.string()),
   energy: z.number().min(0).max(1),
@@ -39,6 +43,7 @@ export const MusicBriefFields = z.object({
   dialogue_present: z.boolean(),
   desired_cultural_relevance: z.enum(["low", "medium", "high"]),
   desired_familiarity: z.enum(["recognizable", "recognizable_not_overused", "unexpected"]),
+  music_job: MusicJob.optional(), // required from analyze-v6; absent on older rows
 });
 export type MusicBriefFields = z.infer<typeof MusicBriefFields>;
 
