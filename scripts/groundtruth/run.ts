@@ -53,7 +53,7 @@ const dryRunOurs: RunOurs = () => readJson(path.join(FIXTURES, "ours.json"));
 async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs): Promise<ClipReport> {
   const report: ClipReport = {
     id: clip.id, file: clip.file, link: clip.link, niche: clip.niche, notes: clip.notes,
-    truth: { song: clip.song, artist: clip.artist, start_seconds: clip.start_seconds },
+    truth: clip.song && clip.artist ? { song: clip.song, artist: clip.artist, start_seconds: clip.start_seconds } : null,
     duration_seconds: null, verdict: null, ours: null, gemini: null, brief_diff: null, errors: [],
   };
   const fail = (stage: string, err: unknown) => {
@@ -90,7 +90,7 @@ async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs)
     } catch (err) { fail("gemini", err); }
   }
   if (report.ours) {
-    report.verdict = compareClip(report.truth, report.ours);
+    if (report.truth) report.verdict = compareClip(report.truth, report.ours);
     if (report.gemini) report.brief_diff = briefDiff(report.ours, report.gemini.parsed);
   }
   return report;

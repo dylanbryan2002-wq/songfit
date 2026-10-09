@@ -9,7 +9,7 @@ export type ClipReport = {
   link: string;
   niche: string;
   notes: string;
-  truth: Truth;
+  truth: Truth | null; // null when clips.csv has no song for this clip: brief comparison only
   duration_seconds: number | null;
   verdict: Verdict | null; // null when our engine did not run
   ours: OursResult | null;
@@ -23,6 +23,7 @@ export type RunMeta = { tag: string; date: string; gemini_prompt_version: string
 export type Summary = {
   clips: number;
   compared: number; // clips with a verdict
+  without_truth: number; // clips with no known song (brief comparison only)
   hits: number;
   artist_hits: number;
   misses: number;
@@ -50,7 +51,7 @@ export function summarize(clips: ClipReport[]): Summary {
   for (const v of verdicts) if (v.lost_at) misses_by_stage[v.lost_at] += 1;
   const n = verdicts.length;
   return {
-    clips: clips.length, compared: n, hits: hits.length,
+    clips: clips.length, compared: n, without_truth: clips.filter((c) => !c.truth).length, hits: hits.length,
     artist_hits: verdicts.filter((v) => v.result === "artist_hit").length,
     misses: verdicts.filter((v) => v.result === "miss").length,
     errors: clips.filter((c) => c.errors.length > 0).length,
@@ -73,6 +74,7 @@ export function summaryTable(s: Summary): string {
     "| Metric | Value |", "|---|---|",
     `| Clips | ${s.clips} |`,
     `| Compared (our engine ran) | ${s.compared} |`,
+    `| No known song (brief comparison only) | ${s.without_truth} |`,
     `| Hit rate | ${s.hits}/${s.compared} (${pct(s.hit_rate)}) |`,
     `| Artist-hit rate | ${s.artist_hits}/${s.compared} (${pct(s.artist_hit_rate)}) |`,
     `| Misses | ${s.misses} |`,
@@ -96,9 +98,10 @@ function clipSection(c: ClipReport): string[] {
   const g = c.gemini?.parsed ?? null;
   p(`## ${c.id}`); p();
   p(`- file: ${c.file}${c.link ? ` · ${c.link}` : ""}${c.niche ? ` · niche: ${c.niche}` : ""} · duration ${c.duration_seconds?.toFixed(1) ?? "-"} s`);
-  p(`- real song: **${c.truth.song} — ${c.truth.artist}**, starts at ${mmss(c.truth.start_seconds)} (${c.truth.start_seconds} s)`);
+  if (c.truth) p(`- real song: **${c.truth.song} — ${c.truth.artist}**, starts at ${mmss(c.truth.start_seconds)} (${c.truth.start_seconds} s)`);
+  else p("- real song: unknown (no song in clips.csv), brief comparison only");
   if (c.notes) p(`- notes: ${c.notes}`);
-  p(`- verdict: ${verdictLine(c.verdict, c.truth)}`);
+  p(`- verdict: ${c.truth ? verdictLine(c.verdict, c.truth) : "no hit verdict without a known song"}`);
   for (const e of c.errors) p(`- error: ${e}`);
   if (c.ours) {
     p(); p(`### Our top 5 (of ${c.ours.finals.length}; ${c.ours.candidates.length} candidates, ${c.ours.candidates.filter((x) => x.verified).length} verified, ${c.ours.generate_calls} generate calls)`); p();

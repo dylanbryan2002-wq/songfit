@@ -21,7 +21,8 @@ export type ClipSpec = {
   notes: string;
 };
 
-const REQUIRED = ["file", "song", "artist", "start_seconds"] as const;
+// song, artist and start_seconds may be empty: the clip then runs for the brief comparison only (no hit verdict).
+const REQUIRED = ["file"] as const;
 
 /** Slug of the file name without its extension: "IMG_0042 Final (1).MOV" → "img-0042-final-1". */
 export function clipId(file: string): string {
@@ -69,7 +70,7 @@ export function parseClipsCsv(text: string): ClipSpec[] {
     const rowNo = i + 2;
     const get = (name: string) => (col.has(name) ? (fields[col.get(name)!] ?? "").trim() : "");
     for (const name of REQUIRED) if (get(name) === "") throw new Error(`clips.csv row ${rowNo}: ${name} is empty`);
-    const start = Number(get("start_seconds"));
+    const start = get("start_seconds") === "" ? 0 : Number(get("start_seconds"));
     if (!Number.isFinite(start) || start < 0) {
       throw new Error(`clips.csv row ${rowNo}: start_seconds must be a number >= 0, got "${get("start_seconds")}"`);
     }

@@ -31,8 +31,8 @@ describe("parseClipsCsv", () => {
   });
 
   it("rejects a missing required column or an empty song", () => {
-    expect(() => parseClipsCsv("file,song,artist\nb.mp4,Stay,Kid Laroi")).toThrow(/start_seconds/);
-    expect(() => parseClipsCsv("file,song,artist,start_seconds\nb.mp4,,Kid Laroi,1")).toThrow(/row 2.*song/);
+    expect(parseClipsCsv("file,song,artist\nb.mp4,Stay,Kid Laroi")[0]?.start_seconds).toBe(0);
+    expect(parseClipsCsv("file,song,artist,start_seconds\nb.mp4,,Kid Laroi,1")[0]?.song).toBe("");
   });
 
   it("rejects two rows for the same file", () => {

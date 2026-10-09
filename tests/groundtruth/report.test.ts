@@ -22,7 +22,7 @@ describe("buildReport", () => {
 
   it("counts hits, artist hits, misses by stage and the median section error", () => {
     expect(json.summary).toEqual({
-      clips: 5, compared: 4, hits: 2, artist_hits: 1, misses: 1, errors: 1,
+      clips: 5, compared: 4, without_truth: 0, hits: 2, artist_hits: 1, misses: 1, errors: 1,
       hit_rate: 0.5, artist_hit_rate: 0.25, median_section_error_seconds: 6, median_hit_rank: 2.5,
       misses_by_stage: { not_generated: 0, unverified: 1, scored_out: 1, diversified_out: 0 },
     });
