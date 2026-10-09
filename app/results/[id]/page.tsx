@@ -48,7 +48,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
           : WAITING_MAIN
       }
     >
-      <ResultsHeader />
+      <ResultsHeader signedIn={!creator.anonymous} />
       {view === "gate" ? (
         <ResultsGate submissionId={id} />
       ) : picker && videoUrl ? (

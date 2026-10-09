@@ -10,6 +10,7 @@ import { checkVideoFile, TOO_LONG } from "./videoChecks";
 import { VibePicker } from "./VibePicker";
 import { WaitingState } from "./WaitingState";
 import { ResultsHeader, WAITING_MAIN } from "./ResultsHeader";
+import { SignOutButton } from "./SignOutButton";
 import { FileCard, VideoIcon } from "./landing/FileCard";
 import { DemoLoop } from "./landing/DemoLoop";
 import { GoogleButton } from "./landing/GoogleButton";
@@ -334,7 +335,12 @@ export function UploadForm({
           {checking ? "Checking your video" : "Find my songs"}
         </button>
       </div>
-      {creator.email && <p className="text-xs text-muted">Signed in as {creator.email}</p>}
+      {creator.email && (
+        <p className="flex items-center justify-center gap-1 text-xs text-muted lg:justify-start">
+          Signed in as {creator.email}
+          <SignOutButton className="!min-h-8 text-xs" />
+        </p>
+      )}
       </div>
     </form>
   );

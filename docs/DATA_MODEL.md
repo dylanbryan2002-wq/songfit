@@ -199,6 +199,7 @@ anon_session_started         metadata.flow_id  (creator = the new anonymous id; 
 results_gate_viewed          (creator = anonymous id, submission set; anonymous viewer shown the sign-in gate on a ready result)
 results_gate_signed_in       metadata.moved  (creator = Google creator; back from Google with an sf_claim cookie, moved = submissions claimed)
 stale_restart                metadata.status  (creator = submission owner; the status poll restarted a run untouched for 6 min; at most LIMITS.maxStaleRestarts (2) per submission, counted from these rows)
+signed_out                   (creator set; "Sign out" tapped on the upload screen or the results header, before the session is cleared)
 ```
 
 RLS: service role only.
