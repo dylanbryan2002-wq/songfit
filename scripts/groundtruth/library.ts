@@ -43,7 +43,7 @@ export type LibrarySong = {
 
 const Tag = z.object({
   i: z.number().int(),
-  mood: z.array(z.string()).max(4),
+  mood: z.preprocess((v) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : v), z.array(z.string()).max(6)),
   energy: z.number().int().min(1).max(5),
   jobs: z.array(MusicJob),
   lead_vocals: z.enum(["yes", "no", "unknown"]),
@@ -57,7 +57,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dz = (url: string) => paced(() => deezerGet(url)) as Promise<Record<string, unknown>>;
 
 async function main() {
-  const { values: args } = parseArgs({ options: { home: { type: "string" }, "max-dollars": { type: "string", default: "4" }, "skip-tags": { type: "boolean", default: false } } });
+  const { values: args } = parseArgs({ options: {
+    home: { type: "string" }, "max-dollars": { type: "string", default: "4" }, "skip-tags": { type: "boolean", default: false },
+    "tags-only": { type: "boolean", default: false }, // tag the untagged songs in an existing library.json
+    batches: { type: "string" }, // stop after this many tagging batches (for a first check)
+  } });
   const home = path.resolve((args.home ?? "~/Songfit-groundtruth").replace(/^~(?=$|\/)/, os.homedir()));
   const cap = Number(args["max-dollars"]);
   const songs = new Map<string, LibrarySong>();
@@ -68,6 +72,10 @@ async function main() {
     songs.set(id, { deezer_id: id, title, artist, sources: [source], source_note: [note], rank: null, release_date: null, bpm: null, explicit: null, has_sample: false, isrc: null, mbid: null, first_release: null, tags: null });
   };
 
+  if (args["tags-only"]) {
+    for (const s of JSON.parse(await fs.readFile(path.join(home, "catalog", "library.json"), "utf8")) as LibrarySong[]) songs.set(s.deezer_id, s);
+    console.log(`loaded ${songs.size} songs from library.json`);
+  } else {
   // 1. Songs creators used (tune split), identified via Deezer search on the fingerprinted name.
   const used: { song: string; artist: string }[] = [];
   for (const batch of (await fs.readdir(path.join(home, "batches"))).sort()) {
@@ -146,22 +154,33 @@ async function main() {
     s.mbid = recs[0]!.id; s.first_release = dates[0] ?? null; mbHits++;
   }
   console.log(`facts: ${[...songs.values()].filter((s) => s.rank != null).length} from Deezer, ${mbHits} matched on MusicBrainz`);
+  }
 
   // Tags: batches of 40 songs, stopping before the spending cap.
   if (!args["skip-tags"]) {
-    const list = [...songs.values()];
-    for (let i = 0; i < list.length; i += 40) {
+    const all = [...songs.values()];
+    const list = all.filter((s) => !s.tags);
+    const maxBatches = args.batches ? Number(args.batches) : Infinity;
+    for (let i = 0; i < list.length && i / 40 < maxBatches; i += 40) {
       if (spentDollars() + 0.4 > cap) { console.log(`STOP tagging: spent $${spentDollars().toFixed(2)} of $${cap}`); break; }
       const chunk = list.slice(i, i + 40);
-      const user = `Tag each song for matching it to short-form videos. Use what you know about the actual recording; if you do not know it, say unknown and confidence low, never guess.\n` +
+      const user = `Tag each song for matching it to short-form videos. Use what you know about the actual recording; if you do not know it, say unknown and confidence low, never guess. lead_vocals means a singer is heard (a sung hook counts as yes).\n` +
         chunk.map((s, j) => `${j}. ${s.title} — ${s.artist} (released ${s.first_release ?? s.release_date ?? "?"}${s.bpm ? `, ${Math.round(s.bpm)} bpm` : ""})`).join("\n") +
         `\nReturn ONE JSON array, one object per song: {"i": index, "mood": up to 4 words, "energy": 1-5, "jobs": subset of ${MusicJob.options.join("|")} this song can do for a video, "lead_vocals": "yes"|"no"|"unknown", "familiarity": "household"|"known"|"niche"|"unknown" (to US Gen Z), "era": e.g. "2009 club" or "2020s TikTok", "hook": what the title or hook says or evokes (for title/joke matches), "" if nothing, "confidence": "high"|"medium"|"low"}`;
-      const text = await callClaude({ model: MODELS.study, system: "You are a music supervisor tagging songs accurately. Reply with JSON only.", user, maxTokens: 12_000, effort: "low" });
-      const parsed = z.array(Tag).safeParse(extractJson(text));
-      if (!parsed.success) { console.log(`batch ${i / 40}: tags did not parse, skipped`); continue; }
-      for (const t of parsed.data) { const s = chunk[t.i]; if (s) s.tags = t; }
+      const text = await callClaude({ model: MODELS.study, system: "You are a music supervisor tagging songs accurately. Reply with JSON only.", user, maxTokens: 16_000, effort: "medium" });
+      await fs.writeFile(path.join(home, "catalog", `library-tags-raw-${i / 40}.md`), text);
+      // Parse each song on its own: one bad field must not discard the whole batch.
+      let items: unknown[] = [];
+      try { const j = extractJson(text); items = Array.isArray(j) ? j : []; } catch { items = []; }
+      let ok = 0; const errors: string[] = [];
+      for (const raw of items) {
+        const t = Tag.safeParse(raw);
+        if (t.success) { const s = chunk[t.data.i]; if (s) { s.tags = t.data; ok++; } }
+        else errors.push(t.error.issues.map((x) => `${x.path.join(".")}: ${x.message}`).join("; "));
+      }
+      console.log(`batch ${i / 40}: ${ok}/${chunk.length} tagged${errors.length ? `; first problem: ${errors[0]}` : ""}`);
     }
-    console.log(`tagged ${list.filter((s) => s.tags).length} of ${list.length}; spent $${spentDollars().toFixed(2)}`);
+    console.log(`tagged ${all.filter((s) => s.tags).length} of ${all.length}; spent $${spentDollars().toFixed(2)}`);
   }
 
   const out = path.join(home, "catalog");
