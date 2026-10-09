@@ -4,14 +4,16 @@ import Link from "next/link";
 import { forwardRef, useCallback, useState } from "react";
 
 export type VideoOverlay = { title: string; artist: string; loading: boolean };
+/** Alone mode only: tapping the video (or its control) plays it with its own sound, or pauses it. */
+export type VideoSoundControl = { playing: boolean; onToggle: () => void };
 
 /** Muted, inline video in a 9:16 box. It starts playing silently on its own (iOS allows muted inline
  *  autoplay) so the creator sees their clip at once, like TikTok; the playback hook then drives it
  *  through the ref once a song is tapped. Dylan 2026-10-07: the box stayed dark until a song played. */
-export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: VideoOverlay | null }>(function VideoPane(
-  { src, overlay },
-  ref,
-) {
+export const VideoPane = forwardRef<
+  HTMLVideoElement,
+  { src: string; overlay: VideoOverlay | null; sound?: VideoSoundControl }
+>(function VideoPane({ src, overlay, sound }, ref) {
   const [ready, setReady] = useState(false);
   // Pass the element on to the hook's ref, and catch a first frame that arrived before hydration.
   const attach = useCallback(
@@ -37,6 +39,7 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
         preload="auto"
         onLoadedData={() => setReady(true)}
         onPlaying={() => setReady(true)}
+        onClick={sound?.onToggle}
         className="h-full w-full object-cover"
       />
       <Link
@@ -56,7 +59,7 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
         </div>
       )}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 flex h-[40%] flex-col justify-end bg-gradient-to-t from-black/80 to-transparent px-4 pb-8 text-white transition-opacity duration-200 motion-reduce:transition-none ${overlay ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex h-[40%] flex-col justify-end bg-gradient-to-t from-black/80 to-transparent px-4 pb-8 text-white transition-opacity duration-200 motion-reduce:transition-none ${overlay ? "opacity-100" : "opacity-0"} ${sound ? "pr-16" : ""}`}
       >
         {overlay && (
           <>
@@ -76,6 +79,18 @@ export const VideoPane = forwardRef<HTMLVideoElement, { src: string; overlay: Vi
           </>
         )}
       </div>
+      {sound && (
+        <button
+          type="button"
+          onClick={sound.onToggle}
+          aria-label={sound.playing ? "Pause your video" : "Play your video with sound"}
+          className="absolute bottom-3 right-3 z-10 flex h-11 w-11 items-center justify-center bg-ink/70 text-white"
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor">
+            {sound.playing ? <path d="M4 3h3v10H4zM9 3h3v10H9z" /> : <path d="M4 2.5v11l9.5-5.5z" />}
+          </svg>
+        </button>
+      )}
     </div>
   );
 });

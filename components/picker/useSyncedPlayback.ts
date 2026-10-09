@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logger } from "@/src/shared/logger";
 import type { Rank } from "@/src/shared/types";
 import { DEFAULT_MUSIC, DEFAULT_VOICE, percentToGain } from "@/src/picker/mix";
+import { ALONE_IDLE, aloneNext, type AloneSides, type PlaybackMode } from "@/src/picker/playback";
 
 export type PlaybackState = "idle" | "loading" | "playing" | "paused" | "unavailable";
 export type SyncedPlayback = {
@@ -23,6 +24,11 @@ export type SyncedPlayback = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   /** False once Web Audio could not carry the video's sound: the voice slider has nothing to drive. */
   voiceControl: boolean;
+  /** Alone mode: the video is playing with its own sound. */
+  videoSound: boolean;
+  /** Alone mode, MUST be called synchronously inside the tap: stops any sample and plays the video with
+   *  its sound from the current frame, or pauses it if it already is. */
+  toggleVideo(): void;
 };
 
 /**
@@ -119,6 +125,8 @@ export function playFailure(which: "audio" | "video", errorName: string): "ignor
 
 export function useSyncedPlayback(opts: {
   videoDurationSeconds: number | null;
+  /** "alone": the sample never plays while the video moves. Default "sync". */
+  mode?: PlaybackMode;
   /** Slider levels, 0..100. */
   voice?: number;
   music?: number;
@@ -140,6 +148,10 @@ export function useSyncedPlayback(opts: {
   const musicLevel = opts.music ?? DEFAULT_MUSIC;
   const levelsRef = useRef({ voice: voiceLevel, music: musicLevel });
   levelsRef.current = { voice: voiceLevel, music: musicLevel };
+  const aloneRef = useRef(opts.mode === "alone");
+  aloneRef.current = opts.mode === "alone";
+  const sidesRef = useRef<AloneSides>(ALONE_IDLE);
+  const [videoSound, setVideoSound] = useState(false);
 
   const [state, setStateRaw] = useState<PlaybackState>("idle");
   const [currentRank, setCurrentRank] = useState<Rank | null>(null);
@@ -153,6 +165,11 @@ export function useSyncedPlayback(opts: {
   const setState = useCallback((s: PlaybackState) => {
     stateRef.current = s;
     setStateRaw(s);
+  }, []);
+
+  const setSides = useCallback((s: AloneSides) => {
+    sidesRef.current = s;
+    setVideoSound(s.video === "playing-unmuted");
   }, []);
 
   // Created once; not part of the render tree.
@@ -173,12 +190,31 @@ export function useSyncedPlayback(opts: {
     if (mixRef.current?.voice) mixRef.current.voice.gain.value = 0;
   }, []);
 
+  // Alone: the sample stopped, so the video goes back to its silent loop from the frozen frame.
+  const resumeMutedLoop = useCallback(() => {
+    silenceVoice();
+    setSides(aloneNext(sidesRef.current, "stopSample"));
+    void videoRef.current?.play().catch(() => undefined);
+  }, [silenceVoice, setSides]);
+
   // Levels follow the sliders. The voice is heard only while the sample is actually playing.
   const applyLevels = useCallback(() => {
     const m = mixRef.current;
     const video = videoRef.current;
     const audio = audioRef.current;
     const s = stateRef.current;
+    if (aloneRef.current) {
+      // Alone: the video is heard only while it plays on its own; the sample at the music level.
+      const sound = sidesRef.current.video === "playing-unmuted";
+      if (video) {
+        if (!sound) video.muted = true;
+        video.volume = m?.voice ? 1 : percentToGain(levelsRef.current.voice);
+      }
+      if (m?.voice) m.voice.gain.value = sound ? percentToGain(levelsRef.current.voice) : 0;
+      if (m?.music) m.music.gain.value = percentToGain(levelsRef.current.music);
+      if (audio) audio.volume = m?.music ? 1 : percentToGain(levelsRef.current.music);
+      return;
+    }
     const voiceOn = !!m?.voice && !videoFailed.current;
     if (video && !(voiceOn && (s === "playing" || s === "loading"))) video.muted = true;
     if (m?.voice) m.voice.gain.value = voiceOn && s === "playing" ? percentToGain(levelsRef.current.voice) : 0;
@@ -202,6 +238,12 @@ export function useSyncedPlayback(opts: {
     const L = loopRef.current;
     if (!audio || !video || L === null || pendingStart.current !== null) return;
     const start = sampleStartRef.current;
+    if (aloneRef.current) {
+      // Same loop window, the video left frozen.
+      if (audio.currentTime - start >= L) audio.currentTime = start;
+      setPosition(Math.min(Math.max(audio.currentTime - start, 0), L));
+      return;
+    }
     if (stateRef.current === "playing" && video.paused && !videoFailed.current) void video.play().catch(() => undefined);
     if (audio.currentTime - start >= L) {
       audio.currentTime = start;
@@ -231,12 +273,16 @@ export function useSyncedPlayback(opts: {
         const start = pendingStart.current;
         pendingStart.current = null;
         audio.currentTime = start;
-        if (videoRef.current) videoRef.current.currentTime = 0;
+        if (videoRef.current && !aloneRef.current) videoRef.current.currentTime = 0;
       }
     };
     const onEnded = () => {
       if (stateRef.current !== "playing") return;
       audio.currentTime = sampleStartRef.current;
+      if (aloneRef.current) {
+        void audio.play().catch(() => setState("unavailable"));
+        return;
+      }
       if (videoRef.current) videoRef.current.currentTime = 0;
       void audio.play().catch(() => setState("unavailable"));
       if (!videoFailed.current) void videoRef.current?.play().catch(() => undefined);
@@ -249,8 +295,11 @@ export function useSyncedPlayback(opts: {
     const stopNow = () => {
       token.current++;
       audio.pause();
-      videoRef.current?.pause();
-      silenceVoice();
+      if (aloneRef.current) resumeMutedLoop();
+      else {
+        videoRef.current?.pause();
+        silenceVoice();
+      }
       if (stateRef.current === "playing" || stateRef.current === "loading") setState("paused");
     };
     const onHidden = () => {
@@ -283,9 +332,9 @@ export function useSyncedPlayback(opts: {
         audioRef.current = null;
       }
     };
-  }, [getAudio, setState, tick, recomputeLoop, silenceVoice]);
+  }, [getAudio, setState, tick, recomputeLoop, silenceVoice, resumeMutedLoop]);
 
-  useEffect(applyLevels, [state, voiceLevel, musicLevel, applyLevels]);
+  useEffect(applyLevels, [state, voiceLevel, musicLevel, videoSound, applyLevels]);
 
   // rAF nudge while playing and visible.
   useEffect(() => {
@@ -309,8 +358,14 @@ export function useSyncedPlayback(opts: {
       const mix = ensureMix(mixRef.current, video, audio, createAudioContext);
       mixRef.current = mix;
       setVoiceControl(!!mix?.voice);
+      const alone = aloneRef.current;
+      // Alone: never both at once, so the video freezes on its frame while the sample plays.
+      if (alone) {
+        video.pause();
+        setSides(aloneNext(sidesRef.current, "playSample"));
+      }
       // iOS unmutes only inside a gesture. The voice gain stays at 0 until the sample is playing.
-      if (mix?.voice) video.muted = false;
+      else if (mix?.voice) video.muted = false;
       sampleStartRef.current = sampleStart;
       setCurrentRank(rank);
       setState("loading");
@@ -329,11 +384,33 @@ export function useSyncedPlayback(opts: {
         if (audio.readyState >= 1) {
           pendingStart.current = null;
           audio.currentTime = sampleStart;
-          video.currentTime = 0;
+          if (!alone) video.currentTime = 0;
           recomputeLoop();
         } else {
           pendingStart.current = sampleStart;
         }
+      }
+
+      if (alone) {
+        let ok = false;
+        void audio.play().then(
+          () => {
+            ok = true;
+            if (mine === token.current) setState("playing");
+          },
+          (e: unknown) => {
+            if (mine !== token.current) return;
+            const name = e instanceof Error ? e.name : "unknown";
+            if (playFailure("audio", name) === "ignore") return;
+            logger.warn("picker.play_failed", { rank, which: "audio", reason: name });
+            audio.pause();
+            resumeMutedLoop();
+            setState("unavailable");
+          },
+        ).finally(() => {
+          logger.info("picker.play", { rank, audio: ok, video: false, ...(mine !== token.current ? { superseded: true } : {}) });
+        });
+        return;
       }
 
       // Both play() calls back to back inside the gesture: no await between them.
@@ -385,16 +462,47 @@ export function useSyncedPlayback(opts: {
         });
       });
     },
-    [getAudio, setState, recomputeLoop, silenceVoice, applyLevels],
+    [getAudio, setState, recomputeLoop, silenceVoice, applyLevels, setSides, resumeMutedLoop],
   );
 
   const pause = useCallback(() => {
     token.current++;
     audioRef.current?.pause();
-    videoRef.current?.pause();
-    silenceVoice();
+    if (aloneRef.current) resumeMutedLoop();
+    else {
+      videoRef.current?.pause();
+      silenceVoice();
+    }
     setState("paused");
-  }, [setState, silenceVoice]);
+  }, [setState, silenceVoice, resumeMutedLoop]);
+
+  const toggleVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = aloneNext(sidesRef.current, "tapVideo");
+    if (next.video === "paused") {
+      video.pause();
+      setSides(next);
+      return;
+    }
+    token.current++;
+    const audio = getAudio();
+    audio.pause();
+    const mix = ensureMix(mixRef.current, video, audio, createAudioContext);
+    mixRef.current = mix;
+    setVoiceControl(!!mix?.voice);
+    // iOS unmutes only inside a gesture.
+    video.muted = false;
+    setSides(next);
+    if (stateRef.current === "playing" || stateRef.current === "loading") setState("paused");
+    applyLevels();
+    void video.play().catch((e: unknown) => {
+      if (e instanceof Error && e.name === "AbortError") return;
+      if (sidesRef.current.video !== "playing-unmuted") return;
+      silenceVoice();
+      setSides({ video: "paused", sample: "stopped" });
+    });
+  }, [getAudio, setState, setSides, applyLevels, silenceVoice]);
 
   const setSampleStart = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -408,7 +516,7 @@ export function useSyncedPlayback(opts: {
     if (!audio || !video || audio.readyState < 1) return;
     recomputeLoop();
     audio.currentTime = seconds;
-    video.currentTime = 0;
+    if (!aloneRef.current) video.currentTime = 0;
   }, [recomputeLoop]);
 
   return {
@@ -423,5 +531,7 @@ export function useSyncedPlayback(opts: {
     setSampleStart,
     videoRef,
     voiceControl,
+    videoSound,
+    toggleVideo,
   };
 }
