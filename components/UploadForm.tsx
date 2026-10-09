@@ -11,7 +11,9 @@ import { VibePicker } from "./VibePicker";
 import { WaitingState } from "./WaitingState";
 import { ResultsHeader, WAITING_MAIN } from "./ResultsHeader";
 import { FileCard, VideoIcon } from "./landing/FileCard";
+import { DemoLoop } from "./landing/DemoLoop";
 import { GoogleButton } from "./landing/GoogleButton";
+import { AREA, CTA, CTA_BAR, Headline, PickAFeel, STICKY } from "./landing/Hero";
 import { signInWithGoogle } from "./auth";
 import { VIBE_NOTE_MAX } from "@/src/shared/vibe";
 import { LIMITS } from "@/src/shared/config";
@@ -72,6 +74,7 @@ export function UploadForm({
   const videoInput = useRef<HTMLInputElement>(null);
   const noteInput = useRef<HTMLInputElement>(null);
   const [noteFlash, setNoteFlash] = useState(false); // "Something else…" points at the note
+  const [noteFocused, setNoteFocused] = useState(false); // the button leaves sticky so the keyboard can't trap it
   const dailyLimit = creator.email ? DAILY_LIMIT : DAILY_LIMIT_ANONYMOUS;
 
   useEffect(() => {
@@ -213,7 +216,8 @@ export function UploadForm({
   const busy = phase !== "idle";
 
   return (
-    <form onSubmit={onSubmit} className="mt-10 flex w-full max-w-md flex-col gap-8">
+    // A flex column on a phone; on a laptop its blocks sit straight in page.tsx's grid (AREA).
+    <form onSubmit={onSubmit} className="flex w-full flex-col gap-8 lg:contents">
       {/* The waiting screen, drawn over the form from the tap on; the form keeps its state underneath. */}
       {busy && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-canvas">
@@ -243,6 +247,7 @@ export function UploadForm({
         onChange={(e) => void onPick(e)}
         disabled={busy}
       />
+      {file ? <PickAFeel /> : <Headline />}
       {file ? (
         <FileCard
           file={file}
@@ -258,6 +263,12 @@ export function UploadForm({
           disabled={busy}
         />
       ) : (
+        <DemoLoop />
+      )}
+
+      {/* `contents` on a phone so the sticky bar's containing block is the whole form. */}
+      <div className={`contents lg:flex lg:flex-col lg:gap-8 ${AREA.body}`}>
+      {!file && (
         <label
           htmlFor="video"
           className="flex h-[150px] w-full cursor-pointer items-center justify-center rounded-3xl border border-dashed border-steel-light bg-white text-sm text-muted active:scale-[0.99]"
@@ -278,22 +289,25 @@ export function UploadForm({
         aria-label="Anything else?"
         value={intent}
         onChange={(e) => setIntent(e.target.value)}
+        onFocus={() => setNoteFocused(true)}
+        onBlur={() => setNoteFocused(false)}
         maxLength={VIBE_NOTE_MAX}
         placeholder="Anything else? e.g. the song is the punchline"
-        className={`h-12 w-full rounded-2xl bg-ink/5 px-4 text-base text-ink placeholder:text-muted outline-none transition-shadow ${
+        className={`h-12 w-full scroll-mb-28 bg-ink/5 px-4 text-base text-ink placeholder:text-muted outline-none transition-shadow ${
           noteFlash ? "ring-2 ring-ink/30" : "focus:ring-2 focus:ring-ink/15"
         }`}
         disabled={busy}
       />
 
-      {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step. */}
-      <div className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 bg-canvas px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]">
-        {error && <p className="text-center text-sm text-red-600">{error}</p>}
+      {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step.
+          Back in normal flow while the note is focused, so the keyboard can't push it over the field. */}
+      <div className={noteFocused ? CTA_BAR : STICKY}>
+        {error && <p className="text-sm text-red-600">{error}</p>}
         {error === DAILY_LIMIT_ANONYMOUS && !creator.email && (
           <GoogleButton onClick={() => void signInWithGoogle("/")} />
         )}
         {blocked && (
-          <p className="text-center text-sm text-ink">
+          <p className="text-sm text-ink">
             {BLOCKED_COPY[blocked]}{" "}
             <Link href="/results/latest" className="font-semibold text-steel-dark underline underline-offset-2">
               Open my latest result
@@ -304,12 +318,13 @@ export function UploadForm({
         <button
           type="submit"
           disabled={busy || checking}
-          className="w-full rounded-2xl bg-ink px-6 py-4 text-base font-semibold text-white disabled:opacity-60"
+          className={CTA}
         >
           {checking ? "Checking your video" : "Find my songs"}
         </button>
       </div>
-      {creator.email && <p className="text-center text-xs text-muted">Signed in as {creator.email}</p>}
+      {creator.email && <p className="text-xs text-muted">Signed in as {creator.email}</p>}
+      </div>
     </form>
   );
 }

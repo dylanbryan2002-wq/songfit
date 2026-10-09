@@ -1,80 +1,118 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { DEMO_SONG, DEMO_USE, EXAMPLE, NOW_PLAYING } from "./copy";
+import { DEMO_SIZE, MediaFrame } from "./Hero";
+import { useMotionAllowed, usePauseWhenHidden } from "./motion";
 
 const VIDEO = "/brand/demo.mp4";
 const POSTER = "/brand/demo-poster.jpg";
 
-/** Phone-shaped demo of a result. Video when it plays; the still when it can't; a plain Songfit frame
- *  when neither file exists yet. Never an empty frame. No autoplay under reduced motion. */
-export function DemoLoop() {
+/** Demo of a result, poster first: the still paints at once; the video is fetched only once the slot is on
+ *  screen and motion is allowed (or on a tap of Play), and replaces the still only when it is actually playing.
+ *  Any failure keeps the still; no still either leaves the plain ink box. The caption shows in every case.
+ *  `initial: "ink"` starts with both files failed (tests). */
+export function DemoLoop({ initial = "poster" }: { initial?: "poster" | "ink" }) {
+  const slot = useRef<HTMLSpanElement>(null);
   const video = useRef<HTMLVideoElement>(null);
-  const [mode, setMode] = useState<"video" | "poster" | "placeholder">("video");
+  const motion = useMotionAllowed();
+  const [posterFailed, setPosterFailed] = useState(initial === "ink");
+  const [videoFailed, setVideoFailed] = useState(initial === "ink");
+  const [load, setLoad] = useState(false); // the <video> is mounted (and fetching)
+  const [wantPlay, setWantPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  usePauseWhenHidden(video, wantPlay);
 
   useEffect(() => {
-    const v = video.current;
-    if (!v) return;
-    // The error may have fired before hydration attached onError.
-    if (v.error || v.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) return setMode("poster");
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      v.play().catch(() => {}); // refused (e.g. Low Power Mode): the poster stays, the play control works
-    }
-    // A missing file does not always raise an error (Chrome kept "loading" a 404 forever): no metadata
-    // after a few seconds means no video, so show the still instead of an empty frame.
-    const timer = setTimeout(() => {
-      if (v.readyState < HTMLMediaElement.HAVE_METADATA) setMode("poster");
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, []);
+    if (!motion || videoFailed) return;
+    const el = slot.current;
+    const start = () => {
+      setWantPlay(true);
+      setLoad(true);
+    };
+    if (!el || typeof IntersectionObserver === "undefined") return start();
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        io.disconnect();
+        start();
+      }
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [motion, videoFailed]);
 
   function toggle() {
     const v = video.current;
-    if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
+    if (!load || !v) {
+      setWantPlay(true);
+      setLoad(true); // autoPlay starts it once mounted
+      return;
+    }
+    if (v.paused) {
+      setWantPlay(true);
+      v.play().catch(() => {});
+    } else {
+      setWantPlay(false);
+      v.pause();
+    }
   }
 
+  const caption = (
+    <>
+      <p className="whitespace-pre-wrap">{`${playing ? NOW_PLAYING : EXAMPLE}  ${DEMO_SONG}`}</p>
+      <p className="mt-1">
+        <span className="inline-block border-b-2 border-ink pb-0.5">{DEMO_USE}</span>
+      </p>
+    </>
+  );
+
   return (
-    <div className="relative mx-auto aspect-[9/19.5] h-[46vh] max-h-[46vh] supports-[height:1dvh]:h-[46dvh] supports-[height:1dvh]:max-h-[46dvh] max-w-full overflow-hidden rounded-[28px] bg-ink ring-1 ring-ink/10">
-      {mode === "video" && (
-        <>
-          <video
-            ref={video}
-            src={VIDEO}
-            poster={POSTER}
-            muted
-            playsInline
-            loop
-            preload="metadata"
-            onError={() => setMode("poster")}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            className="h-full w-full object-cover"
-          />
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={playing ? "Pause demo" : "Play demo"}
-            className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-sm text-white"
-          >
-            <span aria-hidden>{playing ? "❚❚" : "▶"}</span>
-          </button>
-        </>
-      )}
-      {mode === "poster" && (
+    <MediaFrame size={DEMO_SIZE} caption={caption}>
+      <span ref={slot} aria-hidden className="absolute inset-0" />
+      {!posterFailed && (
         // eslint-disable-next-line @next/next/no-img-element -- static brand still, no optimisation needed
         <img
           src={POSTER}
           alt="A Songfit result: a song and the part of it to use"
-          onError={() => setMode("placeholder")}
-          className="h-full w-full object-cover"
+          fetchPriority="high"
+          onError={() => setPosterFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover"
         />
       )}
-      {mode === "placeholder" && (
-        <div aria-hidden className="flex h-full w-full items-center justify-center">
-          <span className="text-2xl font-semibold tracking-tight text-white/40">Songfit</span>
-        </div>
+      {load && !videoFailed && (
+        <video
+          ref={video}
+          src={VIDEO}
+          muted
+          playsInline
+          loop
+          autoPlay
+          preload="auto"
+          aria-hidden
+          onPlaying={() => {
+            setPlaying(true);
+            setRevealed(true);
+          }}
+          onPause={() => setPlaying(false)}
+          onError={() => {
+            setVideoFailed(true);
+            setPlaying(false);
+          }}
+          className={`absolute inset-0 h-full w-full object-cover ${revealed ? "" : "opacity-0"}`}
+        />
       )}
-    </div>
+      {!videoFailed && (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={playing ? "Pause demo" : "Play demo"}
+          className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center bg-ink/70 text-white"
+        >
+          <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor">
+            {playing ? <path d="M4 3h3v10H4zM9 3h3v10H9z" /> : <path d="M4 2.5v11l9.5-5.5z" />}
+          </svg>
+        </button>
+      )}
+    </MediaFrame>
   );
 }

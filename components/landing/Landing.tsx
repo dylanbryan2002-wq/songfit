@@ -7,8 +7,11 @@ import { checkVideoFile, TOO_LONG } from "../videoChecks";
 import { SignIn } from "../SignIn";
 import { UploadForm } from "../UploadForm";
 import { ensureAnonSession } from "./anonSession";
+import { CHOOSE, NO_SIGN_UP } from "./copy";
+import { DemoLoop } from "./DemoLoop";
 import { FileCard } from "./FileCard";
 import { GoogleButton } from "./GoogleButton";
+import { AREA, CTA, Headline, STICKY } from "./Hero";
 import { InAppNotice, useInAppBrowser } from "./InAppNotice";
 import { sendLandingEvent } from "./landingEvent";
 import { createBrowserClient } from "@/src/db/browser";
@@ -33,8 +36,9 @@ function tabFlowId(): { id: string; existing: boolean } {
 }
 
 /** Signed-out first screen: choose a video, then the upload form runs under an anonymous session
- *  (Google sign-in comes at the results). If anonymous sign-in fails, sign in with Google first. */
-export function Landing({ authFailed }: { authFailed: boolean }) {
+ *  (Google sign-in comes at the results). If anonymous sign-in fails, sign in with Google first.
+ *  `anonymousLive` shows "No sign-up to start."; true only once anonymous sign-in is switched on. */
+export function Landing({ authFailed, anonymousLive = false }: { authFailed: boolean; anonymousLive?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const flowId = useRef("");
   const selection = useRef(0); // bumps on every pick; an older async check never replaces a newer pick
@@ -137,53 +141,131 @@ export function Landing({ authFailed }: { authFailed: boolean }) {
   const choose = () => input.current?.click();
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center gap-3">
+    <>
       <input ref={input} type="file" accept="video/*" className="sr-only" tabIndex={-1} onChange={onPick} />
-      {anonFile ? (
-        <>
-          <UploadForm creator={{ email: null }} initialFile={anonFile} />
-          <p className="text-center text-xs text-muted">
+      <LandingView
+        view={anonFile ? "anon" : inApp ? "inApp" : storageFailed ? "storageFailed" : chosen ? "chosen" : "empty"}
+        anonFile={anonFile}
+        chosen={chosen}
+        checking={checking}
+        busy={busy}
+        notice={notice}
+        error={error}
+        anonymousLive={anonymousLive}
+        onChoose={choose}
+        onContinue={onContinue}
+        onRemove={() => {
+          clearPendingUpload(flowId.current).catch(() => {});
+          setChosen(null);
+        }}
+      />
+    </>
+  );
+}
+
+export type LandingViewName = "empty" | "chosen" | "inApp" | "storageFailed" | "anon";
+
+/** The signed-out page in one state; holds no state itself. Its blocks sit in page.tsx's grid (AREA). */
+export function LandingView({
+  view,
+  anonFile = null,
+  chosen = null,
+  checking = false,
+  busy = false,
+  notice = null,
+  error = null,
+  anonymousLive = false,
+  onChoose = () => {},
+  onContinue = () => {},
+  onRemove = () => {},
+}: {
+  view: LandingViewName;
+  anonFile?: File | null;
+  chosen?: Chosen | null;
+  checking?: boolean;
+  busy?: boolean;
+  notice?: string | null;
+  error?: string | null;
+  anonymousLive?: boolean;
+  onChoose?: () => void;
+  onContinue?: () => void;
+  onRemove?: () => void;
+}) {
+  const messages = (
+    <>
+      {notice && <p className="text-sm font-semibold text-ink">{notice}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </>
+  );
+
+  if (view === "anon" && anonFile) {
+    return (
+      <>
+        <UploadForm creator={{ email: null }} initialFile={anonFile} />
+        <div className={`flex flex-col gap-3 ${AREA.note}`}>
+          <p className="text-xs text-muted">
             Your video is stored by Songfit and analyzed with third-party AI services to find your songs.
           </p>
-        </>
-      ) : inApp ? (
-        // A file chosen here cannot carry over to the real browser, so no choose/stash step either.
-        <InAppNotice />
-      ) : storageFailed ? (
-        <SignIn message="Sign in, then upload your video." />
-      ) : chosen ? (
-        <>
-          <FileCard
-            file={chosen.file}
-            durationSeconds={chosen.durationSeconds}
-            onChange={choose}
-            onRemove={() => {
-              clearPendingUpload(flowId.current).catch(() => {});
-              setChosen(null);
-            }}
-            disabled={busy || checking}
-          />
+          {messages}
+        </div>
+      </>
+    );
+  }
+
+  if (view === "chosen" && chosen) {
+    // Google fallback: the H1 stays, the clip replaces the demo, no sticky button.
+    return (
+      <>
+        <Headline />
+        <FileCard
+          file={chosen.file}
+          durationSeconds={chosen.durationSeconds}
+          onChange={onChoose}
+          onRemove={onRemove}
+          disabled={busy || checking}
+        />
+        <div className={`flex flex-col items-start gap-3 ${AREA.body}`}>
           <GoogleButton onClick={onContinue} disabled={busy || checking} />
-          <p className="text-center text-xs leading-relaxed text-muted">
+          <p className="text-xs leading-relaxed text-muted">
             From Google we use your name and email. After sign-in you start the upload; your video is analysed to
             find songs and never shown to other creators.{" "}
             <a href="/privacy" className="underline underline-offset-2">
               Privacy
             </a>
           </p>
-        </>
+          {messages}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Headline />
+      <DemoLoop />
+      {view === "inApp" ? (
+        // A file chosen here cannot carry over to the real browser: no chooser, no sticky button.
+        <div className={`flex flex-col gap-3 ${AREA.body}`}>
+          <InAppNotice />
+          {messages}
+        </div>
+      ) : view === "storageFailed" ? (
+        <div className={`flex flex-col gap-3 ${AREA.body}`}>
+          <SignIn message="Sign in, then upload your video." />
+          {messages}
+        </div>
       ) : (
-        <button
-          type="button"
-          onClick={choose}
-          disabled={checking}
-          className="min-h-[52px] w-full rounded-2xl bg-ink px-6 text-base font-semibold text-white active:scale-[0.99] disabled:opacity-60"
-        >
-          {checking ? "Checking your video" : "Choose your video"}
-        </button>
+        // `contents` on a phone so the sticky bar's containing block is the whole page, not this div.
+        <div className={`contents lg:block ${AREA.body}`}>
+          <div className={STICKY}>
+            {messages}
+            <button type="button" onClick={onChoose} disabled={checking} className={CTA}>
+              {checking ? "Checking your video" : CHOOSE}
+            </button>
+            {anonymousLive && <p className="text-xs text-muted">{NO_SIGN_UP}</p>}
+          </div>
+        </div>
       )}
-      {notice && <p className="text-center text-sm font-semibold text-ink">{notice}</p>}
-      {error && <p className="text-center text-sm text-red-600">{error}</p>}
-    </div>
+    </>
   );
 }

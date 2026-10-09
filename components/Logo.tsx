@@ -4,8 +4,8 @@
  * swap the file for an SVG/transparent PNG when one exists and drop the blend.
  * Named export: `import { Logo } from "@/components/Logo"`.
  */
-export function Logo({ size = "sm", className = "" }: { size?: "sm" | "lg"; className?: string }) {
-  const height = size === "lg" ? "h-10" : "h-7";
+export function Logo({ size = "sm", className = "" }: { size?: "xs" | "sm" | "lg"; className?: string }) {
+  const height = size === "lg" ? "h-10" : size === "xs" ? "h-6" : "h-7";
   return (
     <span className={`inline-flex items-center ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset, no optimisation needed */}

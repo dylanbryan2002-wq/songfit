@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { UploadForm } from "../UploadForm";
+import { AREA } from "./Hero";
 import { sendLandingEvent } from "./landingEvent";
 import { FLOW_ID_KEY, clearPendingUpload, readPendingUpload } from "@/src/upload/pendingUpload";
 
@@ -34,11 +35,11 @@ export function ResumeUpload({ creator, flowId }: { creator: Creator; flowId: st
     };
   }, [flowId]);
 
-  if (state.kind === "loading") return <div aria-busy className="mt-10 h-64 w-full max-w-md" />;
+  if (state.kind === "loading") return <div aria-busy className={`h-64 w-full ${AREA.body}`} />;
   if (state.kind === "missing") {
     return (
       <>
-        <p className="mt-8 text-center text-sm font-semibold text-ink">Pick your video again to continue.</p>
+        <p className={`text-sm font-semibold text-ink ${AREA.note}`}>Pick your video again to continue.</p>
         <UploadForm creator={creator} />
       </>
     );
