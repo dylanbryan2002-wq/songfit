@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { CONTENT_CATEGORIES } from "../../src/shared/config";
 import { Energy, Pacing } from "../../src/shared/types";
 
 export const PROMPT_VERSION = "gemini-paste-v1";
@@ -16,7 +15,7 @@ const KeyMoment = z.object({ time: z.number().min(0), type: z.string(), note: z.
 /** Strict on the keys the prompt asks for; extra keys are dropped (z.object strips unknown keys). */
 export const GeminiAnalysis = z.object({
   summary: z.string(),
-  content_category: z.enum(CONTENT_CATEGORIES),
+  content_category: z.string(), // Gemini strays off our list ("technology"); kept verbatim for the side-by-side diff
   setting: z.string().nullable(),
   story: z.string().nullable(),
   energy: Energy,
