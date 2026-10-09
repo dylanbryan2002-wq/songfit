@@ -43,7 +43,8 @@ const Lesson = z.object({
   why_it_works: z.string(),
   lazy_wrong_pick: z.string(), // what a generic engine would pick and why it would flatten the video (use our engine's picks when they do)
   rule: z.string(), // the decision rule, reusable on a different video
-  description_errors: z.array(z.string()), // contradictions between the description and the recording; [] if none
+  // contradictions between the description and the recording; [] if none (a plain string is accepted and split out)
+  description_errors: z.preprocess((v) => (typeof v === "string" ? (/^\s*(none|no errors?|n\/a|-)?\.?\s*$/i.test(v) ? [] : [v]) : v), z.array(z.string())),
   confidence: z.enum(["high", "medium", "low"]),
 });
 const StudyOutput = z.object({
@@ -55,7 +56,7 @@ export type StudyOutput = z.infer<typeof StudyOutput>;
 type Dossier = { n: number; clip: string; batch: string; song: string; start: number; gemini: unknown; ours_top3: string[] };
 
 async function main() {
-  const { values: args } = parseArgs({ options: { home: { type: "string" }, "dry-run": { type: "boolean", default: false } } });
+  const { values: args } = parseArgs({ options: { home: { type: "string" }, "dry-run": { type: "boolean", default: false }, "from-raw": { type: "boolean", default: false } } });
   const home = path.resolve((args.home ?? "~/Songfit-groundtruth").replace(/^~(?=$|\/)/, os.homedir()));
   const dossiers: Dossier[] = [];
   for (const batch of (await fs.readdir(path.join(home, "batches"))).sort()) {
@@ -87,8 +88,11 @@ async function main() {
   await fs.mkdir(out, { recursive: true });
   console.log(`${dossiers.length} tune Reels, prompt ≈ ${Math.round((SYSTEM.length + user.length) / 4)} tokens`);
   if (args["dry-run"]) { await fs.writeFile(path.join(out, "study-prompt.md"), `${SYSTEM}\n\n${user}`); return; }
-  const text = await callClaude({ model: MODELS.study, system: SYSTEM, user, maxTokens: 32_000, effort: "high", timeoutMs: 600_000 });
-  await fs.writeFile(path.join(out, "study-raw.md"), text);
+  // --from-raw re-parses the saved reply instead of paying for another call.
+  const text = args["from-raw"]
+    ? await fs.readFile(path.join(out, "study-raw.md"), "utf8")
+    : await callClaude({ model: MODELS.study, system: SYSTEM, user, maxTokens: 32_000, effort: "high", timeoutMs: 600_000 });
+  if (!args["from-raw"]) await fs.writeFile(path.join(out, "study-raw.md"), text);
   const parsed = StudyOutput.safeParse(extractJson(text));
   if (!parsed.success) throw new Error(`study output did not parse: ${parsed.error.message.slice(0, 500)} (raw in study-raw.md)`);
   if (parsed.data.lessons.length !== dossiers.length) throw new Error(`expected ${dossiers.length} lessons, got ${parsed.data.lessons.length}`);
