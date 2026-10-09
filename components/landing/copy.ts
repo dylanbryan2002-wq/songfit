@@ -3,6 +3,9 @@ export const HEADLINE = "We find the perfect song to help your video go viral.";
 export const MONO_LINE = "+ THE EXACT SECONDS TO USE.";
 export const SUBLINE = "Upload a Reel or TikTok. Get 15 real songs and hear each one over your clip.";
 export const CHOOSE = "Choose your video";
+/** Social proof under the subline: the real count of ready submissions, shown only from SOCIAL_PROOF_MIN up. */
+export const SOCIAL_PROOF_MIN = 100;
+export const videosMatched = (n: number) => `${n.toLocaleString("en-US")} videos matched so far`;
 /** Only shown once anonymous sign-in is live (Landing's `anonymousLive`). */
 export const NO_SIGN_UP = "No sign-up to start.";
 

@@ -46,15 +46,18 @@ function tabFlowId(): { id: string; existing: boolean } {
 /** Signed-out first screen: choose a video, then the upload form runs under an anonymous session
  *  (Google sign-in comes at the results). If anonymous sign-in fails, sign in with Google first.
  *  `anonymousLive` shows "No sign-up to start."; true only once anonymous sign-in is switched on.
- *  `uploadsLeft`: an existing anonymous session's allowance, counted server-side; null when unknown. */
+ *  `uploadsLeft`: an existing anonymous session's allowance, counted server-side; null when unknown.
+ *  `matched`: ready submissions so far, for the social-proof line (Headline hides it under SOCIAL_PROOF_MIN). */
 export function Landing({
   authFailed,
   anonymousLive = false,
   uploadsLeft = null,
+  matched = null,
 }: {
   authFailed: boolean;
   anonymousLive?: boolean;
   uploadsLeft?: number | null;
+  matched?: number | null;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const flowId = useRef("");
@@ -189,6 +192,7 @@ export function Landing({
         error={error}
         anonymousLive={anonymousLive}
         uploadsLeft={uploadsLeft}
+        matched={matched}
         onChoose={choose}
         onContinue={onContinue}
         onRemove={() => {
@@ -213,6 +217,7 @@ export function LandingView({
   error = null,
   anonymousLive = false,
   uploadsLeft = null,
+  matched = null,
   onChoose = () => {},
   onContinue = () => {},
   onRemove = () => {},
@@ -226,6 +231,7 @@ export function LandingView({
   error?: string | null;
   anonymousLive?: boolean;
   uploadsLeft?: number | null;
+  matched?: number | null;
   onChoose?: () => void;
   onContinue?: () => void;
   onRemove?: () => void;
@@ -255,7 +261,7 @@ export function LandingView({
     // Google fallback: the H1 stays, the clip replaces the demo, no sticky button.
     return (
       <>
-        <Headline />
+        <Headline matched={matched} />
         <FileCard
           file={chosen.file}
           durationSeconds={chosen.durationSeconds}
@@ -280,7 +286,7 @@ export function LandingView({
 
   return (
     <>
-      <Headline />
+      <Headline matched={matched} />
       <DemoLoop />
       {view === "inApp" ? (
         // A file chosen here cannot carry over to the real browser: no chooser, no sticky button.

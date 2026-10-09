@@ -1,5 +1,6 @@
 import { getViewer, type Viewer } from "@/src/auth/session";
 import { uploadsLeft } from "@/src/billing/rateLimit";
+import { countReadySubmissions } from "@/src/db/queries/socialProof";
 import { isUuid } from "@/src/shared/ids";
 import { logger } from "@/src/shared/logger";
 import { Logo } from "@/components/Logo";
@@ -22,11 +23,21 @@ async function allowance(viewer: Viewer | null): Promise<number | null> {
   }
 }
 
+/** Ready submissions so far, for the landing's social-proof line; null (hidden) when the count fails. */
+async function matchedSoFar(): Promise<number | null> {
+  try {
+    return await countReadySubmissions();
+  } catch (err) {
+    logger.error("countReadySubmissions failed", { error: String(err) });
+    return null;
+  }
+}
+
 export default async function HomePage({ searchParams }: { searchParams: Promise<Search> }) {
   const [viewer, params] = await Promise.all([getViewer(), searchParams]);
   // Same rule as getCreator(): a Google session with a confirmed email.
   const creator = viewer && !viewer.anonymous && viewer.email ? { id: viewer.id, email: viewer.email } : null;
-  const left = await allowance(viewer);
+  const [left, matched] = await Promise.all([allowance(viewer), creator ? null : matchedSoFar()]);
   const resume = typeof params.resume === "string" && isUuid(params.resume) ? params.resume : null;
   return (
     // Phone: one left-aligned column, 20 px gutter. ≥1024: 12-col grid, 40 px gutters (see AREA).
@@ -42,7 +53,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       </div>
       {/* The form components draw the headline, the clip and the button for their own state. */}
       {!creator ? (
-        <Landing authFailed={params.auth === "failed"} uploadsLeft={left} />
+        <Landing authFailed={params.auth === "failed"} uploadsLeft={left} matched={matched} />
       ) : (
         <CreatorUpload creator={creator} resume={resume} uploadsLeft={left} />
       )}

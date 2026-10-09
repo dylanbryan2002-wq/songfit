@@ -1,4 +1,4 @@
-import { HEADLINE, MONO_LINE, PICK_A_FEEL, SUBLINE } from "./copy";
+import { HEADLINE, MONO_LINE, PICK_A_FEEL, SOCIAL_PROOF_MIN, SUBLINE, videosMatched } from "./copy";
 
 /** Where each block sits. Phone: one centred column in DOM order (main is a flex column; Dylan 2026-10-09).
  *  ≥1024: main is a 12-col grid; text in cols 1–6, the clip in cols 8–12, top-aligned with the H1.
@@ -21,8 +21,8 @@ export const STICKY = `sticky bottom-0 ${CTA_BAR}`;
 
 const DISPLAY = "font-display font-extrabold text-ink [font-variation-settings:'wdth'_85]";
 
-/** H1, mono line, subline. */
-export function Headline() {
+/** H1, mono line, subline, and the matched count once it is at least SOCIAL_PROOF_MIN (null or below: hidden). */
+export function Headline({ matched = null }: { matched?: number | null }) {
   return (
     <div className={AREA.heading}>
       <h1
@@ -32,6 +32,9 @@ export function Headline() {
       </h1>
       <p className="mt-4 font-mono text-[15px] font-medium leading-[1.3] tracking-wide text-ink">{MONO_LINE}</p>
       <p className="mx-auto mt-3 max-w-[32ch] text-[16px] leading-[1.45] text-muted lg:mx-0">{SUBLINE}</p>
+      {matched !== null && matched >= SOCIAL_PROOF_MIN && (
+        <p className="mt-3 font-mono text-[12px] font-medium tracking-wide text-ink">{videosMatched(matched)}</p>
+      )}
     </div>
   );
 }
