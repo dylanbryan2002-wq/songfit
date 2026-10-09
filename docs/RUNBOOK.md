@@ -51,7 +51,7 @@ pnpm local scripts/delete-creator.ts <their-email>          # dry run: prints ev
 pnpm local scripts/delete-creator.ts <their-email> --yes    # deletes
 ```
 
-It deletes, in order: every storage object of their submissions (original + playback copy), including runs they claimed from an anonymous session (those files sit under the anonymous id's folder), plus any stray uploads in those folders; their `events` rows (events are SET NULL on delete, not cascaded, and hold `wanted_instead` free text); the anonymous auth users their runs came from; then their auth user, which cascades `creators` → `submissions` → `video_analyses`, `candidates`, `recommendations`, and `subscriptions`. Reply to the creator when it is done and note it in "Manual fixes" (date, no email).
+It deletes, in order: every storage object of their submissions (original + playback copy), including runs they claimed from an anonymous session (those files sit under the anonymous id's folder), plus any stray uploads in those folders and their sub-folders, never a file another submission still references; their `events` rows and those of their submissions (events are SET NULL on delete, not cascaded, and hold `wanted_instead` free text); the anonymous auth users their runs came from, each only if it is anonymous and has no submission and no file left; then their auth user, which cascades `creators` → `submissions` → `video_analyses`, `candidates`, `recommendations`, and `subscriptions`. Reply to the creator when it is done and note it in "Manual fixes" (date, no email).
 
 **Unclaimed anonymous runs: purge monthly** (manual for now; the privacy page promises 30 days). On the 1st of each month:
 
