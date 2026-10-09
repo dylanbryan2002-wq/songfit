@@ -29,7 +29,38 @@ Creators can retry too: a failed run (or one still in flight after ~7 minutes on
 
 ## Daily cap
 
-Each creator can start at most `LIMITS.dailyUploadsPerCreator` (10) submissions per rolling 24 hours, on top of the 5-per-minute burst limit. `/api/upload-url` answers 429 `daily_limit`; the form says "You've used today's 10 uploads. Come back tomorrow." To lift it for someone, raise the number in `src/shared/config.ts` and redeploy.
+Each creator can start at most `LIMITS.dailyUploadsPerCreator` (10) submissions per rolling 24 hours (3 for an anonymous visitor), on top of the 5-per-minute burst limit. The site as a whole starts at most `LIMITS.globalDailySubmissions` (150) per rolling 24 hours. Both caps are enforced inside `create_submission()` (migration 0010), so parallel requests cannot slip past them. `/api/upload-url` pre-checks the per-creator cap (429 `daily_limit`); `POST /api/submissions` answers 429 `daily_limit` or `global_limit`. The form says "You've used today's 10 uploads. Come back tomorrow." or "We're at capacity right now. Try again in a bit."
+
+To change a cap: it is a literal in the SQL function AND in `src/shared/config.ts`. Write a new migration that redefines `create_submission()` with the new number, change config to match (`tests/shared/limitsMatchMigration.test.ts` fails until both agree), `pnpm db:push`, then deploy.
+
+## Emergency stop
+
+Spend is running away (a bot is minting anonymous sessions, or a retry loop):
+
+1. **Stop new anonymous visitors (under a minute, no deploy):** Supabase Dashboard → Authentication → Sign In / Providers → Anonymous sign-ins → off. Visitors fall back to "Continue with Google" automatically.
+2. **Stop every model call (under a minute):** Anthropic Console → API keys → revoke the production key (and the OpenAI key for Whisper). Runs fail at the analyze stage; creators see Try again. Make a new key and have Dylan enter it in Vercel when it is safe.
+3. **Lower the caps (deploy):** see Daily cap above (a migration plus config). `PREVIEWS_ENABLED = false` in `src/shared/config.ts` hides every Deezer sample if Deezer is the problem (commit, push, ~2 min).
+4. Bot flood on the site itself: Vercel → Firewall → Attack Challenge Mode.
+
+## Deletion on request
+
+A creator emails the address on `/privacy` asking to be deleted:
+
+```bash
+pnpm local scripts/delete-creator.ts <their-email>          # dry run: prints every file, row and user it would delete
+pnpm local scripts/delete-creator.ts <their-email> --yes    # deletes
+```
+
+It deletes, in order: every storage object of their submissions (original + playback copy), including runs they claimed from an anonymous session (those files sit under the anonymous id's folder), plus any stray uploads in those folders; their `events` rows (events are SET NULL on delete, not cascaded, and hold `wanted_instead` free text); the anonymous auth users their runs came from; then their auth user, which cascades `creators` → `submissions` → `video_analyses`, `candidates`, `recommendations`, and `subscriptions`. Reply to the creator when it is done and note it in "Manual fixes" (date, no email).
+
+**Unclaimed anonymous runs: purge monthly** (manual for now; the privacy page promises 30 days). On the 1st of each month:
+
+```bash
+pnpm local scripts/purge-anonymous.ts          # dry run
+pnpm local scripts/purge-anonymous.ts --yes    # deletes
+```
+
+It removes every anonymous creator (`email is null`) created more than 30 days ago with no run in the last 30 days: their files (never a file a Google creator's claimed run still uses), events and auth user.
 
 ## Fix a bad recommendation by hand
 
