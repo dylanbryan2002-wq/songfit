@@ -548,6 +548,27 @@ export type Database = {
           },
         ]
       }
+      usage: {
+        Row: {
+          created_at: string
+          creator_id: string
+          id: string
+          kind: string
+        }
+        Insert: {
+          created_at?: string
+          creator_id: string
+          id?: string
+          kind: string
+        }
+        Update: {
+          created_at?: string
+          creator_id?: string
+          id?: string
+          kind?: string
+        }
+        Relationships: []
+      }
       video_analyses: {
         Row: {
           aesthetic: string[]
