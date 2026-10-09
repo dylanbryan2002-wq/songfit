@@ -10,16 +10,17 @@ audio label, and Gemini where it was confident). Script: `scripts/groundtruth/` 
 a quiet instrumental bed (Gemini role "narration"); 10 use the music to amplify a montage or reveal; 2 use it as the
 punchline. Gemini heard no vocals on 42 of 46 and called the track obscure on 39 of 46.
 
-Song truth so far: 17 clips (13 from ACRCloud, the rest from the label or Gemini). The other 29 are talking heads
-whose bed the fingerprinter could not hear under the voice; a voice-separation pass is running to recover them.
+Song truth: 30 clips (ACRCloud on the raw audio found 13; stripping the voice first with demucs raised it to 29; one
+from Gemini). 16 clips remain without a song: beds the fingerprinter cannot name even with the voice removed, most
+likely creator-made or unreleased library tracks. Four matches scored under 90 and are kept as unconfirmed.
 
-## Results on the 17 with a known song
+## Results on the 30 with a known song (17 at the first count; numbers updated after voice separation)
 
 | | |
 |---|---|
-| Hit (real song in our 15) | 1 of 17, at rank 14, section exact (Can You Hear The Music, Göransson) |
+| Hit (real song in our 15) | 1 of 30, at rank 14, section exact (Can You Hear The Music, Göransson) |
 | Artist hit | 1 (we offered Göransson's other score instead of Sirens) |
-| Miss, never generated | 14 |
+| Miss, never generated | 27 |
 | Miss, generated but dropped at Deezer verification | 1 (On the Nature of Daylight, Max Richter: no Deezer match found) |
 | Miss, generated and verified but scored out of the 15 | 1 (Sailor Song, Gigi Perez) |
 | Engine produced nothing | 6 of 46 before reruns: 2 cut-off candidates calls, 4 network drop |
@@ -67,11 +68,12 @@ E. **Catalog seed (after Sunday).** Insert fingerprinted beds from viral clips i
    second candidate source for narration-role briefs; this is the manual-now version of the catalog retrieval stage.
 D. **Reliability.** The low-effort retry on a cut-off candidates call.
 
-Measure: rerun `--tag round2` after A and B. Hit rate on the known-song clips must rise from 1/17; the stage split
+Measure: rerun `--tag round2` after A and B. Hit rate on the known-song clips must rise from 1/30; the stage split
 should move from "not generated" to "scored out" or hits. Section error stays at 0 on hits.
 
 ## Not yet usable as evidence
 
-- 29 clips without song truth (voice separation in progress).
-- Two low-confidence fingerprints (Scheming Weasel at 85, Another Thrill at 88) are kept but not trusted.
+- 16 clips without song truth (Dylan checks the audio label on those Reels).
+- Four fingerprints under score 90 (Bad by Michael Jackson 82, Yas Queen 76, Look My Eyes 88, Bliss first pass 73
+  then 100 after separation) are kept in the CSV with their score and not trusted on their own.
 - 13 extra videos with no Gemini reply were left out of the run.
