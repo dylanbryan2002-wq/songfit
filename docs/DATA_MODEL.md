@@ -7,6 +7,13 @@ Conventions (all tables): `id uuid default gen_random_uuid() primary key`,
 `created_at timestamptz default now()`. Foreign keys state ON DELETE.
 RLS enabled on every table.
 
+Client access (0010): the app reads and writes every table through the service role in API routes
+and server components; the browser uses the anon key only for Auth and the Storage upload. So
+`anon` and `authenticated` hold NO insert/update/delete grant on any `public` table
+(`revoke insert, update, delete on all tables in schema public from anon, authenticated`), and the
+only client policies left are `creators: read own` and `subscriptions: read own` (harmless, unused).
+A new client policy needs a new grant too, on purpose.
+
 ## creators
 One row per sign-in (Google or anonymous). Mirrors `auth.users`.
 
@@ -19,7 +26,8 @@ One row per sign-in (Google or anonymous). Mirrors `auth.users`.
 | preferences   | jsonb       | nullable, future CreatorPreference |
 | created_at    | timestamptz |                                    |
 
-RLS: creator reads/updates own row.
+RLS: creator reads own row. No update policy (dropped in 0010: it let a visitor rewrite `email`
+and squat someone else's address). Written only by the service role and the auth trigger.
 
 Anonymous creators (email null) upload and run like any creator, capped at
 `LIMITS.dailyUploadsAnonymous` (3) per 24 h, and never see the picker: the results page shows a
@@ -50,8 +58,9 @@ A creator's upload and its pipeline state.
 Status (advance in order, retry from the failed stage):
 `uploaded` → `analyzing` → `recommending` → `ready`, or `failed`.
 
-RLS: creator reads own rows. NO authenticated insert policy: rows are created only by the
-service role through `create_submission()`.
+RLS: service role only since 0010 (the "read own" policy was unused and let an anonymous visitor
+read the raw `error`). NO authenticated insert policy: rows are created only by the service role
+through `create_submission()`.
 
 ## video_analyses
 One per submission. Output of src/analysis.
@@ -78,7 +87,7 @@ One per submission. Output of src/analysis.
 | raw_response        | jsonb       | nullable, for debugging                 |
 | created_at          | timestamptz |                                         |
 
-RLS: creator reads own (via submission). Writes via service role.
+RLS: service role only since 0010 (the unused "read own" policy exposed `raw_response`).
 
 ## candidates
 Every song the engine considered for a submission. Makes ranking inspectable.
@@ -142,7 +151,8 @@ The ranked picks shown to the creator: up to 15 (at least 3), shown 5 at a time.
 | aligned_to_moment     | numeric     | nullable                                           |
 | created_at      | timestamptz |                                         |
 
-RLS: creator reads own (via submission).
+RLS: service role only since 0010 (the unused "read own" policy let an anonymous visitor read
+the picks past the sign-in gate).
 
 ## events
 Metrics. One row per creator action or pipeline milestone.
@@ -211,12 +221,19 @@ RLS: service role only.
 
 ## SQL functions (security definer, service role only)
 - `create_submission(p_id uuid, p_creator_id uuid, p_video_path text, p_intent text) returns submissions`
-  — takes a per-creator advisory lock, counts the creator's `ready` rows plus
-  in-flight rows (`uploaded|analyzing|recommending` updated in the last 10
-  minutes), checks for an active subscription, raises `needs_subscription`
-  when count ≥ 1 and not subscribed, otherwise inserts and returns the row.
-  Idempotent on `p_id` for the same creator. The literal `1` matches
-  `FREE_RESULTS_PER_CREATOR` in `src/shared/config.ts`.
+  — takes a global advisory lock, then the per-creator one. Idempotent on `p_id` for the same
+  creator (an existing id returns the row before any cap). Then, in order (0010):
+  1. **daily cap**: submissions this creator created in the last 24 h ≥ 10
+     (`LIMITS.dailyUploadsPerCreator`), or ≥ 3 (`LIMITS.dailyUploadsAnonymous`) when the
+     creator's `email is null` → raises `daily_limit`. The route answers 429 `{ error: "daily_limit" }`.
+  2. **global ceiling**: submissions created site-wide in the last 24 h ≥ 150 → raises
+     `global_limit`. The route answers 429 `{ error: "global_limit" }`; the form says
+     "We're at capacity right now. Try again in a bit."
+  3. **paywall**: counts the creator's `ready` rows plus in-flight rows
+     (`uploaded|analyzing|recommending` updated in the last 10 minutes), raises
+     `needs_subscription` when count ≥ 1000 (0006, paywall off) and not subscribed.
+  Otherwise inserts and returns the row. The numbers are literals in the function; a unit test
+  (`tests/shared/limitsMatchMigration.test.ts`) keeps them equal to `src/shared/config.ts`.
 - `claim_submission_run(p_id uuid) returns submissions` — one conditional
   update: moves `uploaded|failed` to `analyzing`, or re-claims an in-flight
   row whose `updated_at` is older than 6 minutes (status unchanged so the
@@ -278,6 +295,13 @@ RLS on all three: service role only.
 
 ## Storage
 Bucket `videos`, private. Path `{creator_id}/{submission_id}.{ext}`.
+`allowed_mime_types` (0010): `video/mp4`, `video/quicktime`, `video/x-m4v`, `video/webm`, `video/3gpp`.
+Policies on `storage.objects`: `videos: read own folder` (select), and `videos: upload own folder`
+(insert, authenticated), which since 0010 also requires the name to be exactly
+`<auth.uid()>/<uuid>.(mp4|mov|webm|m4v)`. The insert policy stays because files over 6 MB go up by
+TUS with the user's own JWT (`components/upload.ts`); small files use the server-issued signed URL.
+Drop the policy only after TUS moves to the signed-upload token (`/upload/resumable/sign` +
+`x-signature`).
 Max upload 150 MB (the `videos` bucket limit from 0001; the Supabase dashboard global upload cap must be set to at least 150 MB, Pro plan), max duration 180 s. Signed URLs for admin playback.
 
 ## Paywall status (2026-10-07)

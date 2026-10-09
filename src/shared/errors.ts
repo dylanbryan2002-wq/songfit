@@ -33,6 +33,16 @@ export class PaywallError extends Error {
   }
 }
 
+/** Thrown by createSubmission() when create_submission() refuses on a 24 h cap (per creator or site-wide). */
+export class SubmissionLimitError extends Error {
+  readonly reason: "daily_limit" | "global_limit";
+  constructor(reason: "daily_limit" | "global_limit") {
+    super(reason);
+    this.name = "SubmissionLimitError";
+    this.reason = reason;
+  }
+}
+
 export function isPaywallError(e: unknown): e is PaywallError {
   return e instanceof PaywallError;
 }

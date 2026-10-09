@@ -30,6 +30,7 @@ type UploadTarget = { submissionId: string; path: string; token: string; signedU
 const FAILED = "Upload didn't finish. Try again.";
 const DAILY_LIMIT = `You've used today's ${LIMITS.dailyUploadsPerCreator} uploads. Come back tomorrow.`;
 const DAILY_LIMIT_ANONYMOUS = "Sign in to upload more.";
+const GLOBAL_LIMIT = "We're at capacity right now. Try again in a bit.";
 
 /** Why the server said 402 (src/billing/paywall.ts). The create step only knows "needs_subscription". */
 type Blocked = "needs_subscription" | "in_flight";
@@ -194,7 +195,10 @@ export function UploadForm({
         setPhase("idle");
         return;
       }
-      if (createRes.status === 429) throw new Error(dailyLimit);
+      if (createRes.status === 429) {
+        const body = (await createRes.json().catch(() => null)) as { error?: unknown } | null;
+        throw new Error(body?.error === "global_limit" ? GLOBAL_LIMIT : dailyLimit);
+      }
       if (createRes.status === 400 || createRes.status === 403) {
         // The server rejected this target (path/size/id mismatch). Drop it so the retry gets a new one.
         setTarget(null);
@@ -207,7 +211,7 @@ export function UploadForm({
     } catch (err) {
       setPhase("error");
       const msg = err instanceof Error ? err.message : "";
-      setError(msg.startsWith("Give it") || msg === dailyLimit || msg === FAILED ? msg : FAILED);
+      setError(msg.startsWith("Give it") || msg === dailyLimit || msg === GLOBAL_LIMIT || msg === FAILED ? msg : FAILED);
     } finally {
       running.current = false;
     }

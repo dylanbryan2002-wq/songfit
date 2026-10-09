@@ -2,13 +2,12 @@ import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getViewer } from "@/src/auth/session";
-import { dailyUploadLimit, overDailyLimit } from "@/src/billing/rateLimit";
 import { createSubmission, countSubmissionsForCreator, getSubmission, setSubmissionVibe } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
 import { isExactStoragePath, objectInfo } from "@/src/media/storage";
 import { runSubmission } from "@/src/pipeline/run";
 import { LIMITS } from "@/src/shared/config";
-import { PaywallError } from "@/src/shared/errors";
+import { PaywallError, SubmissionLimitError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { VibeNote, VibeTags } from "@/src/shared/vibe";
 
@@ -43,9 +42,6 @@ export async function POST(request: Request) {
   if (!isExactStoragePath(path, creator.id, submissionId, ext)) {
     return NextResponse.json({ error: "forbidden_path" }, { status: 403 });
   }
-  if (await overDailyLimit(creator.id, dailyUploadLimit(creator.anonymous))) {
-    return NextResponse.json({ error: "daily_limit" }, { status: 429 });
-  }
   const info = await objectInfo(path);
   if (!info) return NextResponse.json({ error: "upload_not_found" }, { status: 400 });
   if (info.sizeBytes > LIMITS.maxUploadBytes) return NextResponse.json({ error: "too_large" }, { status: 400 });
@@ -60,6 +56,8 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     if (err instanceof PaywallError) return NextResponse.json({ reason: err.reason }, { status: 402 });
+    // The daily cap and the site-wide ceiling are checked atomically inside create_submission() (0010).
+    if (err instanceof SubmissionLimitError) return NextResponse.json({ error: err.reason }, { status: 429 });
     logger.error("submission.create_failed", { submissionId, err: String(err) });
     return NextResponse.json({ error: "create_failed" }, { status: 500 });
   }

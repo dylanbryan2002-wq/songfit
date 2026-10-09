@@ -16,6 +16,7 @@ vi.mock("@/src/media/storage", () => ({ isExactStoragePath: () => true, objectIn
 vi.mock("@/src/pipeline/run", () => ({ runSubmission: m.runSubmission }));
 
 import { POST } from "@/app/api/submissions/route";
+import { SubmissionLimitError } from "@/src/shared/errors";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const post = (extra: Record<string, unknown> = {}) => POST(new Request("http://x/api/submissions", {
@@ -99,16 +100,33 @@ describe("POST /api/submissions: anonymous viewer", () => {
     expect(names()).not.toContain("returned_with_second_submission");
   });
 
-  it("429 daily_limit at 3 submissions in 24 h", async () => {
-    m.countSubmissionsSince.mockResolvedValue(3);
+  it("429 daily_limit when create_submission() refuses on the daily cap", async () => {
+    m.createSubmission.mockRejectedValue(new SubmissionLimitError("daily_limit"));
     const res = await post();
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "daily_limit" });
-    expect(m.createSubmission).not.toHaveBeenCalled();
+    expect(m.runSubmission).not.toHaveBeenCalled();
+    expect(names()).not.toContain("submission_created");
   });
 
   it("401 without any session", async () => {
     m.getViewer.mockResolvedValue(null);
     expect((await post()).status).toBe(401);
+  });
+});
+
+describe("POST /api/submissions: 24 h caps live in create_submission()", () => {
+  it("429 global_limit when the site-wide ceiling is reached", async () => {
+    m.createSubmission.mockRejectedValue(new SubmissionLimitError("global_limit"));
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "global_limit" });
+    expect(m.runSubmission).not.toHaveBeenCalled();
+  });
+
+  it("no longer pre-counts in the route (the database count is the atomic one)", async () => {
+    m.countSubmissionsSince.mockResolvedValue(99);
+    expect((await post()).status).toBe(201);
+    expect(m.countSubmissionsSince).not.toHaveBeenCalled();
   });
 });

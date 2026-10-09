@@ -2,7 +2,7 @@ import "server-only";
 import { createServiceClient } from "../client";
 import type { Database } from "../types";
 import type { SubmissionStatus } from "@/src/shared/types";
-import { PaywallError } from "@/src/shared/errors";
+import { PaywallError, SubmissionLimitError } from "@/src/shared/errors";
 
 export type SubmissionRow = Database["public"]["Tables"]["submissions"]["Row"];
 export type SubmissionUpdate = Database["public"]["Tables"]["submissions"]["Update"];
@@ -17,7 +17,8 @@ export async function getSubmission(id: string): Promise<SubmissionRow | null> {
  * Creates the submission through the create_submission() SQL function, which
  * enforces the paywall atomically (one free result per creator unless
  * subscribed) and is idempotent on `id` for the same creator.
- * Throws PaywallError when the database raises `needs_subscription`.
+ * Throws PaywallError when the database raises `needs_subscription`, and SubmissionLimitError on
+ * `daily_limit` / `global_limit` (the 24 h caps, 0010).
  */
 export async function createSubmission(input: {
   id: string;
@@ -34,6 +35,8 @@ export async function createSubmission(input: {
   });
   if (error) {
     if (error.message.includes("needs_subscription")) throw new PaywallError();
+    if (error.message.includes("global_limit")) throw new SubmissionLimitError("global_limit");
+    if (error.message.includes("daily_limit")) throw new SubmissionLimitError("daily_limit");
     throw error;
   }
   if (!data) throw new Error("create_submission returned no row");
