@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { gateDecision } from "@/src/auth/gate";
+import { failureReason } from "@/src/shared/failureReason";
 import { getViewer, isAdmin } from "@/src/auth/session";
 import { getSubmission, markSubmissionViewed, type SubmissionVibeColumns } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
@@ -60,7 +61,12 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
           vibeLine={vibeLine((submission as Partial<SubmissionVibeColumns>).vibe_tags ?? [])}
         />
       ) : (
-        <WaitingState submissionId={id} initialStatus={SubmissionStatus.parse(submission.status)} anonymous={creator.anonymous} />
+        <WaitingState
+          submissionId={id}
+          initialStatus={SubmissionStatus.parse(submission.status)}
+          anonymous={creator.anonymous}
+          initialReason={submission.status === "failed" ? failureReason(submission.error) : null}
+        />
       )}
     </main>
   );

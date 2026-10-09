@@ -59,9 +59,9 @@ describe("GET /api/submissions/[id]", () => {
   });
   it("returns status, error and eta only, never the raw message", async () => {
     m.getSubmission.mockResolvedValue(sub("ready", 30));
-    expect(await (await call()).json()).toEqual({ status: "ready", error: null, etaSeconds: 0 });
+    expect(await (await call()).json()).toEqual({ status: "ready", error: null, reason: null, etaSeconds: 0 });
     m.getSubmission.mockResolvedValue(sub("failed", 30));
-    expect(await (await call()).json()).toEqual({ status: "failed", error: "failed", etaSeconds: null });
+    expect(await (await call()).json()).toEqual({ status: "failed", error: "failed", reason: null, etaSeconds: null });
   });
   it("estimates the time left from recent runs (fallback medians with no history)", async () => {
     m.getSubmission.mockResolvedValue({ ...sub("analyzing"), created_at: new Date(Date.now() - 25_000).toISOString() });

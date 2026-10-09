@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { SubmissionStatus } from "@/src/shared/types";
 import { waitingView } from "./waitingView";
 import { etaLabel, nextEta, tickEta, uploadFill, waitingFill, type Eta } from "./etaDisplay";
+import { FAILURE_COPY, type FailureReason } from "@/src/shared/failureReason";
 
 const LINES = ["Watching your video", "Understanding the feel", "Finding your songs"];
 const POLL_MS = 3000;
@@ -18,12 +19,15 @@ export function WaitingState({
   initialStatus = "uploaded",
   upload = null,
   anonymous = false,
+  initialReason = null,
 }: {
   submissionId: string | null;
   initialStatus?: SubmissionStatus;
   upload?: UploadStage | null;
   /** Anonymous owners can't retry (the retry route is signed-in only); they get "Try another video". */
   anonymous?: boolean;
+  /** Why a failed run failed, when it was the file's fault (no retry offered). */
+  initialReason?: FailureReason | null;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<SubmissionStatus>(initialStatus);
@@ -31,6 +35,7 @@ export function WaitingState({
   const [elapsed, setElapsed] = useState(0);
   const [retried, setRetried] = useState(false);
   const [limited, setLimited] = useState(false);
+  const [reason, setReason] = useState<FailureReason | null>(initialReason);
   const [restartFailed, setRestartFailed] = useState(false);
   const [eta, setEta] = useState<Eta | null>(null);
   const startedAt = useRef(Date.now());
@@ -60,7 +65,11 @@ export function WaitingState({
       try {
         const res = await fetch(`/api/submissions/${submissionId}`, { cache: "no-store" });
         if (res.ok) {
-          const body = (await res.json()) as { status: SubmissionStatus; etaSeconds?: number | null };
+          const body = (await res.json()) as {
+            status: SubmissionStatus;
+            etaSeconds?: number | null;
+            reason?: FailureReason | null;
+          };
           if (cancelled) return;
           setEta((prev) => nextEta(prev, body.etaSeconds ?? null));
           if (body.status === "ready") {
@@ -73,7 +82,10 @@ export function WaitingState({
             startedAt.current = Date.now();
           }
           setStatus(body.status);
-          if (body.status === "failed") return;
+          if (body.status === "failed") {
+            setReason(body.reason ?? null);
+            return;
+          }
         }
       } catch {
         /* transient network error: keep polling */
@@ -126,13 +138,15 @@ export function WaitingState({
     return (
       <div className="flex flex-col items-center gap-4 text-center">
         <p className="text-lg font-medium text-neutral-900">
-          {limited
-            ? "This video keeps failing. Try another video."
-            : restartFailed
-              ? "Couldn't restart. Try another video."
-              : "Something went wrong on our side. We're on it."}
+          {reason
+            ? FAILURE_COPY[reason]
+            : limited
+              ? "This video keeps failing. Try another video."
+              : restartFailed
+                ? "Couldn't restart. Try another video."
+                : "Something went wrong on our side. We're on it."}
         </p>
-        {!retried && !anonymous && (
+        {!retried && !anonymous && !reason && (
           <button
             type="button"
             onClick={() => void retry()}

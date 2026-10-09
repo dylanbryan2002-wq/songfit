@@ -6,6 +6,7 @@ import { getSubmission, listRecentReadyTimings } from "@/src/db/queries/submissi
 import { logEvent } from "@/src/feedback/events";
 import { runSubmission } from "@/src/pipeline/run";
 import { LIMITS } from "@/src/shared/config";
+import { failureReason } from "@/src/shared/failureReason";
 import { etaSeconds, stageMedians, type StageMedians } from "@/src/shared/eta";
 import { isUuid } from "@/src/shared/ids";
 import { isStaleInFlight } from "@/src/shared/inFlight";
@@ -69,6 +70,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   return NextResponse.json({
     status: submission.status,
     error: submission.status === "failed" ? "failed" : null, // never the raw message
+    reason: submission.status === "failed" ? failureReason(submission.error) : null, // creator-facing class only
     etaSeconds: eta,
   });
 }
