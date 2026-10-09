@@ -39,10 +39,10 @@ export type TreatmentMeta = {
   base_tag: string; base_sha: string; eligible: boolean; types: ListType[]; offered: CreatorPick[]; funnel: Funnel | null;
   reused_verified: number; newly_verified: number; reused_scores: number; newly_scored: number;
   prompt_version: string; lists_version: string; elapsed_ms: number;
-  model?: string; directions?: DirectionTag[]; picks?: boolean; lessons?: string | null;
+  model?: string; directions?: DirectionTag[]; picks?: boolean; lessons?: string | null; library?: boolean;
 };
 
-export type RunConfig = { prompt_version: string; model: string; directions: DirectionTag[]; picks: boolean; lessons?: string | null };
+export type RunConfig = { prompt_version: string; model: string; directions: DirectionTag[]; picks: boolean; lessons?: string | null; library?: boolean };
 
 /** List prices in $ per million tokens for the models this harness may call; any other model stops the run. */
 export const PRICES: Record<string, { input: number; output: number }> = { "claude-sonnet-5-5": { input: 3, output: 15 } };
@@ -68,6 +68,7 @@ export function needsRun(prior: TreatmentResult | null, baseSha: string, run: Ru
   if (t.base_sha !== baseSha || t.lists_version !== CREATOR_LISTS_VERSION || t.prompt_version !== run.prompt_version) return true;
   if ((t.model ?? MODELS.candidates) !== run.model || (t.directions ?? ["safe"]).join() !== run.directions.join() || (t.picks ?? true) !== run.picks) return true;
   if ((t.lessons ?? null) !== (run.lessons ?? null)) return true;
+  if ((t.library ?? false) !== (run.library ?? false)) return true;
   return t.status === "failed" && t.attempts < MAX_ATTEMPTS;
 }
 
@@ -84,12 +85,14 @@ async function main() {
       model: { type: "string", default: "candidates" }, // a MODELS key: candidates | candidatesStrong
       picks: { type: "string", default: "yes" }, // yes | no: offer the creator-list shortlist
       lessons: { type: "string", default: "no" }, // yes | no: append the creator lessons to the candidates system prompt
+      library: { type: "string", default: "no" }, // yes | no: add songs matched from the song library
       "max-dollars": { type: "string" }, // hard cap for this process; required whenever --lessons yes
     },
   });
   if (args.directions !== "safe" && args.directions !== "all") throw new Error(`--directions must be safe or all, got ${args.directions}`);
   if (args.picks !== "yes" && args.picks !== "no") throw new Error(`--picks must be yes or no, got ${args.picks}`);
   if (args.lessons !== "yes" && args.lessons !== "no") throw new Error(`--lessons must be yes or no, got ${args.lessons}`);
+  if (args.library !== "yes" && args.library !== "no") throw new Error(`--library must be yes or no, got ${args.library}`);
   const cap = args["max-dollars"] != null ? Number(args["max-dollars"]) : null;
   if (cap != null && !(cap > 0)) throw new Error(`--max-dollars must be a positive number, got ${args["max-dollars"]}`);
   if (args.lessons === "yes" && cap == null && !args.replay) throw new Error("--lessons yes needs --max-dollars");
@@ -104,7 +107,7 @@ async function main() {
   if (usePicks && useLessons) throw new Error("--picks yes and --lessons yes test different things; run one at a time");
   const run: RunConfig = {
     prompt_version: useLessons ? LESSONS_PROMPT_VERSION : usePicks ? CREATOR_PICKS_PROMPT_VERSION : PROMPT_VERSION,
-    model: MODELS[modelKey], directions, picks: usePicks, lessons: useLessons ? LESSONS_VERSION : null,
+    model: MODELS[modelKey], directions, picks: usePicks, lessons: useLessons ? LESSONS_VERSION : null, library: args.library === "yes",
   };
   if (!args.root) { console.error("usage: treatment.ts --root <batch> [--base round2] [--tag listsB] [--split tune|test|all] [--only <id>] [--replay] [--directions safe|all] [--model candidates|candidatesStrong] [--picks yes|no]"); process.exit(1); }
   // --root may list several batches (comma-separated) so one process, and one spending cap, covers them all.
@@ -145,7 +148,7 @@ async function main() {
       status, attempts, error: null, base_tag: args.base!, base_sha: baseSha, eligible, types, offered, funnel: null,
       reused_verified: 0, newly_verified: 0, reused_scores: 0, newly_scored: 0,
       prompt_version: run.prompt_version, lists_version: CREATOR_LISTS_VERSION, elapsed_ms: Date.now() - t0,
-      model: run.model, directions: run.directions, picks: run.picks, lessons: run.lessons ?? null, ...extra,
+      model: run.model, directions: run.directions, picks: run.picks, lessons: run.lessons ?? null, library: run.library ?? false, ...extra,
     });
     const deps = {
       verify: (c: Parameters<typeof verifyCandidates>[0]) => verifyCandidates(c, { ctx }),
@@ -167,7 +170,7 @@ async function main() {
       result = { ...base, analysis, treatment: meta("ineligible") };
     } else {
       try {
-        const fresh = await generateCandidates(base.brief, analysis, { directions, model: run.model, ...(offered.length ? { creatorPicks: offered } : {}), ...(useLessons ? { lessons: true } : {}), ctx });
+        const fresh = await generateCandidates(base.brief, analysis, { directions, model: run.model, ...(offered.length ? { creatorPicks: offered } : {}), ...(useLessons ? { lessons: true } : {}), ...(run.library ? { library: true } : {}), ctx });
         const r = await rebuild(base, analysis, fresh, deps, offered, directions);
         result = {
           ...base, analysis, generated: r.generated, finals: asFinals(r.picks), recommend_error: null,

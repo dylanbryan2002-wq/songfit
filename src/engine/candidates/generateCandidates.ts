@@ -12,6 +12,8 @@ import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 import type { CreatorPick } from "@/src/engine/catalog/creatorLists";
 import { lessonsBlock } from "@/src/engine/candidates/creatorLessons";
+import { libraryPicks } from "@/src/engine/catalog/libraryMatch";
+import { librarySections } from "@/src/engine/candidates/librarySections";
 
 // v7 (2026-10-09): example song titles removed; v6 named four and the model put one of them in a third of all top 5s.
 // v8 (2026-10-09): guidance keyed on the brief's music_job instead of "talking means a quiet bed" (Codex root-cause review).
@@ -32,6 +34,8 @@ export type GenerateOpts = {
   model?: string;
   /** Append the creator lessons to the system prompt (eval harness only for now). */
   lessons?: boolean;
+  /** Add songs matched from the song library, with sections from one extra call (eval harness only for now). */
+  library?: boolean;
 };
 
 export const SYSTEM_PROMPT = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
@@ -222,8 +226,15 @@ export async function generateCandidates(
   brief: MusicBrief, analysis: VideoAnalysis, opts: GenerateOpts = {},
 ): Promise<GeneratedCandidate[]> {
   const call = opts.call ?? callClaude;
-  const lists = await Promise.all(
-    (opts.directions ?? DirectionTag.options).map((direction) => generateDirection(direction, brief, analysis, opts, call)),
-  );
-  return mergeCandidates(lists);
+  const lib = opts.library ? libraryPicks(analysis, brief) : null;
+  const [lists, fromLibrary] = await Promise.all([
+    Promise.all((opts.directions ?? DirectionTag.options).map((direction) => generateDirection(direction, brief, analysis, opts, call))),
+    // A failed library call only loses the library songs; the model's own lists still stand.
+    lib ? librarySections(analysis, brief, lib.picks, lib.job, { call, timeoutMs: remainingBudget(opts.ctx) }).catch((e: unknown) => {
+      logger.warn("candidates.library_failed", { error: e instanceof Error ? e.message.slice(0, 300) : String(e) });
+      return [] as GeneratedCandidate[];
+    }) : Promise.resolve([] as GeneratedCandidate[]),
+  ]);
+  // Model lists first: when both name the same song, the model's window wins (it chose that song for this video).
+  return mergeCandidates([...lists, fromLibrary]);
 }

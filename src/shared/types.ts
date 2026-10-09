@@ -82,6 +82,7 @@ export const GeneratedCandidate = z.object({
   section_reason: z.string(),
   fit_reason: z.string(),
   directions: z.array(DirectionTag).min(1), // every generation direction that proposed it (dedupe keeps all)
+  origin: z.enum(["model", "library"]).optional(), // "library" = pulled from the song library (stored as source "catalog")
 });
 export type GeneratedCandidate = z.infer<typeof GeneratedCandidate>;
 

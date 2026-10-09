@@ -42,7 +42,9 @@ function fakeSubmission(videoPath: string, durationSeconds: number): SubmissionR
 }
 
 /** Full production run on the muted file. Nothing is persisted; the deadline is the pipeline budget. */
-export async function runOurs(mutedPath: string, durationSeconds: number, deadlineMs: number): Promise<OursResult> {
+export type OursOptions = { lessons?: boolean; library?: boolean };
+
+export async function runOurs(mutedPath: string, durationSeconds: number, deadlineMs: number, engine: OursOptions = {}): Promise<OursResult> {
   const started = Date.now();
   const ctx = { deadlineAt: Date.now() + deadlineMs };
   const sub = fakeSubmission(mutedPath, durationSeconds);
@@ -79,7 +81,7 @@ export async function runOurs(mutedPath: string, durationSeconds: number, deadli
       getAnalysis: async () => ({ analysis, brief, row: null }),
       generate: async (b: MusicBrief, a: VideoAnalysis, o?: GenerateOpts) => {
         generateCalls += 1;
-        const g = await generateCandidates(b, a, o);
+        const g = await generateCandidates(b, a, { ...o, ...engine });
         generated.push(...g);
         return g;
       },

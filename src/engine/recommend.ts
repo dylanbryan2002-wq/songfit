@@ -78,7 +78,7 @@ export function toCandidateInsert(
     directions: c.directions,
     section_reason: c.section_reason,
     fit_reason: c.fit_reason,
-    source: "model",
+    source: c.origin === "library" ? "catalog" : "model",
     song_id: null,
     segment_id: null,
     component_scores: (s.component_scores as unknown as Json) ?? null,

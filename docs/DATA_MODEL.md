@@ -116,7 +116,7 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | preview_url       | text        | nullable; always set on verified rows since 2026-10-07 (snapshot, expires ~1 h; the picker re-fetches by deezer_id) |
 | preview_source    | text        | nullable, 'deezer' ('itunes' never written)          |
 | itunes_id         | text        | nullable; set only on older rows verified via the removed C1 iTunes fallback; always null for new rows |
-| source            | text        | 'model' now; 'catalog' later                        |
+| source            | text        | 'model', or 'catalog' for a song matched from the song library (src/engine/catalog/library.data.json) |
 | segment_id        | uuid        | nullable, → song_segments ON DELETE SET NULL (later) |
 | aligned_to_moment | numeric     | nullable, video time the anchor was aligned to      |
 | component_scores  | jsonb       | { semantic, emotional, aesthetic, pacing, dialogue, cultural, originality } each { score, reason } |

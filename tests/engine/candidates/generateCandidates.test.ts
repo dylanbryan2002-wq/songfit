@@ -203,3 +203,27 @@ describe("creator lessons (docs/review/27)", () => {
     expect(call.mock.calls[1]![0].system).toContain("HOW CREATORS IN THIS NICHE ACTUALLY CHOOSE");
   });
 });
+
+describe("song library (opt-in)", () => {
+  it("adds placed library songs after the model's lists, and a failed library call keeps the model's songs", async () => {
+    const call = vi.fn(async ({ system }: { system: string }) =>
+      system.startsWith("You are Songfit's music editor")
+        ? JSON.stringify([{ i: 0, proposed_start: 30, proposed_end: 45, anchor_seconds: 32, section_is_vocal: true, section_reason: "c", fit_reason: "f" }])
+        : JSON.stringify(many("S")));
+    const out = await generateCandidates(brief, analysis, { call, directions: ["safe"], library: true });
+    expect(out.some((c) => c.origin === "library")).toBe(true);
+    expect(out[0]!.origin).toBeUndefined();
+    const failing = vi.fn(async ({ system }: { system: string }) => {
+      if (system.startsWith("You are Songfit's music editor")) throw new Error("boom");
+      return JSON.stringify(many("S"));
+    });
+    const kept = await generateCandidates(brief, analysis, { call: failing, directions: ["safe"], library: true });
+    expect(kept.length).toBe(20);
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+  it("is off by default", async () => {
+    const call = vi.fn().mockResolvedValue(JSON.stringify(many("S")));
+    await generateCandidates(brief, analysis, { call, directions: ["safe"] });
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+});

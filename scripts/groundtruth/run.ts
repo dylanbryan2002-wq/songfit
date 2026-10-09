@@ -24,10 +24,12 @@ const { values: args } = parseArgs({
     "dry-run": { type: "boolean", default: false },
     "skip-gemini": { type: "boolean", default: false },
     "skip-ours": { type: "boolean", default: false },
+    lessons: { type: "boolean", default: false }, // engine option: creator lessons in the candidates prompt
+    library: { type: "boolean", default: false }, // engine option: songs matched from the song library
   },
 });
 
-type RunOurs = (mutedPath: string, durationSeconds: number, deadlineMs: number) => Promise<OursResult>;
+type RunOurs = (mutedPath: string, durationSeconds: number, deadlineMs: number, engine?: { lessons?: boolean; library?: boolean }) => Promise<OursResult>;
 
 const FIXTURES = path.resolve("tests/groundtruth/fixtures");
 
@@ -81,7 +83,7 @@ async function runClip(clip: ClipSpec, root: string, tag: string, ours: RunOurs)
       if (prior && !prior.recommend_error) { console.log("  ours: cached"); report.ours = prior; }
       else {
         const t0 = Date.now();
-        report.ours = await ours(muted, duration, LIMITS.pipelineBudgetMs);
+        report.ours = await ours(muted, duration, LIMITS.pipelineBudgetMs, { lessons: args.lessons, library: args.library });
         await fs.writeFile(file, JSON.stringify(report.ours, null, 2));
         console.log(`  ours: done in ${Math.round((Date.now() - t0) / 1000)} s`);
       }
