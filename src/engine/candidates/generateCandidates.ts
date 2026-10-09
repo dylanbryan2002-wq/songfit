@@ -10,10 +10,19 @@ import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
+import type { CreatorPick } from "@/src/engine/catalog/creatorLists";
 
 export const PROMPT_VERSION = "candidates-v6";
+/** Prompt variant used when creatorPicks are passed (experiment B, docs/review/24 v3). Production does not pass them yet. */
+export const CREATOR_PICKS_PROMPT_VERSION = "candidates-v7-picks";
 
-export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
+export type GenerateOpts = {
+  note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx;
+  /** Songs creator lists recommend for this kind of video; offered in the safe direction only. */
+  creatorPicks?: CreatorPick[];
+  /** Generate only these directions (eval harness); default all three. */
+  directions?: DirectionTag[];
+};
 
 export const SYSTEM_PROMPT = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
 You know mainstream, independent and viral music across decades, and you know which songs
@@ -42,13 +51,19 @@ function humanizeKey(key: string): string {
 
 export function buildCandidatePrompt(
   direction: DirectionTag, brief: MusicBrief, analysis: VideoAnalysis,
-  opts: { note?: string; exclude?: string[] } = {},
+  opts: { note?: string; exclude?: string[]; creatorPicks?: CreatorPick[] } = {},
 ): string {
   const moments = analysis.important_moments
     .map((m) => `- ${m.time.toFixed(1)}s: ${m.type}${m.note ? ` (${m.note})` : ""}`)
     .join("\n") || "- none identified";
   const exclude = opts.exclude?.length
     ? `\nDo NOT propose these songs (already considered):\n${opts.exclude.map((k) => `- ${humanizeKey(k)}`).join("\n")}\n`
+    : "";
+  const picks = direction === "safe" && opts.creatorPicks?.length
+    ? `\nCREATOR PICKS
+Creators who teach background music for Reels recommend these songs for ${[...new Set(opts.creatorPicks.flatMap((p) => p.types))].join(" / ").replace(/_/g, " ")} videos with someone talking:
+${opts.creatorPicks.map((p) => `- ${p.title} — ${p.artist}`).join("\n")}
+Include the ones that genuinely fit this video, with a truthful window; skip the rest. They count toward the ${LIMITS.candidatesPerDirection}.\n`
     : "";
   return `DIRECTION: ${direction}
 ${DIRECTION_BRIEF[direction]}
@@ -69,7 +84,7 @@ ${moments}
 MUSIC BRIEF
 ${brief.text}
 Fields: ${JSON.stringify(brief.fields)}
-${opts.note ? `\nNOTE: ${opts.note}\n` : ""}${exclude}
+${opts.note ? `\nNOTE: ${opts.note}\n` : ""}${exclude}${picks}
 TASK
 Propose exactly ${LIMITS.candidatesPerDirection} songs for this direction. For each song choose the single
 best ${LIMITS.sectionMin}–${LIMITS.sectionMax} second window of the ORIGINAL studio recording for this video.
@@ -188,7 +203,7 @@ export async function generateCandidates(
 ): Promise<GeneratedCandidate[]> {
   const call = opts.call ?? callClaude;
   const lists = await Promise.all(
-    DirectionTag.options.map((direction) => generateDirection(direction, brief, analysis, opts, call)),
+    (opts.directions ?? DirectionTag.options).map((direction) => generateDirection(direction, brief, analysis, opts, call)),
   );
   return mergeCandidates(lists);
 }

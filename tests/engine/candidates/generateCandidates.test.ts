@@ -154,3 +154,24 @@ describe("SYSTEM_PROMPT (candidates-v6)", () => {
     expect(p).toContain("unless the video is a punchline and that exact song is the joke");
   });
 });
+
+describe("creator picks (experiment B, docs/review/24 v3)", () => {
+  const picks = [{ title: "Mrs Magic", artist: "Strawberry Guy", deezer_id: "1", groups: 3, types: ["emotional" as const] }];
+  it("offers the picks in the safe direction only, as recommendations, not usage", () => {
+    const safe = buildCandidatePrompt("safe", brief, analysis, { creatorPicks: picks });
+    expect(safe).toContain("CREATOR PICKS");
+    expect(safe).toContain("- Mrs Magic — Strawberry Guy");
+    expect(safe).toMatch(/recommend these songs for emotional videos/);
+    expect(safe).toContain("skip the rest");
+    expect(buildCandidatePrompt("current", brief, analysis, { creatorPicks: picks })).not.toContain("CREATOR PICKS");
+  });
+  it("leaves the production prompt unchanged when no picks are passed", () => {
+    expect(buildCandidatePrompt("safe", brief, analysis, { creatorPicks: [] })).toBe(buildCandidatePrompt("safe", brief, analysis));
+  });
+  it("generates only the requested directions", async () => {
+    const call = vi.fn().mockResolvedValue(JSON.stringify(many("S")));
+    const out = await generateCandidates(brief, analysis, { call, directions: ["safe"], creatorPicks: picks });
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(out.every((c) => c.directions.join() === "safe")).toBe(true);
+  });
+});

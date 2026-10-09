@@ -344,3 +344,26 @@ Cost: harness fixes 1–2 h, data and mapping 2 h, B code and tests 1 h, C code 
 Open question on grouping for Dylan: takase.exe shares 12 of 20 songs with L3, so I count it as an
 independent group only for its 8 other songs. If you know these creators copy each other, say so and
 the group counts drop further.
+
+## 11. As built, before the paid run (2026-10-09, branch `creator-lists`)
+
+- Data: `src/engine/catalog/creatorLists.ts`, 78 entries, 46 resolved on Deezer with a sample, the rest
+  unresolved (ambiguous titles, originals not on Deezer, transcription conflicts) and never used.
+- Types: `src/engine/catalog/listTypes.ts`. Deviation from v3 §5 and Codex Q2: storytelling is read from the
+  analysis's own format label (`content_type`: storytime, journey, essay, tribute, narrative...) rather than
+  a story/summary pattern, because the format label matched the blind labels better. Blind labels: 30 tune
+  clips (`~/Songfit-groundtruth/catalog/list-type-labels.json`), checked by
+  `scripts/groundtruth/list-types-check.ts`. In-sample precision: educational 6/6, storytelling 12/13,
+  emotional 7/7, motivational 9/9. Sad, upbeat, funny, day in the life: inactive (0 predicted positives).
+- Prompt: opt-in. `GenerateOpts.creatorPicks` adds the CREATOR PICKS block to the safe direction only;
+  production `recommend.ts` does not pass it, so the live prompt is byte-identical (tested) and stays
+  `candidates-v6`. The variant is recorded as `candidates-v7-picks`. Shipping B later = pass the picks in
+  `recommend.ts` and bump `PROMPT_VERSION`.
+- Harness: `scripts/groundtruth/treatment.ts` + `treatment-lib.ts` (recommend-only rebuild from the round-2
+  cache: new safe list, reused verification and scores, production diversify + selectSections, no
+  explanations), `pair-judge.ts` (symmetric rank-1 comparison, sign test, hit rate, sameness).
+- Replay check: 49 of 49 finished round-2 clips rebuild with identical picks and sections (`--replay`).
+- Eligible: 31 of 45 tune clips, 16 of 21 test clips (dialogue + an active type).
+- Known limits: the shortlist per type is fixed (same 5–8 songs for every clip of that type; ties broken by
+  title), so sameness is the main risk to watch; songs in both the control's safe and another direction keep
+  the control's safe window.
