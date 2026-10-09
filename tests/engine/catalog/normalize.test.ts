@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeTitle, normalizeArtist, normalizeKey, titlesMatch, artistsMatch, versionTags,
-  artistList, coreTitle, titleDescriptor, titlesMatchLoose, artistsMatchLoose,
+  artistList, coreTitle, titleDescriptor, titlesMatchLoose, artistsMatchLoose, pickBestMatch,
 } from "@/src/engine/catalog/normalize";
 
 describe("normalizeTitle", () => {
@@ -110,6 +110,29 @@ describe("loose matching (C1)", () => {
     expect(coreTitle("Song [Remix]")).toBe("song");
     expect(coreTitle("Anti-Hero")).toBe("anti hero");
     expect(titleDescriptor("Anti-Hero")).toBe("");
+  });
+  it("coreTitle strips a leading composer prefix only when that word is in the artist's name", () => {
+    expect(coreTitle("Richter: On the Nature of Daylight", "Max Richter")).toBe("on the nature of daylight");
+    expect(coreTitle("Richter: On the Nature of Daylight", "Bon Iver")).toBe("richter on the nature of daylight");
+    expect(coreTitle("Richter: On the Nature of Daylight")).toBe("richter on the nature of daylight");
+    expect(coreTitle("Re: Stacks", "Bon Iver")).toBe("re stacks");
+    expect(coreTitle("Mr. Brightside", "The Killers")).toBe("mr brightside");
+    expect(coreTitle("Pärt: Spiegel im Spiegel (Arr. for Violin and Piano)", "Arvo Pärt")).toBe("spiegel im spiegel");
+  });
+  it("titlesMatchLoose matches Deezer's classical 'Composer: Title' only for that composer", () => {
+    expect(titlesMatchLoose("On the Nature of Daylight", "Richter: On the Nature of Daylight", "Max Richter")).toBe(true);
+    expect(titlesMatchLoose("On the Nature of Daylight", "Richter: On the Nature of Daylight", "Ólafur Arnalds")).toBe(false);
+    expect(titlesMatchLoose("On the Nature of Daylight", "Richter: On the Nature of Daylight")).toBe(false);
+    expect(titlesMatchLoose("Stacks", "Re: Stacks", "Bon Iver")).toBe(false);
+    expect(titlesMatchLoose("Re: Stacks", "Re: Stacks", "Bon Iver")).toBe(true);
+  });
+  it("pickBestMatch verifies the Max Richter track Deezer lists with the composer prefix (round 1)", () => {
+    const items = [
+      { title: "On the Nature of Daylight (Piano Version)", artist: "Someone Else", rank: 900 },
+      { title: "Richter: On the Nature of Daylight", artist: "Max Richter", rank: 500 },
+    ];
+    expect(pickBestMatch({ title: "On the Nature of Daylight", artist: "Max Richter" }, items, (r) => r)).toBe(items[1]);
+    expect(pickBestMatch({ title: "Stacks", artist: "Bon Iver" }, [{ title: "Re: Stacks", artist: "Bon Iver" }], (r) => r)).toBeNull();
   });
   const titles: [string, string, boolean][] = [
     ["Dreams", "Dreams (2004 Remaster)", true],

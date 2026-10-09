@@ -122,9 +122,16 @@ function splitDescriptor(t: string): [string, string] {
   return m ? [t.slice(0, m.index), t.slice(m.index)] : [t, ""];
 }
 
-/** normalizeTitle of the text before the first " (", " [" or spaced dash. */
-export function coreTitle(t: string): string {
-  return normalizeTitle(splitDescriptor(t)[0]);
+// Deezer lists classical tracks as "Richter: On the Nature of Daylight". The prefix word is stripped only
+// when it is part of the artist's name, so "Re: Stacks" (Bon Iver) keeps its colon.
+const COMPOSER_PREFIX_RE = /^([^\s:]+):\s+/;
+
+/** normalizeTitle of the text before the first " (", " [" or spaced dash, minus a leading "<artist word>: ". */
+export function coreTitle(t: string, artist?: string): string {
+  let core = splitDescriptor(t)[0];
+  const m = artist ? COMPOSER_PREFIX_RE.exec(core) : null;
+  if (m && fold(artist!).split(" ").includes(fold(m[1]!))) core = core.slice(m[0].length);
+  return normalizeTitle(core);
 }
 
 /** The text coreTitle removed, lower-cased and trimmed, or "". */
@@ -132,12 +139,15 @@ export function titleDescriptor(t: string): string {
   return splitDescriptor(t)[1].trim().toLowerCase();
 }
 
-/** Strict match, or (only when the candidate is the plain song) the found title's core plus a harmless descriptor. */
-export function titlesMatchLoose(cand: string, found: string): boolean {
+/**
+ * Strict match, or (only when the candidate is the plain song) the found title's core plus a harmless descriptor.
+ * `artist` is the candidate's artist, used to strip a classical "Composer: " prefix from the found title.
+ */
+export function titlesMatchLoose(cand: string, found: string, artist?: string): boolean {
   if (titlesMatch(cand, found)) return true;
   if (titleDescriptor(cand) !== "") return false;
   const want = normalizeTitle(cand);
-  return !!want && coreTitle(found) === want && !DISQUALIFYING_DESCRIPTOR.test(titleDescriptor(found));
+  return !!want && coreTitle(found, artist) === want && !DISQUALIFYING_DESCRIPTOR.test(titleDescriptor(found));
 }
 
 /** True when the two credits share at least one artist. */
@@ -165,6 +175,6 @@ export function pickBestMatch<T>(
   };
   return (
     best((r) => titlesMatch(cand.title, get(r).title) && artistsMatch(cand.artist, get(r).artist)) ??
-    best((r) => titlesMatchLoose(cand.title, get(r).title) && artistsMatchLoose(cand.artist, get(r).artist))
+    best((r) => titlesMatchLoose(cand.title, get(r).title, cand.artist) && artistsMatchLoose(cand.artist, get(r).artist))
   );
 }
