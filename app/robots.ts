@@ -1,5 +1,9 @@
 import type { MetadataRoute } from "next";
+import { SITE_ORIGIN } from "@/src/shared/site";
 
 export default function robots(): MetadataRoute.Robots {
-  return { rules: [{ userAgent: "*", allow: "/", disallow: ["/admin", "/api"] }] };
+  return {
+    rules: [{ userAgent: "*", allow: "/", disallow: ["/admin", "/api"] }],
+    sitemap: `${SITE_ORIGIN}/sitemap.xml`,
+  };
 }

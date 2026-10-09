@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Mono } from "next/font/google";
+import { SUBLINE } from "@/components/landing/copy";
+import { SITE_ORIGIN } from "@/src/shared/site";
 import "./globals.css";
 
 /** The two web fonts. Display: the landing H1s only (preloaded). Mono: timestamps and captions only. Body is system. */
@@ -17,9 +19,15 @@ const mono = DM_Mono({
   preload: false,
 });
 
+const TITLE = "Songfit - the perfect song for your video";
+
+/** Share previews. app/opengraph-image.tsx (1200×630) fills openGraph.images and twitter.images. */
 export const metadata: Metadata = {
-  title: "Songfit",
-  description: "Find the right song for your content, and exactly which part to use.",
+  metadataBase: new URL(SITE_ORIGIN),
+  title: TITLE,
+  description: SUBLINE,
+  openGraph: { type: "website", url: "/", siteName: "Songfit", title: TITLE, description: SUBLINE },
+  twitter: { card: "summary_large_image", title: TITLE, description: SUBLINE },
 };
 
 export const viewport: Viewport = {
