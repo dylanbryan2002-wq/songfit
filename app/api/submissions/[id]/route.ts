@@ -1,6 +1,9 @@
 import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
-import { getViewer, isAdmin } from "@/src/auth/session";
+import { deleteSubmission, takeDeleteToken } from "@/src/account/deletion";
+import { isSameOrigin } from "@/src/auth/sameOrigin";
+import { getCreator, getViewer, isAdmin } from "@/src/auth/session";
+import { createServiceClient } from "@/src/db/client";
 import { countEventsForSubmission } from "@/src/db/queries/events";
 import { getSubmission, listRecentReadyTimings } from "@/src/db/queries/submissions";
 import { logEvent } from "@/src/feedback/events";
@@ -73,4 +76,27 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     reason: submission.status === "failed" ? failureReason(submission.error) : null, // creator-facing class only
     etaSeconds: eta,
   });
+}
+
+/** "Delete this video": the owner (a Google creator), a finished or failed run. Logs only after success. */
+export async function DELETE(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const creator = await getCreator(); // null for anonymous sessions too
+  if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  if (!takeDeleteToken(creator.id)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+
+  const { id } = await ctx.params;
+  if (!isUuid(id)) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  let result: Awaited<ReturnType<typeof deleteSubmission>>;
+  try {
+    result = await deleteSubmission(createServiceClient(), creator.id, id);
+  } catch (err) {
+    logger.error("submission.delete_failed", { submissionId: id, err: String(err) });
+    return NextResponse.json({ error: "delete_failed" }, { status: 500 });
+  }
+  if (result === "not_found") return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (result === "in_progress") return NextResponse.json({ error: "in_progress" }, { status: 409 });
+  // submission_id null: the row is gone (and the FK would refuse it).
+  await logEvent({ name: "submission_deleted", creatorId: creator.id, metadata: { had_choice: result.hadChoice } });
+  return new NextResponse(null, { status: 204 });
 }

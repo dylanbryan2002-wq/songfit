@@ -37,6 +37,8 @@ export const EVENT_NAMES = [
   "stale_restart",
   "signed_out",
   "account_viewed",
+  "submission_deleted",
+  "account_deleted",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

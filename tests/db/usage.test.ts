@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const calls: string[] = [];
 const q = {
-  select: (..._a: unknown[]) => (calls.push("select"), q),
+  select: () => (calls.push("select"), q),
   eq: (c: string, v: unknown) => (calls.push(`eq ${c} ${String(v)}`), q),
   gte: (c: string, v: unknown) => (calls.push(`gte ${c} ${String(v)}`), Promise.resolve({ count: 4, error: null })),
 };
