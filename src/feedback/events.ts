@@ -36,6 +36,7 @@ export const EVENT_NAMES = [
   "results_gate_signed_in",
   "stale_restart",
   "signed_out",
+  "account_viewed",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];
