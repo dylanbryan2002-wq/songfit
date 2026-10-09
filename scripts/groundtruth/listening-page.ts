@@ -8,6 +8,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { getDeezerTrack } from "../../src/engine/catalog/deezer";
 import { parseClipsCsv } from "./intake";
@@ -46,7 +47,7 @@ button{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid #ccc;bac
 <p class="note">For each video, play the songs over it and pick the list that feels closer to what this video needs. A and B are shuffled
 for every video. The sample is Deezer's 30-second preview, which may not be the exact section we'd use. When done, press Copy answers
 and paste them to Claude.</p>
-${items.map((it) => `<section class="clip"><h2>Video ${it.n}</h2><video id="v${it.n}" src="file://${esc(it.video)}" muted playsinline controls></video>
+${items.map((it) => `<section class="clip"><h2>Video ${it.n}</h2><video id="v${it.n}" src="${esc(pathToFileURL(it.video).href)}" muted playsinline controls></video>
 <p class="note">${esc(it.summary)}</p>${list("A", it.A, it.n)}${list("B", it.B, it.n)}
 <div class="choice" data-n="${it.n}">Closer: ${["A", "B", "both", "neither"].map((c) => `<button type="button" data-c="${c}" id="c${it.n}${c}">${c}</button>`).join(" ")}</div>
 <div style="clear:both"></div></section>`).join("")}
