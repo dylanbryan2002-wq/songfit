@@ -1,7 +1,8 @@
 export const MODELS = {
   analysis: "claude-fable-5-1",
   candidates: "claude-sonnet-5-5",
-  candidatesStrong: "claude-opus-5-5", // eval only (docs/review/24 §13): does a stronger model know the right songs?
+  candidatesStrong: "claude-opus-5-5",
+  study: "claude-sonnet-5-5", // eval only: the one-off study pass that writes the creator lessons (docs/review/27) // eval only (docs/review/24 §13): does a stronger model know the right songs?
   scoring: "claude-sonnet-5-5",
   explain: "claude-sonnet-5-5",
   whisper: "whisper-1",
