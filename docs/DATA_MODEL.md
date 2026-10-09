@@ -198,6 +198,7 @@ vibe_set                     metadata.tags, metadata.has_note  (at submission cr
 anon_session_started         metadata.flow_id  (creator = the new anonymous id; landing page signed in anonymously after a valid pick)
 results_gate_viewed          (creator = anonymous id, submission set; anonymous viewer shown the sign-in gate on a ready result)
 results_gate_signed_in       metadata.moved  (creator = Google creator; back from Google with an sf_claim cookie, moved = submissions claimed)
+stale_restart                metadata.status  (creator = submission owner; the status poll restarted a run untouched for 6 min; at most LIMITS.maxStaleRestarts (2) per submission, counted from these rows)
 ```
 
 RLS: service role only.

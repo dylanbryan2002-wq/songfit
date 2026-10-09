@@ -22,6 +22,7 @@ export const LIMITS = {
   modelTimeoutMs: 120_000,
   inFlightStaleMinutes: 6,
   maxRetriesPerSubmission: 3, // creator retries of one failing video
+  maxStaleRestarts: 2, // status-poll self-heals per submission, counted from stale_restart events
   dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
   dailyUploadsAnonymous: 3, // same cap before Google sign-in (anonymous session)
   globalDailySubmissions: 150, // site-wide spend ceiling per rolling 24 h

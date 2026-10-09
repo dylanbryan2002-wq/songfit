@@ -6,7 +6,11 @@ const m = vi.hoisted(() => ({
   listRecentReadyTimings: vi.fn(),
   runSubmission: vi.fn(),
   waitUntil: vi.fn(),
+  countEventsForSubmission: vi.fn(),
+  logEvent: vi.fn(),
 }));
+vi.mock("@/src/db/queries/events", () => ({ countEventsForSubmission: m.countEventsForSubmission }));
+vi.mock("@/src/feedback/events", () => ({ logEvent: m.logEvent }));
 vi.mock("@/src/auth/session", () => ({ getViewer: m.getViewer, isAdmin: () => false }));
 vi.mock("@/src/db/queries/submissions", () => ({
   getSubmission: m.getSubmission,
@@ -31,6 +35,8 @@ beforeEach(() => {
   m.listRecentReadyTimings.mockReset().mockResolvedValue([]);
   m.runSubmission.mockReset().mockResolvedValue(undefined);
   m.waitUntil.mockReset();
+  m.countEventsForSubmission.mockReset().mockResolvedValue(0);
+  m.logEvent.mockReset().mockResolvedValue(undefined);
 });
 
 describe("GET /api/submissions/[id]", () => {
@@ -80,6 +86,26 @@ describe("GET /api/submissions/[id]", () => {
     expect((await res.json()).status).toBe("recommending");
     expect(m.runSubmission).toHaveBeenCalledWith(ID);
     expect(m.waitUntil).toHaveBeenCalledTimes(1);
+    expect(m.countEventsForSubmission).toHaveBeenCalledWith(ID, "stale_restart");
+    expect(m.logEvent).toHaveBeenCalledWith({
+      name: "stale_restart", creatorId: "c1", submissionId: ID, metadata: { status: "recommending" },
+    });
+  });
+  it("restarts at most twice per submission, counted from stale_restart events", async () => {
+    m.getSubmission.mockResolvedValue(sub("analyzing", 7));
+    m.countEventsForSubmission.mockResolvedValue(1);
+    await call();
+    expect(m.runSubmission).toHaveBeenCalledTimes(1);
+    m.countEventsForSubmission.mockResolvedValue(2);
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe("analyzing");
+    expect(m.runSubmission).toHaveBeenCalledTimes(1);
+    expect(m.logEvent).toHaveBeenCalledTimes(1);
+  });
+  it("a fresh run reads no restart count", async () => {
+    await call();
+    expect(m.countEventsForSubmission).not.toHaveBeenCalled();
   });
   it("never restarts failed or ready from the poll", async () => {
     for (const status of ["failed", "ready"]) {
