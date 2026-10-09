@@ -67,6 +67,11 @@ async function main() {
       picks: { type: "string", default: "yes" }, // yes | no: offer the creator-list shortlist
     },
   });
+  if (args.directions !== "safe" && args.directions !== "all") throw new Error(`--directions must be safe or all, got ${args.directions}`);
+  if (args.picks !== "yes" && args.picks !== "no") throw new Error(`--picks must be yes or no, got ${args.picks}`);
+  if ((args.directions !== "safe" || args.picks !== "yes" || args.model !== "candidates") && args.tag === "listsB" && !args.replay) {
+    throw new Error("a non-default run needs its own --tag (listsB holds the creator-lists results)");
+  }
   const directions: DirectionTag[] = args.directions === "all" ? [...DirectionTag.options] : ["safe"];
   const modelKey = args.model as keyof typeof MODELS;
   if (!(modelKey === "candidates" || modelKey === "candidatesStrong")) throw new Error(`--model must be candidates or candidatesStrong, got ${args.model}`);
