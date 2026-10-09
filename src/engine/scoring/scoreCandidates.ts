@@ -17,7 +17,7 @@ export async function scoreCandidates(
   const scored: ScoredCandidate[] = cands.map((c, i) => {
     const component_scores: ComponentScores = {
       ...fromModel[i]!,
-      dialogue: dialogueScore(analysis, c),
+      dialogue: dialogueScore(analysis, c, brief),
       originality: lower(fromModel[i]!.originality, overuseScore(analysis, c, brief)),
     };
     return { ...c, component_scores, total_score: combine(component_scores) };

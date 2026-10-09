@@ -11,7 +11,9 @@ import { MODEL_DIMENSIONS, type ModelDimension } from "@/src/engine/scoring/dime
 // compared it with video time ("Lift at 58s, misses 12s climax" for a moment 8 s into the clip).
 // v6 (2026-10-09): familiarity rules follow brief.fields.music_job when present (Codex review of analyze-v6);
 // older briefs keep the v5 rule keyed on dialogue.
-export const PROMPT_VERSION = "scoring-v6";
+// v7 (2026-10-09): the scorer is told vocals under speech are acceptable for every job except quiet_bed; the rule-based
+// dialogue score is light (0.75) for those jobs instead of 0.3.
+export const PROMPT_VERSION = "scoring-v7";
 // Measured 2026-10-07: 60 candidates × 6 dims truncated at 5400 tokens (90/item was a guess). Real cost is
 // ~170 output tokens per item plus ~1.5k hidden reasoning per call, so score in parallel chunks of 20.
 // scoring-v3 (2026-10-08): its conditional rules raised a 20-item chunk to 3.9k–4.4k and truncated at 4400.
@@ -80,7 +82,7 @@ export function buildScoringPrompt(analysis: VideoAnalysis, brief: MusicBrief, c
 ${analysis.summary}
 Duration: ${analysis.duration_seconds != null ? `${analysis.duration_seconds.toFixed(1)}s` : "unknown"}.
 Category: ${analysis.content_category}. Aesthetic: ${analysis.aesthetic.join(", ")}. Mood: ${analysis.mood.join(", ")}.
-Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialogue_present ? "yes" : "no"}. Key moments: ${moments}.${brief.fields.music_job ? `\nMusic's job: ${brief.fields.music_job}.` : ""}
+Energy ${analysis.energy}, pacing ${analysis.pacing}. Dialogue: ${analysis.dialogue_present ? "yes" : "no"}. Key moments: ${moments}.${brief.fields.music_job ? `\nMusic's job: ${brief.fields.music_job}.${analysis.dialogue_present && brief.fields.music_job !== "quiet_bed" ? " Vocals mixed low under the speech are acceptable for this job: do not mark a song down only for having vocals." : ""}` : ""}
 
 MUSIC BRIEF
 ${brief.text}

@@ -135,10 +135,10 @@ describe("generateCandidates", () => {
   });
 });
 
-describe("SYSTEM_PROMPT (candidates-v8)", () => {
+describe("SYSTEM_PROMPT (candidates-v9)", () => {
   it("covers the creator's note and named songs or artists", async () => {
     const { SYSTEM_PROMPT: sp, PROMPT_VERSION: v } = await import("@/src/engine/candidates/generateCandidates");
-    expect(v).toBe("candidates-v8");
+    expect(v).toBe("candidates-v9");
     expect(sp).toContain("When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.");
     expect(sp).toContain("If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.");
   });
@@ -147,6 +147,7 @@ describe("SYSTEM_PROMPT (candidates-v8)", () => {
     expect(sp).toContain("actually used for this kind of moment in the last two years, including the heavily used ones");
     expect(sp).toContain("For every job except quiet_bed, a famous, even overused song that does the job beats a tasteful obscure one");
     expect(sp).toContain("Someone talking does not by itself mean a quiet bed");
+    expect(sp).toContain("Only for quiet_bed avoid lead vocals under the speech");
     for (const job of ["quiet_bed", "drive_energy", "emotional_lift", "comic_cue", "familiar_anthem"]) expect(sp).toContain(`- ${job}:`);
     expect(buildCandidatePrompt("safe", { ...brief, fields: { ...brief.fields, music_job: "drive_energy" } }, analysis)).toContain("Music's job: drive_energy");
     expect(buildCandidatePrompt("safe", brief, analysis)).toContain("Music's job: not stated (older analysis)");

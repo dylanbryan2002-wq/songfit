@@ -15,7 +15,8 @@ import { lessonsBlock } from "@/src/engine/candidates/creatorLessons";
 
 // v7 (2026-10-09): example song titles removed; v6 named four and the model put one of them in a third of all top 5s.
 // v8 (2026-10-09): guidance keyed on the brief's music_job instead of "talking means a quiet bed" (Codex root-cause review).
-export const PROMPT_VERSION = "candidates-v8";
+// v9 (2026-10-09): vocals under speech avoided only for quiet_bed (see analyze-v7).
+export const PROMPT_VERSION = "candidates-v9";
 /** Prompt variant used when creatorPicks are passed (experiment B, docs/review/24 v3). Production does not pass them yet. */
 export const CREATOR_PICKS_PROMPT_VERSION = `${PROMPT_VERSION}+picks`;
 /** Prompt variant with the creator lessons appended to the system prompt (docs/review/27). Production does not pass it yet. */
@@ -50,7 +51,7 @@ The brief names the music's JOB. Match the job, not just the topic:
 - comic_cue: the song is part of the joke: a title or hook that says it, an era reference, or a knowing contrast.
 - familiar_anthem: a song nearly everyone recognises whose identity is the point (an era, nostalgia, a celebration).
 For every job except quiet_bed, a famous, even overused song that does the job beats a tasteful obscure one; creators pick the obvious song on purpose.
-Someone talking does not by itself mean a quiet bed: when someone talks, prefer sections without lead vocals, whatever the job.`;
+Someone talking does not by itself mean a quiet bed. Only for quiet_bed avoid lead vocals under the speech; for every other job a well-known vocal song mixed low under the voice is welcome, creators do it often.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
@@ -92,7 +93,7 @@ Story: ${analysis.story ?? "none"}
 Aesthetic: ${analysis.aesthetic.join(", ")}
 Mood: ${analysis.mood.join(", ")}
 Energy: ${analysis.energy}. Pacing: ${analysis.pacing}.
-Spoken dialogue present: ${analysis.dialogue_present ? "YES — sung vocals will compete with the speech; prefer sections without lead vocals" : "no"}
+Spoken dialogue present: ${analysis.dialogue_present ? (brief.fields.music_job && brief.fields.music_job !== "quiet_bed" ? "YES — vocal songs are fine mixed low under the speech for this job" : "YES — sung vocals will compete with the speech; prefer sections without lead vocals") : "no"}
 Music's job: ${brief.fields.music_job ?? "not stated (older analysis): infer it from the brief"}
 Key moments:
 ${moments}

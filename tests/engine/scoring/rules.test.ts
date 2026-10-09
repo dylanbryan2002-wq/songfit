@@ -45,3 +45,20 @@ describe("overuseScore", () => {
     expect(overuseScore(talky, { title: "Sailor Song", artist: "Gigi Perez" }, job("quiet_bed")).score).toBe(0.4);
   });
 });
+
+describe("dialogueScore follows the music's job (scoring-v7)", () => {
+  const talking: VideoAnalysis = { ...analysis, dialogue_present: true };
+  const vocal = ver({ section_is_vocal: true });
+  const job = (music_job: "quiet_bed" | "drive_energy") => ({ ...brief, fields: { ...brief.fields, music_job } });
+  it("keeps the full penalty for a quiet bed and for older briefs", () => {
+    expect(dialogueScore(talking, vocal, job("quiet_bed")).score).toBe(0.3);
+    expect(dialogueScore(talking, vocal, brief).score).toBe(0.3);
+  });
+  it("is light for every other job", () => {
+    expect(dialogueScore(talking, vocal, job("drive_energy")).score).toBe(0.75);
+  });
+  it("never penalises instrumentals or songs without speech", () => {
+    expect(dialogueScore(talking, ver({ section_is_vocal: false }), job("quiet_bed")).score).toBe(1);
+    expect(dialogueScore(analysis, vocal, job("quiet_bed")).score).toBe(1);
+  });
+});

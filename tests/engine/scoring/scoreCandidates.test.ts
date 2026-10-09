@@ -55,7 +55,7 @@ describe("modelScores", () => {
     await expect(modelScores(analysis, brief, [vc("A", "1"), vc("B", "2")], { call })).rejects.toThrow(/scoring output invalid/);
     expect(call).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]![0].user).toMatch(/PREVIOUS OUTPUT WAS INVALID/);
-    expect(PROMPT_VERSION).toBe("scoring-v6");
+    expect(PROMPT_VERSION).toBe("scoring-v7");
   });
   it("states the video duration in the VIDEO block", () => {
     expect(buildScoringPrompt({ ...analysis, duration_seconds: 4.5 }, brief, [vc("A", "1")])).toContain("Duration: 4.5s.");

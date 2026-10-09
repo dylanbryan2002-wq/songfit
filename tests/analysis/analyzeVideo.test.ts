@@ -192,7 +192,7 @@ describe("analyzeVideo", () => {
   });
 });
 
-describe("analyzeVideo: creator's vibe (analyze-v6)", () => {
+describe("analyzeVideo: creator's vibe (analyze-v7)", () => {
   const texts = (create: ReturnType<typeof vi.fn>, call = 0) =>
     (create.mock.calls[call]![0].messages[0].content as { type: string; text?: string }[])
       .filter((b) => b.type === "text")
@@ -201,10 +201,10 @@ describe("analyzeVideo: creator's vibe (analyze-v6)", () => {
   const vibe = { tags: ["Funny", "Challenge"], note: "the song is the punchline" };
   const good = withBrief('Creator\'s vibe: Funny, Challenge. Note: "the song is the punchline". A deadpan day-in-the-life joke.');
 
-  it("is analyze-v6, and the system prompt carries the vibe rules and the punchline rule", async () => {
+  it("is analyze-v7, and the system prompt carries the vibe rules and the punchline rule", async () => {
     const { client, create } = fakeClient([JSON.stringify(validPayload)]);
     await analyzeVideo(input, { client });
-    expect(PROMPT_VERSION).toBe("analyze-v6");
+    expect(PROMPT_VERSION).toBe("analyze-v7");
     const system = create.mock.calls[0]![0].system as string;
     expect(system).toContain("When the creator describes the vibe, it decides the feel, the joke and the emotional direction; your own mood read is only a fallback.");
     expect(system).toContain("With a vibe, brief.text must begin exactly: Creator's vibe: <tags, comma-separated>. Note: \"<note, verbatim>\". (no Note part when there is none). Songs, artists or references they name stay word for word.");
@@ -274,7 +274,7 @@ describe("analyzeVideo: creator's vibe (analyze-v6)", () => {
   });
 });
 
-describe("music_job (analyze-v6)", () => {
+describe("music_job (analyze-v7)", () => {
   it("rejects new output without the music's job, then retries", async () => {
     const bad = JSON.parse(JSON.stringify(validPayload));
     delete bad.brief.fields.music_job;
