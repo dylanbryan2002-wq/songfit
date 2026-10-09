@@ -5,8 +5,10 @@
 import path from "node:path";
 
 const tree = path.resolve(__dirname, "../..");
-const resolved = require.resolve("@/src/shared/config");
-if (!resolved.startsWith(tree + path.sep)) {
+// Under vitest the alias is resolved by vite from this checkout's config, and require.resolve cannot see it.
+const underTest = !!process.env.VITEST;
+const resolved = underTest ? null : require.resolve("@/src/shared/config");
+if (resolved && !resolved.startsWith(tree + path.sep)) {
   console.error(`WRONG CODE TREE: "@/src/..." resolves to ${resolved}, but this script lives in ${tree}.\n` +
     `Run with TSX_TSCONFIG_PATH=${path.join(tree, "tsconfig.json")}`);
   process.exit(2);
