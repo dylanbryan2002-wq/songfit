@@ -11,6 +11,7 @@ import { ResultsHeader, WAITING_MAIN } from "@/components/ResultsHeader";
 import { ResultsGate } from "@/components/ResultsGate";
 import { WaitingState } from "@/components/WaitingState";
 import { SongPicker } from "@/components/picker/SongPicker";
+import { playbackModeFor } from "@/src/picker/playback";
 import { vibeLine } from "@/components/vibeTags";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
         <SongPicker
           data={picker}
           videoUrl={videoUrl}
+          playbackMode={playbackModeFor(isAdmin(creator))}
           // Cast until `pnpm db:types` includes 0008_vibe.sql.
           vibeLine={vibeLine((submission as Partial<SubmissionVibeColumns>).vibe_tags ?? [])}
         />

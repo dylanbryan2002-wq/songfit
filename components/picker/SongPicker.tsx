@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { PickerData, Rank } from "@/src/shared/types";
 import { formatTime } from "@/src/shared/format";
 import { allRejected, initialPickerState, moreControl, nextBatch, pickerReducer, type PickerAction } from "@/src/picker/state";
+import { ALONE_NOTE, type PlaybackMode } from "@/src/picker/playback";
 import { useSyncedPlayback } from "./useSyncedPlayback";
 import { VideoPane } from "./VideoPane";
 import { SongSheet } from "./SongSheet";
@@ -21,10 +22,13 @@ export function SongPicker({
   data,
   videoUrl,
   vibeLine,
+  playbackMode,
   onAllRejected,
 }: {
   data: PickerData;
   videoUrl: string;
+  /** "sync" (admins) mixes the sample under the moving video; "alone" never plays both at once. */
+  playbackMode: PlaybackMode;
   /** Read-only echo of the creator's vibe tags, shown under the video. */
   vibeLine?: string | null;
   onAllRejected?: () => void;
@@ -33,7 +37,13 @@ export function SongPicker({
   const rows = data.rows;
   const videoDuration = data.video_duration_seconds;
   const [state, dispatch] = useReducer(pickerReducer, rows, initialPickerState);
-  const pb = useSyncedPlayback({ videoDurationSeconds: videoDuration, voice: state.voice, music: state.music });
+  const alone = playbackMode === "alone";
+  const pb = useSyncedPlayback({
+    videoDurationSeconds: videoDuration,
+    mode: playbackMode,
+    voice: state.voice,
+    music: state.music,
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [urls, setUrls] = useState<Partial<Record<Rank, string | null>>>(() =>
     Object.fromEntries(rows.map((r) => [r.rank, r.preview_url])),
@@ -129,6 +139,11 @@ export function SongPicker({
     pb.pause();
     dispatch({ type: "stop" });
   };
+  // Alone mode, synchronous inside the tap: the video with its own sound stops any sample.
+  const toggleVideo = () => {
+    pb.toggleVideo();
+    if (state.auditioningRank !== null) dispatch({ type: "stop" });
+  };
 
   const snapshot = (): PickerAction => ({ type: "serverState", selected: state.chosenRank, rejected: [...state.rejected] });
 
@@ -198,6 +213,7 @@ export function SongPicker({
           overlay={
             playingRow ? { title: playingRow.title, artist: playingRow.artist, loading: pb.state === "loading" } : null
           }
+          sound={alone ? { playing: pb.videoSound, onToggle: toggleVideo } : undefined}
         />
 
         <SongSheet hint={!chosenMode}>
@@ -215,8 +231,9 @@ export function SongPicker({
               onChange={(percent) => dispatch({ type: "mix", channel: "music", percent })}
             />
           </div>
+          {alone && <p className="px-2 pb-2 text-[13px] text-muted">{ALONE_NOTE}</p>}
           {vibeLine && <p className="px-2 pb-2 text-[13px] text-muted">{vibeLine}</p>}
-          {playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
+          {!alone && playingRow && videoDuration !== null && pb.loopLength !== null && videoDuration > pb.loopLength + 0.5 && (
             <p className="px-2 pb-2 text-[13px] text-muted">
               Only the first {formatTime(pb.loopLength)} of your video plays with this sample.
             </p>
