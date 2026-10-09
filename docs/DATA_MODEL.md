@@ -201,6 +201,8 @@ results_gate_signed_in       metadata.moved  (creator = Google creator; back fro
 stale_restart                metadata.status  (creator = submission owner; the status poll restarted a run untouched for 6 min; at most LIMITS.maxStaleRestarts (2) per submission, counted from these rows)
 signed_out                   (creator set; "Sign out" tapped on the upload screen or the results header, before the session is cleared)
 account_viewed               (creator set; "My Songfits" at /account rendered for a Google creator, every page of it)
+submission_deleted           metadata.had_choice  (creator set, submission null; a Google creator deleted one of their videos, logged only after the deletion succeeded; had_choice = a song was selected)
+account_deleted              metadata.submissions  (creator null; a Google creator deleted their account, logged only after every step succeeded; submissions = how many were deleted)
 ```
 
 RLS: service role only.
@@ -209,6 +211,24 @@ The four landing events are written by `POST /api/landing-events` (body `{ name,
 ≤ 200 bytes, 30/min per IP). `flow_id` is a random UUID per browser tab; no filename, size or
 duration is ever sent. `sign_in_completed` requires a session. `anon_session_started` uses the same
 route and requires an anonymous session.
+
+## usage
+Append-only ledger of spend against the 24 h caps (0011). One row per created submission, written by
+`create_submission()` in the same transaction. The caps count this table, not `submissions`, so deleting a
+video never gives the allowance back.
+
+| column      | type        | notes                                                        |
+|-------------|-------------|--------------------------------------------------------------|
+| id          | uuid        |                                                              |
+| creator_id  | uuid        | NOT NULL, deliberately NO foreign key: the row must survive the deletion of the submission and of the creator |
+| kind        | text        | check in (`submission`)                                      |
+| created_at  | timestamptz | default now()                                                |
+
+Index `(creator_id, created_at)`. RLS enabled, no policies; all privileges revoked from `anon` and
+`authenticated` (service role and `create_submission()` only).
+Kept after account deletion: abuse accounting only. A row holds a bare uuid and a timestamp, no content,
+no email, nothing that links back to a person once the auth user is gone. Backfilled in 0011 from the
+submissions of the last 24 h.
 
 ## stripe_events
 Idempotency record for the Stripe webhook. A row is written only AFTER the
@@ -226,16 +246,16 @@ RLS: service role only.
 - `create_submission(p_id uuid, p_creator_id uuid, p_video_path text, p_intent text) returns submissions`
   — takes a global advisory lock, then the per-creator one. Idempotent on `p_id` for the same
   creator (an existing id returns the row before any cap). Then, in order (0010):
-  1. **daily cap**: submissions this creator created in the last 24 h ≥ 10
+  1. **daily cap**: `usage` rows of this creator in the last 24 h (since 0011; before, submissions) ≥ 10
      (`LIMITS.dailyUploadsPerCreator`), or ≥ 3 (`LIMITS.dailyUploadsAnonymous`) when the
      creator's `email is null` → raises `daily_limit`. The route answers 429 `{ error: "daily_limit" }`.
-  2. **global ceiling**: submissions created site-wide in the last 24 h ≥ 150 → raises
+  2. **global ceiling**: `usage` rows site-wide in the last 24 h (since 0011) ≥ 150 → raises
      `global_limit`. The route answers 429 `{ error: "global_limit" }`; the form says
      "We're at capacity right now. Try again in a bit."
   3. **paywall**: counts the creator's `ready` rows plus in-flight rows
      (`uploaded|analyzing|recommending` updated in the last 10 minutes), raises
      `needs_subscription` when count ≥ 1000 (0006, paywall off) and not subscribed.
-  Otherwise inserts and returns the row. The numbers are literals in the function; a unit test
+  Otherwise inserts the row and one `usage` row (0011), and returns the submission. The numbers are literals in the function; a unit test
   (`tests/shared/limitsMatchMigration.test.ts`) keeps them equal to `src/shared/config.ts`.
 - `claim_submission_run(p_id uuid) returns submissions` — one conditional
   update: moves `uploaded|failed` to `analyzing`, or re-claims an in-flight

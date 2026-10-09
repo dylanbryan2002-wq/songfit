@@ -29,7 +29,7 @@ Creators can retry too: a failed run (or one still in flight after ~7 minutes on
 
 ## Daily cap
 
-Each creator can start at most `LIMITS.dailyUploadsPerCreator` (10) submissions per rolling 24 hours (3 for an anonymous visitor), on top of the 5-per-minute burst limit. The site as a whole starts at most `LIMITS.globalDailySubmissions` (150) per rolling 24 hours. Both caps are enforced inside `create_submission()` (migration 0010), so parallel requests cannot slip past them. `/api/upload-url` pre-checks the per-creator cap (429 `daily_limit`); `POST /api/submissions` answers 429 `daily_limit` or `global_limit`. The upload screen shows the allowance from the same 24 h count ("7 uploads left · Resets 24 hours after each upload"; anonymous "2 free tries left"), counted at render. The form says "You've used your 10 uploads for now. Each one frees up 24 hours after it was made." (anonymous: "You've used your 3 free tries for now. Sign in to upload more.") or "We're at capacity right now. Try again in a bit."
+Each creator can start at most `LIMITS.dailyUploadsPerCreator` (10) submissions per rolling 24 hours (3 for an anonymous visitor), on top of the 5-per-minute burst limit. The site as a whole starts at most `LIMITS.globalDailySubmissions` (150) per rolling 24 hours. Both caps are enforced inside `create_submission()` (migration 0010), so parallel requests cannot slip past them. Since 0011 they count the append-only `usage` ledger (one row per created submission), not `submissions`, so a deleted video does not give its upload back. `/api/upload-url` pre-checks the per-creator cap (429 `daily_limit`); `POST /api/submissions` answers 429 `daily_limit` or `global_limit`. The upload screen shows the allowance from the same 24 h count ("7 uploads left · Resets 24 hours after each upload"; anonymous "2 free tries left"), counted at render. The form says "You've used your 10 uploads for now. Each one frees up 24 hours after it was made." (anonymous: "You've used your 3 free tries for now. Sign in to upload more.") or "We're at capacity right now. Try again in a bit."
 
 To change a cap: it is a literal in the SQL function AND in `src/shared/config.ts`. Write a new migration that redefines `create_submission()` with the new number, change config to match (`tests/shared/limitsMatchMigration.test.ts` fails until both agree), `pnpm db:push`, then deploy.
 
@@ -44,7 +44,9 @@ Spend is running away (a bot is minting anonymous sessions, or a retry loop):
 
 ## Deletion on request
 
-A creator emails the address on `/privacy` asking to be deleted:
+Creators can delete themselves: on `/account`, "Delete" on a video row (or "Delete this video" on its results page) calls `DELETE /api/submissions/<id>`, and "Delete my account" (type DELETE) calls `DELETE /api/account`. Both refuse while a run is in flight (`uploaded`/`analyzing`/`recommending`); both log (`submission_deleted`, `account_deleted`) only after every step succeeded. A video delete removes its storage objects (never one another run references), its `wanted_instead` events, then the row; its other events stay with `submission_id` nulled. An account delete runs the same steps as the script below. `usage` rows stay (bare uuid + timestamp, no content) so the caps hold. A video stuck in flight past the stale restarts blocks self-serve account deletion: mark it `failed` in Studio, or use the script.
+
+The operator script remains for requests by email. A creator emails the address on `/privacy` asking to be deleted:
 
 ```bash
 pnpm local scripts/delete-creator.ts <their-email>          # dry run: prints every file, row and user it would delete
