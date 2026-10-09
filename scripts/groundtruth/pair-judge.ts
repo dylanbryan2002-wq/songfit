@@ -8,6 +8,7 @@
    MAX_JUDGE_ATTEMPTS, then final. A result is stale (re-judged) when either arm's top pick or the prompt version changed.
    Writes work/<id>/pair.<a>-vs-<b>.json.
    --summary: no calls; every scheduled clip is reported, pending and stale ones included. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

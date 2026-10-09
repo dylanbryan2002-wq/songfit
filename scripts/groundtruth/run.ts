@@ -3,6 +3,7 @@
    Reads <root>/clips.csv, <root>/videos/<file> and <root>/gemini/<id>.md (Dylan's pasted Gemini replies);
    writes <root>/work/<id>/ (muted copy, cached engine JSON per tag) and <root>/reports/<date>-<tag>.{md,json}.
    --dry-run: offline, test fixtures, temp root. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

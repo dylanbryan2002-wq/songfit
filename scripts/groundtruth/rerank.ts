@@ -4,6 +4,7 @@
    then: --rescore → scoreCandidates on the whole pool with the current scoring prompt; otherwise the stored scores.
    Then the production sort → diversify → selectSections, and writes work/<id>/ours.<tag>.json (same shape).
    Used for docs/review/24 §14: top 3 by score (no rescoring) and scoring-v5 timing (rescoring). */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

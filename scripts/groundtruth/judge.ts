@@ -3,6 +3,7 @@
    For every clip with a known song and a cached engine run work/<id>/ours.<tag>.json, the judge reads our analysis,
    Gemini's words when pasted, and the two songs labelled A and B in random order, and says which fits the video better.
    Writes work/<id>/judge.<tag>.json; an existing file is kept unless --force. The judge never sees the video. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

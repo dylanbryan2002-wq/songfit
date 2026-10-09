@@ -10,6 +10,7 @@
    Every scheduled clip ends with an artifact work/<id>/ours.<tag>.json whose treatment.status is one of
      ok | ineligible (control copied) | failed (retried once on a later invocation, then final) | control_failed.
    An artifact is stale, and rebuilt, when the control file, the lists version or the prompt version changed. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

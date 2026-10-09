@@ -6,6 +6,7 @@
    Test-split Reels are never read. Output: ~/Songfit-groundtruth/catalog/study.json (+ study-raw.md).
      pnpm local scripts/groundtruth/study.ts [--home ~/Songfit-groundtruth] [--dry-run]
    --dry-run prints the prompt size and writes the prompt only. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

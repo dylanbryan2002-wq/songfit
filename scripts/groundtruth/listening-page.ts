@@ -5,6 +5,7 @@
    Writes <out>/listening.html (default ~/Songfit-groundtruth/listening/) and <out>/key.json (which arm is A, per clip).
    Deezer sample links expire after about an hour: build the page right before listening.
    The sample is Deezer's 30 s preview, which may not be the recommended section: this is a sample-level audition. */
+import "./assert-tree";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
