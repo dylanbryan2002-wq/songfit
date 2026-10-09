@@ -105,7 +105,7 @@ async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Pr
   const cached = path.join(work, "fingerprint.json");
   if (!force) {
     const prior = await fs.readFile(cached, "utf8").then((t) => JSON.parse(t) as ClipFingerprint).catch(() => null);
-    if (prior) { console.log(`${clip.id}: cached ${prior.best ? `${prior.best.title} — ${prior.best.artist} (${prior.best.score})` : "no match"}`); return prior; }
+    if (prior && !prior.samples.some((s) => s.error)) { console.log(`${clip.id}: cached ${prior.best ? `${prior.best.title} — ${prior.best.artist} (${prior.best.score})` : "no match"}`); return prior; }
   }
   const duration = await probeDuration(video);
   const offsets = duration <= SAMPLE_SECONDS + 2 ? [0] : [1, Math.max(1, duration / 2 - SAMPLE_SECONDS / 2)];
