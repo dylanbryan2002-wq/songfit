@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createServerClient } from "@/src/db/client";
 import { ensureCreator } from "@/src/db/queries/creators";
 import { isAdminEmail } from "./admin";
+import { googleEmail } from "./identity";
 
 export type Creator = { id: string; email: string };
 /** Anyone with a session: a Google creator, or an anonymous visitor (email null, no picker until sign-in). */
@@ -13,14 +14,12 @@ export async function getViewer(): Promise<Viewer | null> {
   if (error || !data.user) return null;
   // The auth trigger creates the anonymous creators row (email null, 0009).
   if (data.user.is_anonymous) return { id: data.user.id, anonymous: true, email: null };
-  if (!data.user.email) return null;
+  // Google with a confirmed email, or no session at all.
+  const email = googleEmail(data.user);
+  if (!email) return null;
   // Idempotent mirror into public.creators so FK targets exist.
-  await ensureCreator(
-    data.user.id,
-    data.user.email,
-    (data.user.user_metadata?.full_name as string | undefined) ?? null,
-  );
-  return { id: data.user.id, anonymous: false, email: data.user.email };
+  await ensureCreator(data.user.id, email, (data.user.user_metadata?.full_name as string | undefined) ?? null);
+  return { id: data.user.id, anonymous: false, email };
 }
 
 /** Google creators only: null for anonymous sessions, so every route using it rejects them. */

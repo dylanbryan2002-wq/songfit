@@ -25,7 +25,7 @@ const names = () => m.logEvent.mock.calls.map((c) => (c[0] as { name: string }).
 beforeEach(() => {
   for (const f of Object.values(m)) f.mockReset();
   m.exchange.mockResolvedValue({ error: null });
-  m.getUser.mockResolvedValue({ data: { user: { id: "g1", email: "a@b.co", user_metadata: {} } } });
+  m.getUser.mockResolvedValue({ data: { user: { id: "g1", email: "a@b.co", email_confirmed_at: "2026-10-01T00:00:00Z", app_metadata: { provider: "google" }, user_metadata: {} } } });
   m.ensureCreator.mockResolvedValue({ id: "g1", created_at: "2020-01-01T00:00:00Z" });
   m.claimAnonymous.mockResolvedValue(2);
   m.logEvent.mockResolvedValue(undefined);
