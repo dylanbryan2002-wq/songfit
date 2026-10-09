@@ -6,6 +6,7 @@ import { canSubmit } from "@/src/billing/paywall";
 import { checkUploadRate, dailyUploadLimit } from "@/src/billing/rateLimit";
 import { getSignedUploadUrl } from "@/src/media/storage";
 import { LIMITS } from "@/src/shared/config";
+import { readJsonBody } from "@/src/shared/readJsonBody";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   const creator = await getViewer();
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const parsed = Body.safeParse(await request.json().catch(() => null));
+  const parsed = Body.safeParse(await readJsonBody(request));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }

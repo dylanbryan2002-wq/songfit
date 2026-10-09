@@ -15,6 +15,7 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   // ffmpeg-static / ffprobe-static ship native binaries; they must not be bundled.
   // Task 4.7 edits this file and MUST keep this line.
   serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],

@@ -10,6 +10,7 @@ import { LIMITS } from "@/src/shared/config";
 import { PaywallError, SubmissionLimitError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { VibeNote, VibeTags } from "@/src/shared/vibe";
+import { readJsonBody } from "@/src/shared/readJsonBody";
 
 // The pipeline runs inside this request via waitUntil, so this route needs the full budget.
 export const maxDuration = 300;
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
   const creator = await getViewer(); // anonymous visitors included; their runs are claimed at sign-in
   if (!creator) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const parsed = Body.safeParse(await request.json().catch(() => null));
+  const parsed = Body.safeParse(await readJsonBody(request));
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   const { submissionId, path, ext, creatorIntent, vibe_tags } = parsed.data;
 
