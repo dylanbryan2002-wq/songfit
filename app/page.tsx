@@ -3,10 +3,9 @@ import { uploadsLeft } from "@/src/billing/rateLimit";
 import { isUuid } from "@/src/shared/ids";
 import { logger } from "@/src/shared/logger";
 import { Logo } from "@/components/Logo";
-import { UploadForm } from "@/components/UploadForm";
+import { CreatorUpload } from "@/components/CreatorUpload";
 import { AREA } from "@/components/landing/Hero";
 import { Landing } from "@/components/landing/Landing";
-import { ResumeUpload } from "@/components/landing/ResumeUpload";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +43,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       {/* The form components draw the headline, the clip and the button for their own state. */}
       {!creator ? (
         <Landing authFailed={params.auth === "failed"} uploadsLeft={left} />
-      ) : resume ? (
-        <ResumeUpload creator={creator} flowId={resume} uploadsLeft={left} />
       ) : (
-        <UploadForm creator={creator} uploadsLeft={left} />
+        <CreatorUpload creator={creator} resume={resume} uploadsLeft={left} />
       )}
       <footer className={`mt-auto pb-4 text-[12px] text-muted ${AREA.footer}`}>
         {creator && (

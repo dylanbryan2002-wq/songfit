@@ -1,9 +1,11 @@
 "use client";
-import { createBrowserClient } from "@/src/db/browser";
-import { FLOW_ID_KEY, clearPendingUpload } from "@/src/upload/pendingUpload";
+import { FLOW_ID_KEY } from "@/src/upload/flowId";
+
+/** supabase-js loads on first use, not with the page: keeps it off the landing page's first paint. */
+const browserClient = async () => (await import("@/src/db/browser")).createBrowserClient();
 
 export async function signInWithGoogle(next: string): Promise<void> {
-  const supabase = createBrowserClient();
+  const supabase = await browserClient();
   const origin = window.location.origin;
   const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(next)}`;
   const { error } = await supabase.auth.signInWithOAuth({
@@ -18,11 +20,14 @@ export async function signOut(): Promise<void> {
   try {
     const flowId = sessionStorage.getItem(FLOW_ID_KEY);
     sessionStorage.removeItem(FLOW_ID_KEY);
-    if (flowId) clearPendingUpload(flowId).catch(() => {}); // never wait on IndexedDB to sign out
+    if (flowId) {
+      // never wait on IndexedDB to sign out
+      import("@/src/upload/pendingUpload").then((m) => m.clearPendingUpload(flowId)).catch(() => {});
+    }
   } catch {
     // storage unavailable: nothing was kept
   }
-  const supabase = createBrowserClient();
+  const supabase = await browserClient();
   await supabase.auth.signOut();
   window.location.assign("/");
 }

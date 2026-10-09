@@ -10,8 +10,7 @@ import { z } from "zod";
 
 export const PENDING_MAX_AGE_MS = 30 * 60_000;
 export const STORAGE_TIMEOUT_MS = 5_000;
-/** sessionStorage key holding this tab's landing flowId. */
-export const FLOW_ID_KEY = "songfit.flowId";
+export { FLOW_ID_KEY } from "./flowId";
 
 const DB = "songfit";
 const STORE = "pending";

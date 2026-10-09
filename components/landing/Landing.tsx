@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { signInWithGoogle } from "../auth";
 import { readVideoDuration } from "../videoDuration";
 import { durationVerdict } from "../durationVerdict";
 import { checkVideoFile, TOO_LONG } from "../videoChecks";
 import { SignIn } from "../SignIn";
-import { UploadForm } from "../UploadForm";
 import { ensureAnonSession } from "./anonSession";
 import { CHOOSE, NO_SIGN_UP } from "./copy";
 import { DemoLoop } from "./DemoLoop";
@@ -14,8 +14,16 @@ import { GoogleButton } from "./GoogleButton";
 import { AREA, CTA, Headline, STICKY } from "./Hero";
 import { InAppNotice, useInAppBrowser } from "./InAppNotice";
 import { sendLandingEvent } from "./landingEvent";
-import { createBrowserClient } from "@/src/db/browser";
-import { FLOW_ID_KEY, clearPendingUpload, readPendingUpload, stashPendingUpload } from "@/src/upload/pendingUpload";
+import { FLOW_ID_KEY } from "@/src/upload/flowId";
+
+/** Loaded on the first tap of "Choose your video", not with the page: supabase-js, the IndexedDB keeper and the
+ *  upload form (chips, tus) stay off the main thread until a creator acts. A kept file from an earlier visit loads
+ *  the IndexedDB code at mount, only for that tab. */
+const loadUploadForm = () => import("../UploadForm");
+const loadPending = () => import("@/src/upload/pendingUpload");
+const loadSupabase = () => import("@/src/db/browser");
+const UploadForm = dynamic(() => loadUploadForm().then((m) => m.UploadForm), { ssr: false });
+const clearPendingUpload = (flowId: string) => loadPending().then((m) => m.clearPendingUpload(flowId));
 
 type Chosen = { file: File; durationSeconds: number | null };
 
@@ -71,7 +79,8 @@ export function Landing({
     }
     if (existing) {
       const mine = selection.current;
-      readPendingUpload(id)
+      loadPending()
+        .then((m) => m.readPendingUpload(id))
         .then((rec) => {
           if (rec && selection.current === mine) setChosen({ file: rec.file, durationSeconds: rec.durationSeconds });
         })
@@ -111,7 +120,12 @@ export function Landing({
     clearPendingUpload(flowId.current).catch(() => {}); // a replaced file must not come back after sign-in
     sendLandingEvent("video_chosen", flowId.current);
     setChecking(true);
-    const session = await ensureAnonSession(createBrowserClient().auth);
+    let session: Awaited<ReturnType<typeof ensureAnonSession>>;
+    try {
+      session = await ensureAnonSession((await loadSupabase()).createBrowserClient().auth);
+    } catch {
+      session = "failed"; // the chunk did not load (offline): Google first, as before
+    }
     if (selection.current !== mine) return;
     setChecking(false);
     if (session === "failed") {
@@ -130,6 +144,7 @@ export function Landing({
     setNotice(null);
     const id = flowId.current;
     try {
+      const { stashPendingUpload } = await loadPending();
       await stashPendingUpload(chosen.file, { flowId: id, durationSeconds: chosen.durationSeconds });
     } catch {
       starting.current = false;
@@ -147,7 +162,11 @@ export function Landing({
     }
   }
 
-  const choose = () => input.current?.click();
+  const choose = () => {
+    input.current?.click();
+    // Warm the code the pick needs while the picker is open. Failures surface (and fall back) where it is used.
+    for (const load of [loadSupabase, loadPending, loadUploadForm]) load().catch(() => {});
+  };
 
   return (
     <>
