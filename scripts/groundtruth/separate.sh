@@ -6,7 +6,7 @@
 set -euo pipefail
 ALL=0; [[ "${1:-}" == "--all" ]] && { ALL=1; shift; }
 ROOT="${1:-$HOME/Songfit-groundtruth}"
-VENV="$ROOT/tools/venv"
+VENV="$HOME/Songfit-groundtruth/tools/venv"  # shared across batches
 FFMPEG="$(node -e 'console.log(require("ffmpeg-static"))')"
 [[ -x "$VENV/bin/demucs" ]] || { echo "demucs not installed in $VENV" >&2; exit 1; }
 ids=$(node -e '
