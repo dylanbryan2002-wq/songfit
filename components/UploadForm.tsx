@@ -336,9 +336,14 @@ export function UploadForm({
         </button>
       </div>
       {creator.email && (
-        <p className="flex items-center justify-center gap-1 text-xs text-muted lg:justify-start">
+        <p className="flex flex-wrap items-center justify-center gap-1 text-xs text-muted lg:justify-start">
           Signed in as {creator.email}
-          <SignOutButton className="!min-h-8 text-xs" />
+          <span aria-hidden>·</span>
+          <Link href="/account" className="inline-flex min-h-8 items-center px-1 font-semibold text-steel-dark">
+            My Songfits
+          </Link>
+          <span aria-hidden>·</span>
+          <SignOutButton className="!min-h-8 !px-1 text-xs" />
         </p>
       )}
       </div>
