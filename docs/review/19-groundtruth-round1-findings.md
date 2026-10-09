@@ -36,13 +36,16 @@ whose bed the fingerprinter could not hear under the voice; a voice-separation p
    ("Stock Reels choice") and cultural 0.5 ("heavily used, peaking out"). It was the right answer.
 3. **Our pacing score punished the right section.** Sailor Song's pacing was 0.15, reason "Hook 5s in; missed". The
    real edit starts the song at 0 s so the drop lands on the cut at 4.5 s. A hook five seconds in was the point.
-4. **Talking heads use library and lo-fi beds we cannot reach.** Bliss by klsr (twice), Another Thrill by Regikid,
-   Kevin MacLeod's Scheming Weasel, a creator's own beat. The model does not know these and Deezer carries few of them.
-   For this audience the right song is often "a quiet bed that stays out of the way", and our 15 should say so instead
-   of offering Max Richter and Ólafur Arnalds on every one.
-5. **A famous song was dropped at verification.** On the Nature of Daylight was proposed and Deezer returned no match.
-   Worth a look at the normaliser with this title (multi-artist credit on the Deezer side: "Max Richter, Louisa Fuller,
-   …").
+4. **Talking heads use lo-fi and library beds the model never proposes.** Bliss by klsr (twice), Another Thrill by
+   Regikid, Kevin MacLeod's Scheming Weasel, Her by The American Dawn, Every Living Breathing Moment by Grant Steller.
+   Checked on Deezer 2026-10-09: every one is there WITH a sample (Dylan's point; my first draft said the catalog
+   lacked them, which was wrong). The gap is knowledge, not access: the model does not know these tracks exist, so the
+   candidates step cannot name them. The fix is a second candidate source, the catalog path the architecture already
+   reserves (`songs` table, `source = catalog`): seed it with the beds the fingerprint pipeline finds on viral clips,
+   tagged with Gemini's mood/energy, and merge matches into the candidate list for narration-role briefs.
+5. **A famous song was dropped at verification, and the cause is a title format.** On the Nature of Daylight was
+   proposed; Deezer lists it as "Richter: On the Nature of Daylight" (classical "Composer: Title" style), and the
+   core-title match fails on the prefix. Normaliser fix: strip a leading "<artist surname>: " before comparing.
 6. **Reliability: 2 of 46 runs died on the 12k output cap** (the candidates call at medium effort now spends 7–10k
    tokens of hidden reasoning). Same finding as the smoke run; the fix (retry that direction once at low effort) is
    still waiting for a go.
@@ -59,7 +62,9 @@ A. **candidates-v6.** Add to each direction: "name the songs creators on Reels a
 B. **Scoring.** Stop penalising overuse when the brief's role is punchline or amplify (originality and cultural
    dimensions). Pacing: a hook inside the first 5 s is a plus on clips under 15 s, not a miss. Weights.ts untouched
    unless Dylan says so.
-C. **Verification.** Re-check the Max Richter miss against the normaliser; multi-artist classical credits.
+C. **Verification.** Strip the classical "Composer: " title prefix in the normaliser (the Max Richter miss).
+E. **Catalog seed (after Sunday).** Insert fingerprinted beds from viral clips into `songs` and merge them as a
+   second candidate source for narration-role briefs; this is the manual-now version of the catalog retrieval stage.
 D. **Reliability.** The low-effort retry on a cut-off candidates call.
 
 Measure: rerun `--tag round2` after A and B. Hit rate on the known-song clips must rise from 1/17; the stage split
