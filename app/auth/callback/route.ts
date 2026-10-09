@@ -46,5 +46,8 @@ export async function GET(request: NextRequest) {
       return res;
     }
   }
-  return NextResponse.redirect(new URL("/?auth=failed", url.origin));
+  const failed = NextResponse.redirect(new URL("/?auth=failed", url.origin));
+  // A failed sign-in drops the claim too, so a later sign-in on a shared device cannot pick up these runs.
+  if (request.cookies.get(CLAIM_COOKIE)) failed.cookies.set(CLAIM_COOKIE, "", { ...CLAIM_COOKIE_OPTIONS, maxAge: 0 });
+  return failed;
 }

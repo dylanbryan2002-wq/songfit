@@ -8,7 +8,7 @@ export const CLAIM_COOKIE_OPTIONS = {
   secure: true,
   sameSite: "lax", // sent on the top-level redirect back from Google
   path: "/",
-  maxAge: 3600,
+  maxAge: 600, // the Google round trip; an abandoned sign-in must not hand the runs to the next account
 } as const;
 
 export function newClaimToken(): string {

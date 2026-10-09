@@ -35,7 +35,7 @@ describe("POST /api/claim", () => {
     expect(cookie).toMatch(/Secure/i);
     expect(cookie).toMatch(/SameSite=lax/i);
     expect(cookie).toMatch(/Path=\//);
-    expect(cookie).toMatch(/Max-Age=3600/);
+    expect(cookie).toMatch(/Max-Age=600(;|$)/);
   });
 
   it("a new token each call", async () => {

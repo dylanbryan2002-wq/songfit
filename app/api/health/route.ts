@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import ffmpegPath from "ffmpeg-static";
 import ffprobe from "ffprobe-static";
 import { NextResponse } from "next/server";
-import { env } from "@/src/shared/config";
+import { isInternalToken } from "@/src/auth/internalToken";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -15,13 +15,9 @@ async function probe(path: string | null) {
   return { path, exists, executable };
 }
 
+/** INTERNAL_TOKEN unset: never honour sleep. */
 function isInternal(request: Request): boolean {
-  const token = request.headers.get("x-internal-token");
-  try {
-    return !!token && token === env("INTERNAL_TOKEN");
-  } catch {
-    return false; // INTERNAL_TOKEN unset: never honour sleep
-  }
+  return isInternalToken(request.headers.get("x-internal-token"));
 }
 
 /**

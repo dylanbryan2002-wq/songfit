@@ -60,5 +60,19 @@ describe("GET /auth/callback: claim", () => {
     const res = await call("sf_claim=tok123");
     expect(m.claimAnonymous).not.toHaveBeenCalled();
     expect(res.headers.get("location")).toBe("http://x/?auth=failed");
+    expect(res.headers.get("set-cookie") ?? "").toMatch(/sf_claim=;.*(Max-Age=0|Expires=Thu, 01 Jan 1970)/i);
+  });
+
+  it("a failed sign-in without the cookie sets no cookie", async () => {
+    m.exchange.mockResolvedValue({ error: new Error("bad code") });
+    const res = await call();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("a non-Google (email provider) user is not mirrored and claims nothing", async () => {
+    m.getUser.mockResolvedValue({ data: { user: { id: "e1", email: "a@b.co", email_confirmed_at: "2026-10-01T00:00:00Z", app_metadata: { provider: "email" }, user_metadata: {} } } });
+    await call("sf_claim=tok123");
+    expect(m.ensureCreator).not.toHaveBeenCalled();
+    expect(m.claimAnonymous).not.toHaveBeenCalled();
   });
 });
