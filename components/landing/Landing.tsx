@@ -224,7 +224,7 @@ export function LandingView({
           onRemove={onRemove}
           disabled={busy || checking}
         />
-        <div className={`flex flex-col items-start gap-3 ${AREA.body}`}>
+        <div className={`flex flex-col items-center gap-3 lg:items-start ${AREA.body}`}>
           <GoogleButton onClick={onContinue} disabled={busy || checking} />
           <p className="text-xs leading-relaxed text-muted">
             From Google we use your name and email. After sign-in you start the upload; your video is analysed to

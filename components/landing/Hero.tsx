@@ -1,14 +1,14 @@
 import { HEADLINE, MONO_LINE, PICK_A_FEEL, SUBLINE } from "./copy";
 
-/** Where each block sits. Phone: one left-aligned column in DOM order (main is a flex column).
+/** Where each block sits. Phone: one centred column in DOM order (main is a flex column; Dylan 2026-10-09).
  *  ≥1024: main is a 12-col grid; text in cols 1–6, the clip in cols 8–12, top-aligned with the H1.
  *  Rows: 1 logo · 2 heading · 3 body · 4 note · 5 footer · 6 filler (takes the clip's extra height). */
 export const AREA = {
-  heading: "lg:col-span-6 lg:col-start-1 lg:row-start-2 lg:mt-10",
-  media: "lg:col-span-5 lg:col-start-8 lg:row-span-5 lg:row-start-2 lg:mt-10",
-  body: "lg:col-span-6 lg:col-start-1 lg:row-start-3 lg:mt-10",
-  note: "lg:col-span-6 lg:col-start-1 lg:row-start-4 lg:mt-4",
-  footer: "lg:col-span-6 lg:col-start-1 lg:row-start-5 lg:mt-10",
+  heading: "text-center lg:text-left lg:col-span-6 lg:col-start-1 lg:row-start-2 lg:mt-10",
+  media: "mx-auto lg:mx-0 lg:col-span-5 lg:col-start-8 lg:row-span-5 lg:row-start-2 lg:mt-10",
+  body: "text-center lg:text-left lg:col-span-6 lg:col-start-1 lg:row-start-3 lg:mt-10",
+  note: "text-center lg:text-left lg:col-span-6 lg:col-start-1 lg:row-start-4 lg:mt-4",
+  footer: "text-center lg:text-left lg:col-span-6 lg:col-start-1 lg:row-start-5 lg:mt-10",
 } as const;
 
 /** The one button style: "Choose your video" and "Find my songs". */
@@ -31,7 +31,7 @@ export function Headline() {
         {HEADLINE}
       </h1>
       <p className="mt-4 font-mono text-[15px] font-medium leading-[1.3] tracking-wide text-ink">{MONO_LINE}</p>
-      <p className="mt-3 max-w-[32ch] text-[16px] leading-[1.45] text-muted">{SUBLINE}</p>
+      <p className="mx-auto mt-3 max-w-[32ch] text-[16px] leading-[1.45] text-muted lg:mx-0">{SUBLINE}</p>
     </div>
   );
 }

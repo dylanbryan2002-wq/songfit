@@ -16,7 +16,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   return (
     // Phone: one left-aligned column, 20 px gutter. ≥1024: 12-col grid, 40 px gutters (see AREA).
     <main className="mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col gap-8 px-5 pt-6 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_auto_auto_auto_auto_1fr] lg:gap-x-10 lg:gap-y-0 lg:px-10 lg:pt-8">
-      <div className="lg:col-span-6 lg:row-start-1">
+      <div className="flex justify-center lg:col-span-6 lg:row-start-1 lg:justify-start">
         <Logo size="xs" />
       </div>
       {/* The form components draw the headline, the clip and the button for their own state. */}

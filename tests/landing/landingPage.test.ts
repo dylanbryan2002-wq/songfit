@@ -53,9 +53,10 @@ describe("(a) empty state", () => {
     expect(text(render(createElement(LandingView, { view: "empty" })))).not.toContain(copy.NO_SIGN_UP);
   });
 
-  it("has no centred text, no rounded-2xl, no orange", () => {
+  it("centres the phone column, keeps the laptop columns left-aligned, no rounded-2xl, no orange", () => {
     const html = render(createElement(Landing, { authFailed: false }));
-    expect(html).not.toContain("text-center");
+    // Dylan 2026-10-09: the phone layout is centred; the ≥1024 grid stays left-aligned.
+    expect(html).toContain("text-center lg:text-left");
     expect(html).not.toContain("rounded-2xl");
     expect(html.toLowerCase()).not.toContain("ff5b1f");
     expect(html).not.toContain("cue");
