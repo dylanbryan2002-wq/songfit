@@ -103,3 +103,20 @@ describe("needsRun", () => {
     expect(needsRun(art({ lists_version: "old" }), "s")).toBe(true);
   });
 });
+
+import { withoutDirections } from "@/scripts/groundtruth/treatment-lib";
+import { MODELS } from "@/src/shared/config";
+import { PROMPT_VERSION } from "@/src/engine/candidates/generateCandidates";
+describe("model run (docs/review/24 §13)", () => {
+  it("regenerating every direction keeps nothing from the control's lists", () => {
+    expect(withoutDirections([gen({ directions: ["safe", "current"] }), gen({ title: "U", directions: ["unexpected"] })], ["safe", "current", "unexpected"])).toEqual([]);
+  });
+  it("a cached artifact is stale when the model, directions or picks setting changes", () => {
+    const t = { treatment: { status: "ok", attempts: 1, base_sha: "s", lists_version: CREATOR_LISTS_VERSION, prompt_version: PROMPT_VERSION, model: MODELS.candidates, directions: ["safe", "current", "unexpected"], picks: false } } as unknown as TreatmentResult;
+    const run = { prompt_version: PROMPT_VERSION, model: MODELS.candidates, directions: ["safe", "current", "unexpected"] as ("safe" | "current" | "unexpected")[], picks: false };
+    expect(needsRun(t, "s", run)).toBe(false);
+    expect(needsRun(t, "s", { ...run, model: MODELS.candidatesStrong })).toBe(true);
+    expect(needsRun(t, "s", { ...run, directions: ["safe"] })).toBe(true);
+    expect(needsRun(t, "s", { ...run, picks: true })).toBe(true);
+  });
+});

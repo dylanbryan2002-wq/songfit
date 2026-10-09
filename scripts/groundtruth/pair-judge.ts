@@ -196,6 +196,16 @@ async function main() {
   const identified = rows.filter((r) => r.clip.song && r.clip.artist);
   const hits = (arm: "A" | "B") => identified.filter((r) => r[arm] && !r[arm]!.recommend_error && compareClip({ song: r.clip.song!, artist: r.clip.artist!, start_seconds: r.clip.start_seconds }, r[arm]!).result === "hit").length;
   console.log(`Hit rate   A ${hits("A")}/${identified.length}, B ${hits("B")}/${identified.length} (identified clips only)`);
+  // Proposed = the real song was generated at all (hit, or lost after generation). The bottleneck metric.
+  const proposed = (arm: "A" | "B") => identified.filter((r) => {
+    const run = r[arm];
+    if (!run || run.recommend_error) return false;
+    const v = compareClip({ song: r.clip.song!, artist: r.clip.artist!, start_seconds: r.clip.start_seconds }, run);
+    return v.result === "hit" || v.lost_at !== "not_generated";
+  }).length;
+  console.log(`Proposed   real song generated at all: A ${proposed("A")}/${identified.length}, B ${proposed("B")}/${identified.length}`);
+  const times = rows.flatMap((r) => (r.B?.treatment?.status === "ok" ? [r.B.treatment.elapsed_ms / 1000] : [])).sort((x, y) => x - y);
+  if (times.length) console.log(`B rebuild time per clip: median ${Math.round(times[Math.floor(times.length / 2)]!)} s, max ${Math.round(times[times.length - 1]!)} s (recommend stage minus explanations)`);
   const sa = sameness(rows.map((r) => r.A)), sb = sameness(rows.map((r) => r.B));
   console.log(`Sameness   A: ${sa.title ?? "-"} in ${sa.clips} of ${rows.length} top-5s; B: ${sb.title ?? "-"} in ${sb.clips} of ${rows.length}`);
   const reach = new Map<string, { title: string; offered: number; top5: number }>();

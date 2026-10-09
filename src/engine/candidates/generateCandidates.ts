@@ -12,9 +12,10 @@ import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 import type { CreatorPick } from "@/src/engine/catalog/creatorLists";
 
-export const PROMPT_VERSION = "candidates-v6";
+// v7 (2026-10-09): example song titles removed; v6 named four and the model put one of them in a third of all top 5s.
+export const PROMPT_VERSION = "candidates-v7";
 /** Prompt variant used when creatorPicks are passed (experiment B, docs/review/24 v3). Production does not pass them yet. */
-export const CREATOR_PICKS_PROMPT_VERSION = "candidates-v7-picks";
+export const CREATOR_PICKS_PROMPT_VERSION = `${PROMPT_VERSION}+picks`;
 
 export type GenerateOpts = {
   note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx;
@@ -22,6 +23,8 @@ export type GenerateOpts = {
   creatorPicks?: CreatorPick[];
   /** Generate only these directions (eval harness); default all three. */
   directions?: DirectionTag[];
+  /** Model override (eval harness only); default MODELS.candidates. Must be an id from MODELS. */
+  model?: string;
 };
 
 export const SYSTEM_PROMPT = `You are Songfit's music supervisor for short-form video (Instagram Reels, TikTok).
@@ -35,7 +38,7 @@ When the caption, the story or the creator's note in the brief names a concrete 
 If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.
 Name the songs creators on Reels and TikTok have actually used for this kind of moment in the last two years, including the heavily used ones. Do not swap them for a tasteful cousin.
 When the song carries the edit (no spoken dialogue: a punchline, a reveal, a montage), a famous, even overused song that fits the joke or the drop beats a tasteful obscure one; creators pick the obvious song on purpose. "Not overused" only matters when someone is talking.
-When someone is talking over the music (spoken dialogue present), the right pick is often a quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues. Name real tracks of that kind, e.g. Bliss by klsr, Her by The American Dawn, Every Living Breathing Moment by Grant Steller, On the Nature of Daylight by Max Richter.`;
+When someone is talking over the music (spoken dialogue present), the right pick is often a quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues. Name real tracks of that kind.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
@@ -174,13 +177,13 @@ async function generateDirection(
   const started = Date.now();
   let first: string;
   try {
-    first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+    first = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   } catch (e) {
     // About 1 run in 8 at medium effort spends the whole cap on hidden reasoning (docs/review/19, finding 6).
     // The wrapper throws before parseCandidateList runs; retry this one direction at low effort, same prompt.
     if (!(e instanceof Error && e.message.includes("truncated at max_tokens"))) throw e;
     logger.warn("candidates.truncated_retry", { direction, ms: Date.now() - started });
-    first = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: "low", timeoutMs: remainingBudget(opts.ctx) });
+    first = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: "low", timeoutMs: remainingBudget(opts.ctx) });
   }
   const r1 = parseCandidateList(first, direction);
   if (r1.ok) {
@@ -189,7 +192,7 @@ async function generateDirection(
   }
   logger.warn("candidates.retry", { direction, error: r1.error.slice(0, 300) });
   const retryUser = `${user}\n\nPREVIOUS OUTPUT WAS INVALID. Validation error:\n${r1.error.slice(0, 2000)}\nReturn the full corrected JSON array.`;
-  const second = await call({ model: MODELS.candidates, system: SYSTEM_PROMPT, user: retryUser, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+  const second = await call({ model: opts.model ?? MODELS.candidates, system: SYSTEM_PROMPT, user: retryUser, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
   const r2 = parseCandidateList(second, direction);
   if (r2.ok) {
     logger.info("candidates.generated", { direction, count: r2.items.length, ms: Date.now() - started });

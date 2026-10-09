@@ -7,7 +7,7 @@
    (they are scored in their own batch). Validate any winner through the full production path before shipping.
    Replay (safe = "replay") must reproduce the control's picks exactly. */
 import { createHash } from "node:crypto";
-import type { GeneratedCandidate, Pick, ScoredCandidate, VerifiedCandidate, VideoAnalysis } from "../../src/shared/types";
+import type { DirectionTag, GeneratedCandidate, Pick, ScoredCandidate, VerifiedCandidate, VideoAnalysis } from "../../src/shared/types";
 import type { CandidateInsert } from "../../src/db/queries/candidates";
 import { mergeCandidates } from "../../src/engine/candidates/generateCandidates";
 import { normalizeKey } from "../../src/engine/catalog/normalize";
@@ -56,18 +56,21 @@ function fromRow(row: CandidateInsert, c: GeneratedCandidate): VerifiedCandidate
   };
 }
 
-/** Control's generated list with the safe direction removed (songs only in safe are dropped). */
-export function withoutSafe(generated: GeneratedCandidate[]): GeneratedCandidate[] {
+/** Control's generated list with these directions removed (songs only in them are dropped). */
+export function withoutDirections(generated: GeneratedCandidate[], remove: readonly DirectionTag[]): GeneratedCandidate[] {
   return generated.flatMap((g) => {
-    const directions = g.directions.filter((d) => d !== "safe");
+    const directions = g.directions.filter((d) => !remove.includes(d));
     return directions.length ? [{ ...g, directions }] : [];
   });
 }
+export const withoutSafe = (generated: GeneratedCandidate[]) => withoutDirections(generated, ["safe"]);
 
 export async function rebuild(
   base: OursResult, analysis: VideoAnalysis, safe: GeneratedCandidate[] | "replay", deps: RebuildDeps, offered: CreatorPick[] = [],
+  replaced: readonly DirectionTag[] = ["safe"],
 ): Promise<RebuildResult> {
-  const generated = safe === "replay" ? base.generated : mergeCandidates([safe, withoutSafe(base.generated)]);
+  // `safe` holds the freshly generated lists for the `replaced` directions (just safe in the creator-lists run).
+  const generated = safe === "replay" ? base.generated : mergeCandidates([safe, withoutDirections(base.generated, replaced)]);
 
   const verifiedRow = new Map<string, CandidateInsert>();
   for (const r of base.candidates) if (r.verified && !verifiedRow.has(keyOf(r))) verifiedRow.set(keyOf(r), r);

@@ -135,10 +135,10 @@ describe("generateCandidates", () => {
   });
 });
 
-describe("SYSTEM_PROMPT (candidates-v6)", () => {
+describe("SYSTEM_PROMPT (candidates-v7)", () => {
   it("covers the creator's note and named songs or artists", async () => {
     const { SYSTEM_PROMPT: sp, PROMPT_VERSION: v } = await import("@/src/engine/candidates/generateCandidates");
-    expect(v).toBe("candidates-v6");
+    expect(v).toBe("candidates-v7");
     expect(sp).toContain("When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.");
     expect(sp).toContain("If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.");
   });
@@ -147,7 +147,8 @@ describe("SYSTEM_PROMPT (candidates-v6)", () => {
     expect(sp).toContain("actually used for this kind of moment in the last two years, including the heavily used ones");
     expect(sp).toContain("a famous, even overused song that fits the joke or the drop beats a tasteful obscure one");
     expect(sp).toContain("quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues");
-    expect(sp).toContain("On the Nature of Daylight by Max Richter");
+    // v7: no example titles; v6 named four and one of them reached a third of all top 5s.
+    expect(sp).not.toMatch(/klsr|American Dawn|Grant Steller|Max Richter/);
     // The unexpected direction still rules out meme-standard ironic picks, qualified for punchlines.
     const p = buildCandidatePrompt("unexpected", brief, analysis);
     expect(p).toContain("Not meme-standard ironic picks");
@@ -173,5 +174,15 @@ describe("creator picks (experiment B, docs/review/24 v3)", () => {
     const out = await generateCandidates(brief, analysis, { call, directions: ["safe"], creatorPicks: picks });
     expect(call).toHaveBeenCalledTimes(1);
     expect(out.every((c) => c.directions.join() === "safe")).toBe(true);
+  });
+});
+
+describe("model override (eval harness)", () => {
+  it("uses MODELS.candidates by default and the override when given", async () => {
+    const { MODELS } = await import("@/src/shared/config");
+    const call = vi.fn().mockResolvedValue(JSON.stringify(many("S")));
+    await generateCandidates(brief, analysis, { call, directions: ["safe"] });
+    await generateCandidates(brief, analysis, { call, directions: ["safe"], model: MODELS.candidatesStrong });
+    expect(call.mock.calls.map((c) => c[0].model)).toEqual([MODELS.candidates, MODELS.candidatesStrong]);
   });
 });

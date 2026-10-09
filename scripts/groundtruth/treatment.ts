@@ -1,6 +1,9 @@
 /* Experiment B runner (docs/review/24 v3): a shortlist screening experiment (see treatment-lib.ts for what it does and
    does not reproduce). Creator-list shortlist in the safe direction, everything else from the control.
      pnpm local scripts/groundtruth/treatment.ts --root <batch> [--base round2] [--tag listsB] [--split tune|test|all] [--only <id>] [--force] [--replay]
+         [--directions safe|all] [--model candidates|candidatesStrong] [--picks yes|no]
+   Defaults reproduce the creator-lists run. The model run (docs/review/24 §13) regenerates all three directions:
+     --directions all --picks no [--model candidatesStrong]
    --replay: no model calls; rebuilds every clip from its control run and checks picks and sections are identical.
    Population: every clip in the split with a control artifact (identified song or not). A clip the control never ran
    on is outside the comparison and listed as such.
@@ -11,13 +14,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { generateCandidates, CREATOR_PICKS_PROMPT_VERSION } from "../../src/engine/candidates/generateCandidates";
+import { generateCandidates, CREATOR_PICKS_PROMPT_VERSION, PROMPT_VERSION } from "../../src/engine/candidates/generateCandidates";
 import { verifyCandidates } from "../../src/engine/catalog/verifyCandidates";
 import { scoreCandidates } from "../../src/engine/scoring/scoreCandidates";
 import { listTypesFor } from "../../src/engine/catalog/listTypes";
 import { CREATOR_LISTS_VERSION, shortlistFor, type CreatorPick, type ListType } from "../../src/engine/catalog/creatorLists";
 import { toCandidateInsert } from "../../src/engine/recommend";
-import { LIMITS } from "../../src/shared/config";
+import { LIMITS, MODELS } from "../../src/shared/config";
+import { DirectionTag } from "../../src/shared/types";
 import type { FinalRecommendation } from "../../src/shared/types";
 import { parseClipsCsv } from "./intake";
 import { probeDuration } from "./intake";
@@ -32,14 +36,20 @@ export type TreatmentMeta = {
   base_tag: string; base_sha: string; eligible: boolean; types: ListType[]; offered: CreatorPick[]; funnel: Funnel | null;
   reused_verified: number; newly_verified: number; reused_scores: number; newly_scored: number;
   prompt_version: string; lists_version: string; elapsed_ms: number;
+  model?: string; directions?: DirectionTag[]; picks?: boolean;
 };
+
+export type RunConfig = { prompt_version: string; model: string; directions: DirectionTag[]; picks: boolean };
 export type TreatmentResult = OursResult & { treatment: TreatmentMeta };
 
+const DEFAULT_RUN: RunConfig = { prompt_version: CREATOR_PICKS_PROMPT_VERSION, model: MODELS.candidates, directions: ["safe"], picks: true };
+
 /** Rebuild unless the cached artifact is current and final (ok, ineligible, control_failed, or failed twice). */
-export function needsRun(prior: TreatmentResult | null, baseSha: string): boolean {
+export function needsRun(prior: TreatmentResult | null, baseSha: string, run: RunConfig = DEFAULT_RUN): boolean {
   if (!prior?.treatment) return true;
   const t = prior.treatment;
-  if (t.base_sha !== baseSha || t.lists_version !== CREATOR_LISTS_VERSION || t.prompt_version !== CREATOR_PICKS_PROMPT_VERSION) return true;
+  if (t.base_sha !== baseSha || t.lists_version !== CREATOR_LISTS_VERSION || t.prompt_version !== run.prompt_version) return true;
+  if ((t.model ?? MODELS.candidates) !== run.model || (t.directions ?? ["safe"]).join() !== run.directions.join() || (t.picks ?? true) !== run.picks) return true;
   return t.status === "failed" && t.attempts < MAX_ATTEMPTS;
 }
 
@@ -52,9 +62,17 @@ async function main() {
       root: { type: "string" }, base: { type: "string", default: "round2" }, tag: { type: "string", default: "listsB" },
       split: { type: "string", default: "tune" }, only: { type: "string" }, force: { type: "boolean", default: false },
       replay: { type: "boolean", default: false },
+      directions: { type: "string", default: "safe" }, // safe | all
+      model: { type: "string", default: "candidates" }, // a MODELS key: candidates | candidatesStrong
+      picks: { type: "string", default: "yes" }, // yes | no: offer the creator-list shortlist
     },
   });
-  if (!args.root) { console.error("usage: treatment.ts --root <batch> [--base round2] [--tag listsB] [--split tune|test|all] [--only <id>] [--replay]"); process.exit(1); }
+  const directions: DirectionTag[] = args.directions === "all" ? [...DirectionTag.options] : ["safe"];
+  const modelKey = args.model as keyof typeof MODELS;
+  if (!(modelKey === "candidates" || modelKey === "candidatesStrong")) throw new Error(`--model must be candidates or candidatesStrong, got ${args.model}`);
+  const usePicks = args.picks !== "no";
+  const run: RunConfig = { prompt_version: usePicks ? CREATOR_PICKS_PROMPT_VERSION : PROMPT_VERSION, model: MODELS[modelKey], directions, picks: usePicks };
+  if (!args.root) { console.error("usage: treatment.ts --root <batch> [--base round2] [--tag listsB] [--split tune|test|all] [--only <id>] [--replay] [--directions safe|all] [--model candidates|candidatesStrong] [--picks yes|no]"); process.exit(1); }
   const root = path.resolve(args.root.replace(/^~(?=$|\/)/, os.homedir()));
   let clips = parseClipsCsv(await fs.readFile(path.join(root, "clips.csv"), "utf8"));
   if (args.split !== "all") clips = clips.filter((c) => c.split === args.split);
@@ -70,7 +88,7 @@ async function main() {
     const baseSha = sha(baseText);
     const out = path.join(work, `ours.${args.tag}.json`);
     const prior = args.replay ? null : await fs.readFile(out, "utf8").then((t) => JSON.parse(t) as TreatmentResult).catch(() => null);
-    if (!args.replay && !args.force && !needsRun(prior, baseSha)) { counts.cached!++; console.log(`${clip.id}: cached (${prior!.treatment.status})`); continue; }
+    if (!args.replay && !args.force && !needsRun(prior, baseSha, run)) { counts.cached!++; console.log(`${clip.id}: cached (${prior!.treatment.status})`); continue; }
     const attempts = prior?.treatment && prior.treatment.base_sha === baseSha && prior.treatment.status === "failed" ? prior.treatment.attempts + 1 : 1;
 
     const t0 = Date.now();
@@ -78,11 +96,13 @@ async function main() {
     const duration = base.analysis ? await probeDuration(path.join(root, "videos", clip.file)).catch(() => null) : null;
     const analysis = base.analysis ? { ...base.analysis, duration_seconds: duration ?? base.analysis.duration_seconds ?? null } : base.analysis;
     const types = analysis ? listTypesFor(analysis, base.brief) : [];
-    const offered = analysis?.dialogue_present && types.length ? shortlistFor(types) : [];
+    const offered = usePicks && analysis?.dialogue_present && types.length ? shortlistFor(types) : [];
+    const eligible = usePicks ? offered.length > 0 : !!analysis;
     const meta = (status: TreatmentStatus, extra: Partial<TreatmentMeta> = {}): TreatmentMeta => ({
-      status, attempts, error: null, base_tag: args.base!, base_sha: baseSha, eligible: offered.length > 0, types, offered, funnel: null,
+      status, attempts, error: null, base_tag: args.base!, base_sha: baseSha, eligible, types, offered, funnel: null,
       reused_verified: 0, newly_verified: 0, reused_scores: 0, newly_scored: 0,
-      prompt_version: CREATOR_PICKS_PROMPT_VERSION, lists_version: CREATOR_LISTS_VERSION, elapsed_ms: Date.now() - t0, ...extra,
+      prompt_version: run.prompt_version, lists_version: CREATOR_LISTS_VERSION, elapsed_ms: Date.now() - t0,
+      model: run.model, directions: run.directions, picks: run.picks, ...extra,
     });
     const deps = {
       verify: (c: Parameters<typeof verifyCandidates>[0]) => verifyCandidates(c, { ctx }),
@@ -100,17 +120,17 @@ async function main() {
     let result: TreatmentResult;
     if (base.recommend_error || base.finals.length === 0 || !analysis) {
       result = { ...base, finals: [], recommend_error: base.recommend_error ?? "control produced no picks", treatment: meta("control_failed") };
-    } else if (offered.length === 0) {
+    } else if (!eligible) {
       result = { ...base, analysis, treatment: meta("ineligible") };
     } else {
       try {
-        const safe = await generateCandidates(base.brief, analysis, { directions: ["safe"], creatorPicks: offered, ctx });
-        const r = await rebuild(base, analysis, safe, deps, offered);
+        const fresh = await generateCandidates(base.brief, analysis, { directions, model: run.model, ...(offered.length ? { creatorPicks: offered } : {}), ctx });
+        const r = await rebuild(base, analysis, fresh, deps, offered, directions);
         result = {
           ...base, analysis, generated: r.generated, finals: asFinals(r.picks), recommend_error: null,
           candidates: [
-            ...r.scored.map((c) => toCandidateInsert(clip.id, c, true, CREATOR_PICKS_PROMPT_VERSION)),
-            ...[...r.unverified, ...r.lookupFailed].map((c) => toCandidateInsert(clip.id, c, false, CREATOR_PICKS_PROMPT_VERSION)),
+            ...r.scored.map((c) => toCandidateInsert(clip.id, c, true, run.prompt_version)),
+            ...[...r.unverified, ...r.lookupFailed].map((c) => toCandidateInsert(clip.id, c, false, run.prompt_version)),
           ],
           treatment: meta("ok", { funnel: r.funnel, reused_verified: r.reused_verified, newly_verified: r.newly_verified, reused_scores: r.reused_scores, newly_scored: r.newly_scored }),
         };
