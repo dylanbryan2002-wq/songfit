@@ -1,7 +1,45 @@
-# Plan: weighting songs from creator "background music" lists — v2 after Codex review
+# Plan: weighting songs from creator "background music" lists — v3 after Codex review 2
 
 Status: proposal, nothing built. v1 written 2026-10-09; v2 same day after Codex's review (kept below in
 `docs/review/24-codex-review-v1.md`). Owner: Dylan. Author: Claude (engine session). Reviewer: Codex.
+
+## 00. v3: what changed after Codex review 2 (supersedes anything below that conflicts)
+
+1. **Control stays comparable.** No speech recovery in this experiment. A (round 2), B and C all use
+   the same cached analysis and brief per clip, from round 2. B reuses round 2's analysis and reruns
+   only recommend. The judge sees that same analysis for both arms. Speech recovery (demucs vocals to
+   Whisper) becomes its own later experiment, after a spot check for song lyrics leaking into stems.
+   Narration limitation is reported, not fixed.
+2. **Duration**: v2's claim was wrong; see the corrected table. Only the saved metadata is fixed.
+3. **C replay** runs combine → diversify → selectSections on all of B's verified candidates, with the
+   prior passed as an explicit experimental weight config, never by editing the default in
+   `weights.ts`. Gate before trusting C: replay B with the prior off must reproduce B's ordered picks
+   and section times exactly. When the speech gate is false, C uses the baseline weights (no neutral
+   compression). C is judged as scored picks, no invented explanations.
+4. **Storytelling rule**: no pronoun test. Personal event or change plus temporal progression in
+   `story` or summary, word-boundary matching, checked against blind tune labels. Precision needs at
+   least 5 predicted positives; support and recall reported. `brief.fields.moods` is treated as the
+   model's desired feel, not a creator request.
+5. **Text-reel type** dropped (unreachable under the speech gate). Results split into eligible speech
+   clips and all clips.
+6. **Source counts** derived from records, one dependence policy: L3 and L4 merged into one group for
+   any song both name. Runaway is 3 groups, Money So Big 2. The word "independent" is dropped; tables
+   say "groups".
+7. **Shortlist**: canonical display title and artist from the Deezer resolution (raw transcription
+   kept separately), sample-less entries filtered, deduplicated by Deezer id before the cap of 8. L1
+   mentions kept with raw provenance and no type. Prompt wording: creators "recommend", not "use".
+8. **Explanations untouched** in B and C. `topReasons` filters out only `creator_prior`, and only if C
+   ever ships, with an explain prompt-version bump.
+9. **Decision rule**: identical song and section pairs tie automatically; a one-arm failure is a loss
+   for that arm; judge-call failures get their own status and one retry. Report wins / losses / ties,
+   decided pairs, failures and a paired sign-test interval. B or C chosen on tune; the chosen arm is
+   then tested against A on test and must have **positive** net wins (zero is inconclusive). Sameness
+   compared on matching splits. Hit rate reported on the identified subset with its denominator.
+10. **Storage**: `song_trend_signals` cannot hold source groups or version-specific evidence; the
+    curated file is the record, and any future adapter into that table is lossy and documented as such.
+
+Cost of B under v3: one recommend-only run on 63 tune clips (≈ $30, ≈ 1 h with two workers), then 30
+test clips (≈ $15) after freezing. C costs judge calls only.
 
 ## 0. What changed from v1
 
@@ -37,7 +75,7 @@ Corrected numbers (Codex asked for clip-level denominators):
 | any single list song's reach | not measured | Million Dollar Baby and Metamorphosis each in 4 of 93 clips' top 5 |
 | **sameness we already have** | not measured | **saman (Ólafur Arnalds) is in the top 5 of 21 of 93 clips**, Near Light 15, Time 14, Awake 12. The engine already gives a quarter of creators the same quiet bed. Sameness is a pre-existing problem, and the guardrail below measures it for every song, not only listed ones. |
 | `dialogue_present` reliability (harness is muted, so it is inferred from frames and captions) | not checked | agrees with Gemini's label, which heard the audio, on **83 of 93** clips; ours says true on 76, Gemini on 86. The harness under-detects speech on about 10 clips. |
-| harness `duration_seconds` | assumed present | **missing** in every stored harness analysis, so the short-video pacing rule never fires in the eval. Harness bug, fixed before round 3. |
+| harness `duration_seconds` | assumed present | missing only in the **saved** analysis; `ours.ts` passes duration into the engine and `recommend.ts` enriches the analysis, so the pacing rule did fire (v2 was wrong; Codex review 2). Saved file gets the field for offline replay. |
 
 Not accepted, with reasons:
 
