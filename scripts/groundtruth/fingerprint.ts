@@ -32,7 +32,7 @@ export type Match = {
   start_seconds: number;
 };
 
-export type ClipFingerprint = { id: string; file: string; best: Match | null; samples: { offset: number; match: Match | null; error?: string }[] };
+export type ClipFingerprint = { id: string; file: string; best: Match | null; samples: { offset: number; match: Match | null; error?: string }[]; source?: "video" | "no_vocals" };
 
 /** ACRCloud "signature_version 1": HMAC-SHA1 over the fixed string, base64. */
 export function sign(accessKey: string, secret: string, timestamp: number): string {
@@ -99,13 +99,18 @@ async function identify(sample: string, offset: number, end: number): Promise<Ma
 }
 
 async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Promise<ClipFingerprint> {
-  const video = path.join(root, "videos", clip.file);
   const work = path.join(root, "work", clip.id);
   await fs.mkdir(work, { recursive: true });
+  // Prefer the voice-stripped audio (scripts/groundtruth/separate.sh writes work/<id>/no_vocals.wav): speech over a quiet
+  // bed defeats fingerprinting on most talking-head clips.
+  const stripped = path.join(work, "no_vocals.wav");
+  const source: ClipFingerprint["source"] = (await fs.stat(stripped).then(() => true).catch(() => false)) ? "no_vocals" : "video";
+  const video = source === "no_vocals" ? stripped : path.join(root, "videos", clip.file);
   const cached = path.join(work, "fingerprint.json");
   if (!force) {
     const prior = await fs.readFile(cached, "utf8").then((t) => JSON.parse(t) as ClipFingerprint).catch(() => null);
-    if (prior && !prior.samples.some((s) => s.error)) { console.log(`${clip.id}: cached ${prior.best ? `${prior.best.title} — ${prior.best.artist} (${prior.best.score})` : "no match"}`); return prior; }
+    // Reuse only a clean result made from the same audio source; a new no_vocals.wav means a fresh try.
+    if (prior && !prior.samples.some((s) => s.error) && (prior.source ?? "video") === source) { console.log(`${clip.id}: cached ${prior.best ? `${prior.best.title} — ${prior.best.artist} (${prior.best.score})` : "no match"}`); return prior; }
   }
   const duration = await probeDuration(video);
   const offsets = duration <= SAMPLE_SECONDS + 2 ? [0] : [1, Math.max(1, duration / 2 - SAMPLE_SECONDS / 2)];
@@ -120,7 +125,7 @@ async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Pr
     }
   }
   const best = samples.flatMap((s) => (s.match ? [s.match] : [])).sort((a, b) => b.score - a.score)[0] ?? null;
-  const result: ClipFingerprint = { id: clip.id, file: clip.file, best, samples };
+  const result: ClipFingerprint = { id: clip.id, file: clip.file, best, samples, source };
   await fs.writeFile(cached, JSON.stringify(result, null, 2));
   console.log(`${clip.id}: ${best ? `${best.title} — ${best.artist} (score ${best.score}, starts ${best.start_seconds} s)` : "no match"}${samples.some((s) => s.error) ? ` [errors: ${samples.filter((s) => s.error).map((s) => s.error).join("; ")}]` : ""}`);
   return result;
