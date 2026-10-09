@@ -27,7 +27,8 @@ export type Match = {
   deezer_id: string | null;
   isrc: string | null;
   sample_offset_seconds: number;
-  /** Where in the song the clip starts: play_offset − sample offset, floored at 0. */
+  sample_end_seconds: number;
+  /** Where in the song the clip starts: play_offset − sample end, floored at 0. */
   start_seconds: number;
 };
 
@@ -39,12 +40,14 @@ export function sign(accessKey: string, secret: string, timestamp: number): stri
   return createHmac("sha1", secret).update(text).digest("base64");
 }
 
-export function startSeconds(playOffsetMs: number, sampleOffsetSeconds: number): number {
-  return Math.max(0, Math.round((playOffsetMs / 1000 - sampleOffsetSeconds) * 10) / 10);
+/** ACRCloud's play_offset_ms is the song position at the END of the sample (measured 2026-10-09 on one clip: samples ending
+    at 13 s and 10 s of the video returned 111.06 s and 107.92 s, both putting the video's first second at ~98 s of the song). */
+export function startSeconds(playOffsetMs: number, sampleEndSeconds: number): number {
+  return Math.max(0, Math.round((playOffsetMs / 1000 - sampleEndSeconds) * 10) / 10);
 }
 
 /** The best music match in an ACRCloud identify response, or null (status.code 1001 = no result). */
-export function parseIdentify(body: unknown, sampleOffsetSeconds: number): Match | null {
+export function parseIdentify(body: unknown, sampleOffsetSeconds: number, sampleEndSeconds: number): Match | null {
   const r = body as { status?: { code?: number; msg?: string }; metadata?: { music?: Record<string, unknown>[] } };
   if (r.status?.code === 1001) return null;
   if (r.status?.code !== 0) throw new Error(`ACRCloud error ${r.status?.code}: ${r.status?.msg}`);
@@ -59,7 +62,8 @@ export function parseIdentify(body: unknown, sampleOffsetSeconds: number): Match
       deezer_id: ((m.external_metadata as { deezer?: { track?: { id?: unknown } } } | undefined)?.deezer?.track?.id ?? null) as string | null,
       isrc: ((m.external_ids as { isrc?: string } | undefined)?.isrc ?? null),
       sample_offset_seconds: sampleOffsetSeconds,
-      start_seconds: startSeconds(Number(m.play_offset_ms ?? 0), sampleOffsetSeconds),
+      sample_end_seconds: sampleEndSeconds,
+      start_seconds: startSeconds(Number(m.play_offset_ms ?? 0), sampleEndSeconds),
     }))
     .filter((m) => m.title && m.score >= MIN_SCORE)
     .sort((a, b) => b.score - a.score)[0];
@@ -74,7 +78,7 @@ async function cutSample(video: string, offset: number, out: string): Promise<vo
   await run(ffmpegPath, ["-v", "error", "-y", "-ss", String(offset), "-t", String(SAMPLE_SECONDS), "-i", video, "-vn", "-ac", "1", "-ar", "8000", "-f", "wav", out]);
 }
 
-async function identify(sample: string, offset: number): Promise<Match | null> {
+async function identify(sample: string, offset: number, end: number): Promise<Match | null> {
   const host = process.env.ACRCLOUD_HOST;
   const key = process.env.ACRCLOUD_ACCESS_KEY;
   const secret = process.env.ACRCLOUD_ACCESS_SECRET;
@@ -91,7 +95,7 @@ async function identify(sample: string, offset: number): Promise<Match | null> {
   form.append("timestamp", String(timestamp));
   const res = await fetch(`https://${host}/v1/identify`, { method: "POST", body: form });
   if (!res.ok) throw new Error(`ACRCloud HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return parseIdentify(await res.json(), offset);
+  return parseIdentify(await res.json(), offset, end);
 }
 
 async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Promise<ClipFingerprint> {
@@ -110,7 +114,7 @@ async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Pr
     const out = path.join(work, `sample-${Math.round(offset)}.wav`);
     try {
       await cutSample(video, offset, out);
-      samples.push({ offset, match: await identify(out, offset) });
+      samples.push({ offset, match: await identify(out, offset, Math.min(offset + SAMPLE_SECONDS, duration)) });
     } catch (err) {
       samples.push({ offset, match: null, error: err instanceof Error ? err.message : String(err) });
     }
@@ -120,6 +124,13 @@ async function fingerprintClip(clip: ClipSpec, root: string, force: boolean): Pr
   await fs.writeFile(cached, JSON.stringify(result, null, 2));
   console.log(`${clip.id}: ${best ? `${best.title} — ${best.artist} (score ${best.score}, starts ${best.start_seconds} s)` : "no match"}${samples.some((s) => s.error) ? ` [errors: ${samples.filter((s) => s.error).map((s) => s.error).join("; ")}]` : ""}`);
   return result;
+}
+
+const simplify = (s: string) => s.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+/** Same song when one simplified title contains the other ("Theme of Law & Order" vs "Law & Order"). */
+export function sameSong(a: string, b: string): boolean {
+  const x = simplify(a), y = simplify(b);
+  return x.length > 0 && y.length > 0 && (x.includes(y) || y.includes(x));
 }
 
 const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
@@ -135,6 +146,10 @@ export function applyToCsv(csv: string, results: Map<string, ClipFingerprint>): 
     if (m && !song) {
       song = m.title; artist = m.artist; start_seconds = m.start_seconds;
       notes = `${notes ? `${notes}; ` : ""}acrcloud score ${m.score}`;
+    } else if (m && sameSong(song, m.title) && start_seconds === 0) {
+      // Known song with a placeholder start: take the measured one.
+      start_seconds = m.start_seconds;
+      notes = `${notes ? `${notes}; ` : ""}start from acrcloud (score ${m.score})`;
     } else if (m) {
       notes = `${notes ? `${notes}; ` : ""}acrcloud heard ${m.title} — ${m.artist} starting ${m.start_seconds} s (score ${m.score})`;
     } else if (fp) {
