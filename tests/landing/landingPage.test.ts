@@ -109,7 +109,9 @@ describe("(b) chosen on the signed-in form", () => {
     expect(buttons(html).some((b) => text(b) === copy.CHANGE)).toBe(true);
     expect(html).toContain('aria-label="Remove video"');
     expect(t).toContain("How should it feel?");
-    expect(html).toContain('aria-label="Anything else?"');
+    // The note field is hidden until "Something else…" is tapped (Dylan 2026-10-09).
+    expect(html).not.toContain('aria-label="Anything else?"');
+    expect(t).toContain("Something else…");
     const submit = buttons(html).find((b) => text(b) === "Find my songs")!;
     expect(submit).toContain("rounded-md");
     expect(submit).not.toContain("rounded-2xl");

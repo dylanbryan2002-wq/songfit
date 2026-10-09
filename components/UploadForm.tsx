@@ -75,6 +75,7 @@ export function UploadForm({
   const videoInput = useRef<HTMLInputElement>(null);
   const noteInput = useRef<HTMLInputElement>(null);
   const [noteFlash, setNoteFlash] = useState(false); // "Something else…" points at the note
+  const [noteOpen, setNoteOpen] = useState(false); // the note field shows only after "Something else…" (Dylan 2026-10-09)
   const [noteFocused, setNoteFocused] = useState(false); // the button leaves sticky so the keyboard can't trap it
   const dailyLimit = creator.email ? DAILY_LIMIT : DAILY_LIMIT_ANONYMOUS;
 
@@ -85,11 +86,15 @@ export function UploadForm({
   }, [noteFlash]);
 
   function onSomethingElse() {
-    const el = noteInput.current;
-    if (!el) return;
-    el.focus({ preventScroll: true });
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setNoteOpen(true);
     setNoteFlash(true);
+    // The input mounts on the next render; focus it then.
+    requestAnimationFrame(() => {
+      const el = noteInput.current;
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   /** The length is checked here, when the file is chosen, so tapping "Find my songs" has nothing left to check. */
@@ -287,6 +292,7 @@ export function UploadForm({
 
       <VibePicker tags={vibeTags} onChange={setVibeTags} onSomethingElse={onSomethingElse} disabled={busy} />
 
+      {noteOpen && (
       <input
         ref={noteInput}
         type="text"
@@ -302,6 +308,7 @@ export function UploadForm({
         }`}
         disabled={busy}
       />
+      )}
 
       {/* Sticky so the only action stays on screen above the chips; never disabled by the vibe step.
           Back in normal flow while the note is focused, so the keyboard can't push it over the field. */}
