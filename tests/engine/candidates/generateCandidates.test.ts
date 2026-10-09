@@ -106,11 +106,22 @@ describe("generateCandidates", () => {
   });
 });
 
-describe("SYSTEM_PROMPT (candidates-v5)", () => {
+describe("SYSTEM_PROMPT (candidates-v6)", () => {
   it("covers the creator's note and named songs or artists", async () => {
     const { SYSTEM_PROMPT: sp, PROMPT_VERSION: v } = await import("@/src/engine/candidates/generateCandidates");
-    expect(v).toBe("candidates-v5");
+    expect(v).toBe("candidates-v6");
     expect(sp).toContain("When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.");
     expect(sp).toContain("If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.");
+  });
+  it("asks for the songs creators actually use, overused ones when the song carries the edit, and quiet beds under speech (round 1)", async () => {
+    const { SYSTEM_PROMPT: sp } = await import("@/src/engine/candidates/generateCandidates");
+    expect(sp).toContain("actually used for this kind of moment in the last two years, including the heavily used ones");
+    expect(sp).toContain("a famous, even overused song that fits the joke or the drop beats a tasteful obscure one");
+    expect(sp).toContain("quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues");
+    expect(sp).toContain("On the Nature of Daylight by Max Richter");
+    // The unexpected direction still rules out meme-standard ironic picks, qualified for punchlines.
+    const p = buildCandidatePrompt("unexpected", brief, analysis);
+    expect(p).toContain("Not meme-standard ironic picks");
+    expect(p).toContain("unless the video is a punchline and that exact song is the joke");
   });
 });

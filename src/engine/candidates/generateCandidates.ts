@@ -11,7 +11,7 @@ import { logger } from "@/src/shared/logger";
 import { remainingBudget, type StageCtx } from "@/src/pipeline/budget";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 
-export const PROMPT_VERSION = "candidates-v5";
+export const PROMPT_VERSION = "candidates-v6";
 
 export type GenerateOpts = { note?: string; exclude?: string[]; call?: ClaudeCall; ctx?: StageCtx };
 
@@ -23,12 +23,15 @@ in the United States. Never invent songs. Never suggest AI-generated music, unre
 remixes by unknown accounts, or production-library stock music. Name the original studio
 recording, not a live, sped-up, slowed, acoustic or remix version.
 When the caption, the story or the creator's note in the brief names a concrete thing (money, work, birthday, waiting, searching), include several songs whose title or hook says it.
-If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.`;
+If the brief names a song or artist from the creator, include that exact song if real and use it as the reference; at most 3 songs by a named artist.
+Name the songs creators on Reels and TikTok have actually used for this kind of moment in the last two years, including the heavily used ones. Do not swap them for a tasteful cousin.
+When the song carries the edit (no spoken dialogue: a punchline, a reveal, a montage), a famous, even overused song that fits the joke or the drop beats a tasteful obscure one; creators pick the obvious song on purpose. "Not overused" only matters when someone is talking.
+When someone is talking over the music (spoken dialogue present), the right pick is often a quiet instrumental bed that stays under the voice: lo-fi, ambient, neo-classical, film-score cues. Name real tracks of that kind, e.g. Bliss by klsr, Her by The American Dawn, Every Living Breathing Moment by Grant Steller, On the Nature of Daylight by Max Richter.`;
 
 const DIRECTION_BRIEF: Record<DirectionTag, string> = {
   safe: "Recognisable, proven fits for this kind of content: songs a creator in this niche has seen work many times. Mainstream enough to be in both libraries.",
   current: "Songs released or re-popularised in the most recent ~18 months you have knowledge of. Nothing released before 2024 unless it had a well-known 2024+ TikTok/Reels resurgence. Never older catalogue labelled as current.",
-  unexpected: "Less obvious: older songs, niche genres, deep cuts from known artists, genre-crossing picks that a tasteful editor would reach for. Must still be real, released and findable in the libraries. Not meme-standard ironic picks (Careless Whisper, Mad World, Eye of the Tiger, Hallelujah, All By Myself, My Heart Will Go On, I Will Always Love You); a creator has seen those used for this joke hundreds of times.",
+  unexpected: "Less obvious: older songs, niche genres, deep cuts from known artists, genre-crossing picks that a tasteful editor would reach for. Must still be real, released and findable in the libraries. Not meme-standard ironic picks (Careless Whisper, Mad World, Eye of the Tiger, Hallelujah, All By Myself, My Heart Will Go On, I Will Always Love You); a creator has seen those used for this joke hundreds of times, unless the video is a punchline and that exact song is the joke.",
 };
 
 const titleCase = (s: string) => s.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
