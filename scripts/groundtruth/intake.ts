@@ -19,6 +19,7 @@ export type ClipSpec = {
   views: number | null;
   typical_views: number | null;
   notes: string;
+  split?: "tune" | "test"; // held-out "test" rows are the headline numbers; written by split.ts, blank until then
 };
 
 // song, artist and start_seconds may be empty: the clip then runs for the brief comparison only (no hit verdict).
@@ -30,7 +31,7 @@ export function clipId(file: string): string {
 }
 
 /** Splits CSV text into rows of fields. Quoted fields may hold commas, newlines and doubled quotes. */
-function splitCsv(text: string): string[][] {
+export function splitCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -77,12 +78,15 @@ export function parseClipsCsv(text: string): ClipSpec[] {
     const file = get("file");
     if (seen.has(file)) throw new Error(`clips.csv row ${rowNo}: duplicate file "${file}"`);
     seen.add(file);
+    const split = get("split");
+    if (split !== "" && split !== "tune" && split !== "test") throw new Error(`clips.csv row ${rowNo}: split must be tune or test, got "${split}"`);
     return {
       id: clipId(file), file, link: get("link"), niche: get("niche"),
       song: get("song"), artist: get("artist"), start_seconds: start,
       views: optionalNumber(get("views"), "views", rowNo),
       typical_views: optionalNumber(get("typical_views"), "typical_views", rowNo),
       notes: get("notes"),
+      ...(split === "" ? {} : { split }),
     };
   });
 }
