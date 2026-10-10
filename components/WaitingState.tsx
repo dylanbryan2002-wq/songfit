@@ -12,7 +12,19 @@ const POLL_MS = 3000;
 const LINE_MS = 4000;
 
 /** The upload stage, before the submission exists. Shown by UploadForm; the results page never passes it. */
-export type UploadStage = { progress: number; error: string | null; onRetry: () => void };
+export type UploadStage = {
+  progress: number;
+  /** True once the file is stored and the run is being created: the upload line gives way. */
+  starting?: boolean;
+  error: string | null;
+  onRetry: () => void;
+};
+
+/** The upload line never claims 100% before the next step has begun. */
+export function uploadLine(u: Pick<UploadStage, "progress" | "starting">): string {
+  if (u.starting) return "Starting your songs";
+  return `Uploading ${Math.min(99, Math.max(0, Math.round(u.progress)))}%`;
+}
 
 export function WaitingState({
   submissionId,
@@ -164,7 +176,7 @@ export function WaitingState({
 
   const fill = upload ? uploadFill(upload.progress) : waitingFill(eta);
   // Upload first; then the time left, with the rotating lines underneath once an estimate is in.
-  const line = upload ? `Uploading ${upload.progress}%` : eta ? etaLabel(eta.eta) : LINES[lineIdx];
+  const line = upload ? uploadLine(upload) : eta ? etaLabel(eta.eta) : LINES[lineIdx];
   const subline = !upload && eta ? LINES[lineIdx] : null;
 
   return (

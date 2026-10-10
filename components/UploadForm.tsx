@@ -242,6 +242,7 @@ export function UploadForm({
               submissionId={null}
               upload={{
                 progress,
+                starting: phase === "creating",
                 error: phase === "error" ? error : null,
                 // Back to the form with the same file, chosen vibes and note.
                 onRetry: () => {
