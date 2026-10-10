@@ -138,6 +138,10 @@ const CANDIDATE_MAX_TOKENS = 12_000;
 // Measured 2026-10-07 on the same brief: default effort 76 s / 10.3k output tokens, medium 21 s / 3.2k,
 // low 21 s / 3.2k but with lazy 0–14 s windows. Medium keeps the song and timing quality.
 const CANDIDATE_EFFORT = "medium" as const;
+// Measured 2026-10-09 on the 10 locked test videos: the "current" list spent 7-9k hidden tokens and took 77 s (median) at
+// medium, while safe and unexpected took ~22 s; at low it took 37 s with as many verified songs (21 vs 25). Its retry on
+// invalid output stays at medium.
+export const DIRECTION_EFFORT: Record<DirectionTag, "low" | "medium"> = { safe: CANDIDATE_EFFORT, current: "low", unexpected: CANDIDATE_EFFORT };
 
 const Item = GeneratedCandidate.omit({ directions: true });
 // C1: a direction that comes back with far fewer songs than asked is treated as invalid output
@@ -198,7 +202,7 @@ async function generateDirection(
   const started = Date.now();
   let first: string;
   try {
-    first = await call({ model: opts.model ?? MODELS.candidates, system, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: CANDIDATE_EFFORT, timeoutMs: remainingBudget(opts.ctx) });
+    first = await call({ model: opts.model ?? MODELS.candidates, system, user, maxTokens: CANDIDATE_MAX_TOKENS, effort: DIRECTION_EFFORT[direction], timeoutMs: remainingBudget(opts.ctx) });
   } catch (e) {
     // About 1 run in 8 at medium effort spends the whole cap on hidden reasoning (docs/review/19, finding 6).
     // The wrapper throws before parseCandidateList runs; retry this one direction at low effort, same prompt.

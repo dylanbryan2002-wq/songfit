@@ -227,3 +227,12 @@ describe("song library (opt-in)", () => {
     expect(call).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("per-direction effort (2026-10-09 speed)", () => {
+  it("asks the recent list with low effort and the others at medium", async () => {
+    const call = vi.fn().mockResolvedValue(JSON.stringify(many("S")));
+    await generateCandidates(brief, analysis, { call });
+    const byDirection = Object.fromEntries(call.mock.calls.map((c) => [/DIRECTION: (\w+)/.exec(c[0].user)![1], c[0].effort]));
+    expect(byDirection).toEqual({ safe: "medium", current: "low", unexpected: "medium" });
+  });
+});

@@ -20,7 +20,9 @@ export const PROMPT_VERSION = "scoring-v7";
 const TOKENS_PER_ITEM = 320;
 const MIN_TOKENS = 2000;
 const MAX_TOKENS = 16_000;
-const CHUNK_SIZE = 20;
+// 2026-10-09: 10 per call (was 20). Chunks run in parallel and each call's time follows its output (~320 tokens/item),
+// so halving the chunk roughly halves scoring time (measured 25 s median at 20). Same prompt per item.
+const CHUNK_SIZE = 10;
 
 const SYSTEM = `You are Songfit's music supervisor. You score candidate song sections against a specific
 short-form video. Be decisive and discriminating: use the full 0–1 range, do not give everything 0.7.
