@@ -1,9 +1,11 @@
+import { waitUntil } from "@vercel/functions";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@/src/db/client";
 import { claimAnonymous, ensureCreator } from "@/src/db/queries/creators";
 import { CLAIM_COOKIE, CLAIM_COOKIE_OPTIONS, hashClaimToken } from "@/src/auth/claim";
 import { googleEmail } from "@/src/auth/identity";
 import { safeNext } from "@/src/auth/redirect";
+import { sendWelcomeEmail } from "@/src/email/welcome";
 import { logEvent } from "@/src/feedback/events";
 import { logger } from "@/src/shared/logger";
 
@@ -27,8 +29,10 @@ export async function GET(request: NextRequest) {
           email,
           (data.user.user_metadata?.full_name as string | undefined) ?? null,
         );
-        if (Date.now() - Date.parse(row.created_at) < 60_000) {
+        if (row.isNew) {
           await logEvent({ name: "signed_up", creatorId: row.id });
+          // Fire-and-forget: never blocks the redirect; sendWelcomeEmail never throws.
+          waitUntil(sendWelcomeEmail({ id: row.id, email }));
         }
         // Back from the results gate: move the anonymous runs to this creator (new or returning).
         if (claimToken) {

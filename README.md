@@ -53,6 +53,7 @@ See `.env.example`. Summary:
 | `OPENAI_API_KEY` | Whisper transcription |
 | `STRIPE_PAYMENT_LINK_URL`, `STRIPE_WEBHOOK_SECRET` | subscription |
 | `ADMIN_EMAILS` | comma-separated, gates `/admin` |
+| `RESEND_API_KEY` | optional; welcome email on first Google sign-in (Resend, from `hello@thissongfits.com`, domain verified in Resend). Unset: no email, logs `email.skipped` |
 | `APPLE_TEAM_ID`, `APPLE_MUSICKIT_KEY_ID`, `APPLE_MUSICKIT_PRIVATE_KEY` (or `_B64`) | Apple Music API developer token (catalogue search + 30 s previews); the key is the MusicKit `.p8` text in double quotes (multi-line) or base64 on one line |
 
 ## External accounts needed

@@ -203,6 +203,7 @@ signed_out                   (creator set; "Sign out" tapped on the upload scree
 account_viewed               (creator set; "My Songfits" at /account rendered for a Google creator, every page of it)
 submission_deleted           metadata.had_choice  (creator set, submission null; a Google creator deleted one of their videos, logged only after the deletion succeeded; had_choice = a song was selected)
 account_deleted              metadata.submissions  (creator null; a Google creator deleted their account, logged only after every step succeeded; submissions = how many were deleted)
+welcome_email_sent           (creator set; first Google sign-in, logged only when Resend answered 2xx; never logged without RESEND_API_KEY)
 ```
 
 RLS: service role only.

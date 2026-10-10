@@ -4,7 +4,10 @@ import { NextRequest } from "next/server";
 
 const m = vi.hoisted(() => ({
   exchange: vi.fn(), getUser: vi.fn(), ensureCreator: vi.fn(), claimAnonymous: vi.fn(), logEvent: vi.fn(),
+  sendWelcomeEmail: vi.fn(), waitUntil: vi.fn(),
 }));
+vi.mock("@vercel/functions", () => ({ waitUntil: m.waitUntil }));
+vi.mock("@/src/email/welcome", () => ({ sendWelcomeEmail: m.sendWelcomeEmail }));
 vi.mock("@/src/db/client", () => ({
   createServerClient: async () => ({ auth: { exchangeCodeForSession: m.exchange, getUser: m.getUser } }),
 }));
@@ -29,6 +32,27 @@ beforeEach(() => {
   m.ensureCreator.mockResolvedValue({ id: "g1", created_at: "2020-01-01T00:00:00Z" });
   m.claimAnonymous.mockResolvedValue(2);
   m.logEvent.mockResolvedValue(undefined);
+});
+
+describe("GET /auth/callback: welcome email", () => {
+  it("a new creator gets signed_up and the welcome email, handed to waitUntil without blocking the redirect", async () => {
+    m.ensureCreator.mockResolvedValue({ id: "g1", created_at: new Date().toISOString(), isNew: true });
+    const pending = new Promise<boolean>(() => {}); // never settles: the redirect must not wait for it
+    m.sendWelcomeEmail.mockReturnValue(pending);
+    const res = await call();
+    expect(names()).toContain("signed_up");
+    expect(m.sendWelcomeEmail).toHaveBeenCalledWith({ id: "g1", email: "a@b.co" });
+    expect(m.waitUntil).toHaveBeenCalledWith(pending);
+    expect(res.headers.get("location")).toBe(`http://x${NEXT}`);
+  });
+
+  it("an existing creator gets no email and no signed_up", async () => {
+    m.ensureCreator.mockResolvedValue({ id: "g1", created_at: "2020-01-01T00:00:00Z", isNew: false });
+    await call();
+    expect(m.sendWelcomeEmail).not.toHaveBeenCalled();
+    expect(m.waitUntil).not.toHaveBeenCalled();
+    expect(names()).not.toContain("signed_up");
+  });
 });
 
 describe("GET /auth/callback: claim", () => {

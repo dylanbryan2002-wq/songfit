@@ -39,6 +39,7 @@ export const EVENT_NAMES = [
   "account_viewed",
   "submission_deleted",
   "account_deleted",
+  "welcome_email_sent",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

@@ -20,15 +20,25 @@ export async function getCreatorByEmail(email: string): Promise<CreatorRow | nul
   return data;
 }
 
-/** Idempotent. The auth trigger normally creates the row; this covers users created before the trigger existed. */
-export async function ensureCreator(id: string, email: string, displayName?: string | null): Promise<CreatorRow> {
+/** A row this young counts as new. The auth trigger inserts the row at sign-up, before the upsert below runs,
+ *  so "inserted by this call" can't be observed; age is the signal (the signed_up rule since launch). */
+export const NEW_CREATOR_WINDOW_MS = 60_000;
+
+/** Idempotent. The auth trigger normally creates the row; this covers users created before the trigger existed.
+ *  `isNew`: the row was created within NEW_CREATOR_WINDOW_MS, i.e. this is the creator's first sign-in. */
+export async function ensureCreator(
+  id: string,
+  email: string,
+  displayName?: string | null,
+  now = Date.now(),
+): Promise<CreatorRow & { isNew: boolean }> {
   const { data, error } = await createServiceClient()
     .from("creators")
     .upsert({ id, email: email.toLowerCase(), display_name: displayName ?? null }, { onConflict: "id" })
     .select("*")
     .single();
   if (error) throw error;
-  return data;
+  return { ...data, isNew: now - Date.parse(data.created_at) < NEW_CREATOR_WINDOW_MS };
 }
 
 /** Stores the sha256 of an anonymous creator's claim token (the token itself only lives in the sf_claim cookie). */
