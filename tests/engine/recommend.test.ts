@@ -63,7 +63,7 @@ describe("recommendSubmission", () => {
     expect(deps.calls).toEqual(["score", "replaceCandidates", "diversify", "sections", "explain", "replaceRecommendations", "setStatus"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>[];
     expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_url: "https://cdn.deezer/1.mp3", preview_source: "deezer", itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v9", total_score: 0.7 });
+    expect(rows[0]).toMatchObject({ source: "model", directions: ["safe"], anchor_seconds: 45, preview_url: "https://cdn.deezer/1.mp3", preview_source: "deezer", itunes_id: null, deezer_id: "1", verified: true, prompt_version: "candidates-v9+lessons", total_score: 0.7 });
     expect(rows[3]).toMatchObject({ verified: false, deezer_id: null, canonical_title: null, total_score: null, component_scores: null });
     expect(deps.setStatus).toHaveBeenCalledWith("sub-1", "ready");
     expect(deps.logEvent).toHaveBeenCalledWith(expect.objectContaining({ name: "recommendations_ready", creatorId: "cre-1", submissionId: "sub-1" }));
@@ -92,8 +92,8 @@ describe("recommendSubmission", () => {
     expect(scoredArg.map((v) => v.deezer_id).sort()).toEqual(["10", "11", "12"]);
     const rows = (deps.replaceCandidates as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { title: string; verified: boolean; prompt_version: string }[];
     expect(rows).toHaveLength(6);
-    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v9");
-    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v9#2");
+    expect(rows.find((r) => r.title === "A")!.prompt_version).toBe("candidates-v9+lessons");
+    expect(rows.find((r) => r.title === "C")!.prompt_version).toBe("candidates-v9+lessons#2");
     expect(rows.find((r) => r.title === "Gone")).toMatchObject({ verified: false });
     expect(rows.find((r) => r.title === "Flaky")).toMatchObject({ verified: false });
   });

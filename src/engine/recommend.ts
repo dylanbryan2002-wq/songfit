@@ -6,7 +6,8 @@ import type { Json } from "@/src/db/types";
 import { PipelineError } from "@/src/shared/errors";
 import { PICKS_MIN } from "@/src/shared/config";
 import { logger } from "@/src/shared/logger";
-import { generateCandidates, PROMPT_VERSION as CANDIDATES_VERSION, type GenerateOpts } from "@/src/engine/candidates/generateCandidates";
+import { generateCandidates, LESSONS_PROMPT_VERSION as CANDIDATES_VERSION, type GenerateOpts } from "@/src/engine/candidates/generateCandidates";
+import { LIBRARY_SECTIONS_PROMPT_VERSION } from "@/src/engine/candidates/librarySections";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
 import { verifyCandidates, type UnverifiedCandidate } from "@/src/engine/catalog/verifyCandidates";
 import { scoreCandidates } from "@/src/engine/scoring/scoreCandidates";
@@ -41,7 +42,9 @@ export type RecommendDeps = {
 
 const defaultDeps: RecommendDeps = {
   getSubmission, getAnalysis,
-  generate: generateCandidates, verify: verifyCandidates, score: scoreCandidates,
+  // Live since 2026-10-09 (docs/review/27): creator lessons in the song-idea prompt and songs matched from the library.
+  generate: (brief, analysis, opts) => generateCandidates(brief, analysis, { ...opts, lessons: true, library: true }),
+  verify: verifyCandidates, score: scoreCandidates,
   diversify, sections: selectSections, explain: explainPicks,
   replaceCandidates, replaceRecommendations, setStatus: setSubmissionStatus, logEvent, listNotFound: listNotFoundSongs,
 };
@@ -146,8 +149,10 @@ export async function recommendSubmission(
 
   const enough = distinct(verified) >= PICKS_MIN;
   const scored = enough ? await deps.score(analysis, brief, verified, { ctx }) : [];
-  const version = (c: { title: string; artist: string }) =>
-    firstSeen.has(keyOf(c)) ? CANDIDATES_VERSION : `${CANDIDATES_VERSION}#2`;
+  const version = (c: { title: string; artist: string; origin?: string }) => {
+    const v = c.origin === "library" ? LIBRARY_SECTIONS_PROMPT_VERSION : CANDIDATES_VERSION;
+    return firstSeen.has(keyOf(c)) ? v : `${v}#2`;
+  };
   const rows: CandidateInsert[] = [
     ...(enough ? scored : verified).map((c) => toCandidateInsert(submissionId, c, true, version(c))),
     ...[...unverified, ...lookupFailed].map((c) => toCandidateInsert(submissionId, c, false, version(c))),
