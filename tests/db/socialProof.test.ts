@@ -9,7 +9,10 @@ vi.mock("@/src/db/client", () => ({
       m.calls.push(`from ${t}`);
       const q = {
         select: (c: string, o: { count: string; head: boolean }) => (m.calls.push(`select ${c} ${o.count} ${o.head}`), q),
-        eq: (c: string, v: unknown) => (m.calls.push(`eq ${c} ${String(v)}`), Promise.resolve({ count: m.count, error: m.error })),
+        eq: (c: string, v: unknown) => (m.calls.push(`eq ${c} ${String(v)}`), q),
+        abortSignal: (s: AbortSignal) => (
+          m.calls.push(`abortSignal ${s instanceof AbortSignal}`), Promise.resolve({ count: m.count, error: m.error })
+        ),
       };
       return q;
     },
@@ -31,10 +34,10 @@ describe("countReadySubmissions", () => {
   it("counts ready submissions (head-only count) and caches the result for 10 minutes", async () => {
     m.count = 120;
     expect(await countReadySubmissions(0)).toBe(120);
-    expect(m.calls).toEqual(["from submissions", "select id exact true", "eq status ready"]);
+    expect(m.calls).toEqual(["from submissions", "select id exact true", "eq status ready", "abortSignal true"]);
     m.count = 130;
     expect(await countReadySubmissions(READY_COUNT_TTL_MS - 1)).toBe(120);
-    expect(m.calls).toHaveLength(3);
+    expect(m.calls).toHaveLength(4);
     expect(await countReadySubmissions(READY_COUNT_TTL_MS)).toBe(130);
   });
 

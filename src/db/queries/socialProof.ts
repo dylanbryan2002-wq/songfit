@@ -2,6 +2,8 @@ import "server-only";
 import { createServiceClient } from "../client";
 
 export const READY_COUNT_TTL_MS = 10 * 60_000;
+/** The landing page waits on this count; a slow or unreachable database must not hold the page. */
+export const READY_COUNT_TIMEOUT_MS = 1_500;
 
 let cached: { value: number; at: number } | null = null;
 
@@ -12,7 +14,8 @@ export async function countReadySubmissions(now = Date.now()): Promise<number> {
   const { count, error } = await createServiceClient()
     .from("submissions")
     .select("id", { count: "exact", head: true })
-    .eq("status", "ready");
+    .eq("status", "ready")
+    .abortSignal(AbortSignal.timeout(READY_COUNT_TIMEOUT_MS));
   if (error) throw error;
   cached = { value: count ?? 0, at: now };
   return cached.value;
