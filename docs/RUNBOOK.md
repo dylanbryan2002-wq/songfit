@@ -2,6 +2,13 @@
 
 **Production:** https://thissongfits.com (also https://songfit.vercel.app)
 
+## Uptime monitor
+
+Monitor URL: **https://thissongfits.com/api/health** (GET, expect 200 and `{"ok":true,"slept":0}`). No auth, no
+middleware, no database, no paid API: it answers in milliseconds, so a 5xx or timeout means the deployment itself
+is down. Point any free uptime checker at it (1–5 min interval, alert after 2 failures). `?binaries=1` reports the
+ffmpeg/ffprobe binaries (a deploy check, not for the monitor).
+
 ## Watch (every hour on launch days)
 
 - `/admin` — failed rows are red (there is no status filter). Read the `error` text:
