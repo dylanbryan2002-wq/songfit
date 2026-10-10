@@ -12,7 +12,9 @@ import type { TranscriptSegment } from "./transcribe";
 // v7 (2026-10-09): speech alone no longer forces vocal_preference instrumental; only a quiet_bed does. In the pilot every
 // speech brief said instrumental and banned vocal pop/rock, so 0 vocal songs reached a top 3 under speech, while creators
 // used well-known vocal songs under speech in at least 8 practice Reels.
-export const PROMPT_VERSION = "analyze-v7";
+// v8 (2026-10-09): explicit rules for the music's job under speech; v7 labelled 6 of 8 talking test videos quiet_bed,
+// including three whose creators used energetic music (fitness tips, a founder life update, a business interview).
+export const PROMPT_VERSION = "analyze-v8";
 
 export const MOMENT_TYPES = ["scene_change", "main_visual_reveal", "climax", "transition", "text_overlay", "beat_cut"] as const;
 const momentTypeSet = new Set<string>(MOMENT_TYPES);
@@ -65,6 +67,13 @@ Rules:
   quiet_bed (stays under the voice; the words carry the video), drive_energy (pushes pace and momentum: routines, hustle, fast cuts, a build),
   emotional_lift (raises the feeling where the story turns), comic_cue (part of the joke: a title, an era or an ironic contrast),
   familiar_anthem (a song everyone knows whose identity is the point: nostalgia, an era, a celebration).
+  When someone talks, decide the job from the EDIT and the STORY, not from the speech alone. Creators in this niche put
+  energetic or uplifting music under talking about half the time; do not default to quiet_bed:
+  - quiet_bed only when the delivery is slow and reflective and the video is mostly one shot with few cuts (a letter read
+    aloud, a calm piece of advice, quotes read to camera, a sad confession).
+  - drive_energy when there are fast cuts or b-roll montage, on-screen lists or steps, an energetic or assertive delivery,
+    hustle, fitness, business or productivity tips, or a win, flex or career-leap story.
+  - emotional_lift when a personal story builds to a turn or a payoff (a comeback, a tribute, a proud or grateful moment).
   Pick the PRIMARY job; say any secondary effect in brief.text (a familiar anthem can also drive energy).
   The job can reinforce what is visible or deliberately contrast it: a visibly exhausted creator in a frantic routine may call for
   relentless, funny momentum (drive_energy), and a risky career story told with a grin may call for cheerful bounce, not reflection.
