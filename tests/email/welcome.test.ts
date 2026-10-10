@@ -36,7 +36,7 @@ describe("sendWelcomeEmail", () => {
       from: "Songfit <hello@thissongfits.com>",
       to: ["new@creator.co"],
       reply_to: "dylanbryan2002@gmail.com",
-      subject: "Your songs are ready on Songfit",
+      subject: "Welcome to Songfit",
     });
     expect(WELCOME_FROM).toBe(body.from);
     expect(WELCOME_SUBJECT).toBe(body.subject);

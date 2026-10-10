@@ -7,7 +7,7 @@ const RESEND_URL = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
 
 export const WELCOME_FROM = "Songfit <hello@thissongfits.com>";
-export const WELCOME_SUBJECT = "Your songs are ready on Songfit";
+export const WELCOME_SUBJECT = "Welcome to Songfit";
 const ACCOUNT_URL = `${SITE_ORIGIN}/account`;
 
 export const WELCOME_TEXT = [
