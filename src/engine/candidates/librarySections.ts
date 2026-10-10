@@ -9,11 +9,14 @@ import { extractJson } from "@/src/shared/json";
 import { logger } from "@/src/shared/logger";
 import type { LibrarySong } from "@/src/engine/catalog/libraryMatch";
 
-export const LIBRARY_SECTIONS_PROMPT_VERSION = "library-sections-v1";
+// v2 (2026-10-09): v1 let the model skip songs it was unsure of and it placed only 3-5 of 25; now every song gets a window,
+// marked "approximate:" when the timing is a best estimate (explainPicks then describes the feel, not a moment).
+export const LIBRARY_SECTIONS_PROMPT_VERSION = "library-sections-v2";
 
 const SYSTEM = `You are Songfit's music editor. For each listed song, choose the single best ${LIMITS.sectionMin}–${LIMITS.sectionMax} second window
-of the ORIGINAL studio recording for this short-form video. Give a window for every song you know; skip only songs you do not
-know well enough to place (never invent a section). Reply with one JSON array only.`;
+of the ORIGINAL studio recording for this short-form video. Give a window for EVERY song in the list. When you are not sure
+where the chorus or drop sits, give your best estimate and start section_reason with "approximate:" (never claim a specific
+lyric or moment you are unsure of). Reply with one JSON array only.`;
 
 const Item = z.object({
   i: z.number().int().min(0),
@@ -50,7 +53,7 @@ ${songs.map((s, i) => `${i}. ${s.title} — ${s.artist}${s.year ? ` (${s.year})`
 For each song: proposed_start / proposed_end in seconds from the start of the track (window ${LIMITS.sectionMin}–${LIMITS.sectionMax} s), anchor_seconds = the
 song's defining moment inside the window (chorus entry, drop, lift), section_is_vocal = lead vocals during most of the window,
 section_reason and fit_reason at most 18 words each. For videos under 10 s the hook must start within 2 s of proposed_start.
-Return ONLY a compact JSON array, one object per song you can place: {"i","proposed_start","proposed_end","anchor_seconds","section_is_vocal","section_reason","fit_reason"}`;
+Return ONLY a compact JSON array with one object for EVERY song: {"i","proposed_start","proposed_end","anchor_seconds","section_is_vocal","section_reason","fit_reason"}`;
 }
 
 export async function librarySections(
@@ -59,7 +62,7 @@ export async function librarySections(
 ): Promise<GeneratedCandidate[]> {
   if (songs.length === 0) return [];
   const call = opts.call ?? callClaude;
-  const text = await call({ model: MODELS.candidates, system: SYSTEM, user: buildLibrarySectionsPrompt(analysis, brief, songs, job), maxTokens: 8000, effort: "low", ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
+  const text = await call({ model: MODELS.candidates, system: SYSTEM, user: buildLibrarySectionsPrompt(analysis, brief, songs, job), maxTokens: 10000, effort: "medium", ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) });
   let raw: unknown;
   try { raw = extractJson(text); } catch (e) { throw new Error(`library sections: no JSON (${e instanceof Error ? e.message : String(e)})\n--- model text ---\n${text}`); }
   const rows = z.array(z.unknown()).safeParse(raw);
