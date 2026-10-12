@@ -97,6 +97,14 @@ export async function analyzeSubmission(
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
     );
+    // New engine: pacing and faces start now and run alongside Gemini (a failure only drops that source).
+    const soft = <T,>(what: string, p: Promise<T>) => p.catch((err: unknown) => {
+      logger.warn(`media.${what}_failed`, { submissionId, reason: err instanceof Error ? err.message : String(err) });
+      return null;
+    });
+    const measured = d.engine === "new"
+      ? Promise.all([soft("pacing", d.measurePacing(videoPath)), soft("faces", d.readFaces(videoPath, media.durationSeconds))])
+      : Promise.resolve([null, null] as const);
     // New engine: Gemini listens (words + voice). Old engine: Whisper. Silent videos have no audio track: skip both.
     const heard = d.engine === "new" && media.audioPath ? await d.listenWithGemini(media.audioPath, { deadlineAt: ctx.deadlineAt }) : null;
     const transcript = heard ? heard.transcript : media.audioPath && d.engine !== "new"
@@ -109,16 +117,10 @@ export async function analyzeSubmission(
       creatorVibe: creatorVibe(sub),
       durationSeconds: media.durationSeconds,
     };
-    // New engine: pacing and faces are measured on the upload (in parallel; a failure only drops that source).
-    const soft = <T,>(what: string, p: Promise<T>) => p.catch((err: unknown) => {
-      logger.warn(`media.${what}_failed`, { submissionId, reason: err instanceof Error ? err.message : String(err) });
-      return null;
-    });
-    const [pacing, faces] = d.engine === "new"
-      ? await Promise.all([soft("pacing", d.measurePacing(videoPath)), soft("faces", d.readFaces(videoPath, media.durationSeconds))])
-      : [null, null];
+    const analysing = d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }); // does not need pacing or faces: start it now
+    const [pacing, faces] = await measured;
     const [result, profile] = await Promise.all([
-      d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
+      analysing,
       d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null, faces: faces ? { energy: faces.energy, mood: faces.mood } : null }) : Promise.resolve(null),
     ]);
 
