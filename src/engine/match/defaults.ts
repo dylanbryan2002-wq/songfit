@@ -25,7 +25,7 @@ export function newDeps(): NewDeps {
       if (!typed || !row) return null;
       // video_profile: cast until `pnpm db:types` includes 0012_new_engine.sql.
       const profile = ((row as unknown as { video_profile?: VideoProfile | null }).video_profile) ?? null;
-      return { analysis: typed.analysis, brief: typed.brief, profile };
+      return { analysis: typed.analysis, brief: typed.brief, profile, transcript: row.transcript ?? undefined };
     },
     listNotFound: listNotFoundSongs,
     verify: (cands, d) => verifyCandidates(cands, {

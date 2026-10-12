@@ -392,3 +392,7 @@ Faces ran fine locally on this video (19/20 frames, mood 0.71, energy 0.59) but 
 - Result: 252 of the 557 labelled instrumental; 195 reach talking videos. Talking pool 716 -> 908 songs; energetic
   (energy >= 0.7) instrumentals for talking now 156.
 - Watch: phonk/Brazilian funk can carry vocal chops that the sources miss.
+
+## 2026-10-12 — Pins (Dylan: Voyager #1 for his founder video)
+- src/engine/match/pins.ts: a song pinned to #1 for one video, matched on a transcript line ("day one of building state"),
+  so any copy of the video gets it. The pinned song always joins the shortlist; the engine fills the other picks.

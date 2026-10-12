@@ -9,7 +9,7 @@ import { PICKS_MIN, LIMITS } from "@/src/shared/config";
 import { PipelineError } from "@/src/shared/errors";
 import { logger } from "@/src/shared/logger";
 import { normalizeKey } from "@/src/engine/catalog/normalize";
-import { diversify } from "@/src/engine/diversify/diversify";
+import { diversify, pinFirst } from "@/src/engine/diversify/diversify";
 import { PROMPT_VERSION as EXPLAIN_VERSION } from "@/src/engine/explain/explainPicks";
 import { toCandidateInsert } from "@/src/engine/recommend";
 import type { SongEntry } from "@/src/engine/catalog/dictionary";
@@ -19,6 +19,7 @@ import { rankSongs, type Ranked } from "./closest";
 import { feelFilter } from "./feelFilter";
 import { pickSection } from "./section";
 import { REMOVED_SONG_IDS } from "@/src/engine/catalog/removed";
+import { pinFor } from "./pins";
 import type { CandidateInsert, CandidateRow } from "@/src/db/queries/candidates";
 import type { RecommendationInsert, RecommendationRow } from "@/src/db/queries/recommendations";
 import type { NotFoundSong } from "@/src/db/queries/notFound";
@@ -78,7 +79,7 @@ export function toScored(r: Ranked, v: VerifiedCandidate): ScoredCandidate {
 export type NewDeps = {
   songs: SongEntry[];
   getSubmission: (id: string) => Promise<{ id: string; creator_id: string; duration_seconds: number | null; vibe_tags?: string[] | null } | null>;
-  getStored: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; profile: VideoProfile | null } | null>;
+  getStored: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; profile: VideoProfile | null; transcript?: string } | null>;
   listNotFound: () => Promise<NotFoundSong[]>;
   verify: (cands: GeneratedCandidate[], deps?: { ctx?: StageCtx }) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
   explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { ctx?: StageCtx }) => Promise<FinalRecommendation[]>;
@@ -112,7 +113,10 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   const filtered = feelFilter(tags, pool, PICKS_MIN);
   if (filtered.step > 1) await deps.logEvent({ name: "feel_filter_relaxed", creatorId: sub.creator_id, submissionId, metadata: { tags, step: filtered.step, count: filtered.songs.length } });
 
+  // Dylan's pin for this video: always in the shortlist, and #1 below.
+  const pinned = deps.songs.find((s) => s.id === pinFor(stored.transcript));
   const ranked = rankSongs(profile, filtered.songs).slice(0, SHORTLIST);
+  if (pinned && !ranked.some((r) => r.song.id === pinned.id)) ranked.push(...rankSongs(profile, [pinned]));
   const rankedByKey = new Map(ranked.map((r) => [keyOf(r.song), r]));
   const v = await deps.verify(ranked.map((r) => toCandidate(r, profile)), { ctx });
   const scored = v.verified.flatMap((c) => { const r = rankedByKey.get(keyOf(c)); return r ? [toScored(r, c)] : []; });
@@ -124,7 +128,8 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   const inserted = await deps.replaceCandidates(submissionId, rows);
   if (scored.length < PICKS_MIN) throw new PipelineError("recommend", `fewer than ${PICKS_MIN} playable songs after the Deezer check (${scored.length})`);
 
-  const finals = await deps.explain(diversify(scored), analysis, brief, { ctx });
+  const picks = pinned ? pinFirst(diversify(scored), scored, (c) => keyOf(c) === keyOf(pinned)) : diversify(scored);
+  const finals = await deps.explain(picks, analysis, brief, { ctx });
   const idByKey = new Map(inserted.flatMap((r) => (r.verified && r.deezer_id ? [[`deezer:${r.deezer_id}`, r.id] as const] : [])));
   await deps.replaceRecommendations(submissionId, finals.map((r) => ({
     submission_id: submissionId, candidate_id: idByKey.get(r.catalog_key as `deezer:${string}`) ?? null, rank: r.rank, direction_label: r.direction_label,

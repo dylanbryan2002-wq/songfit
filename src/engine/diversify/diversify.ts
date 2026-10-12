@@ -76,3 +76,18 @@ export function diversify(scored: ScoredCandidate[], total = PICKS_TOTAL, batch 
     aligned_to_moment: null,
   }));
 }
+
+/** Puts the pinned candidate first ("Best fit"), keeps the rest in order and the same count (Dylan's pins, 2026-10-12). */
+export function pinFirst(picks: Pick[], scored: ScoredCandidate[], isPinned: (c: ScoredCandidate) => boolean): Pick[] {
+  const pinned = picks.find(isPinned) ?? scored.find(isPinned);
+  if (!pinned) return picks;
+  const rest = picks.filter((c) => !isPinned(c)).slice(0, picks.length - 1);
+  return [pinned, ...rest].map((c, i) => ({
+    ...c,
+    rank: i + 1,
+    direction_label: i === 0 ? BEST_FIT_LABEL : DIRECTION_LABEL[primaryDirection(c)],
+    start_seconds: c.proposed_start,
+    end_seconds: c.proposed_end,
+    aligned_to_moment: null,
+  }));
+}

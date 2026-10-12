@@ -97,4 +97,24 @@ describe("new engine recommend step (behind ENGINE, Dylan 2026-10-11)", () => {
     const { REMOVED_SONG_IDS } = await import("@/src/engine/catalog/removed");
     expect(REMOVED_SONG_IDS.has("4029525441")).toBe(true); // Hourglass — D0d.
   });
+
+  it("Dylan's pinned song is #1 for his founder video, even when it ranks low (2026-10-12)", async () => {
+    const songs = [song("1", { energy: 0.4 }), song("2", { energy: 0.4 }), song("3", { energy: 0.4 }), song("4", { energy: 0.4 }), song("3135562", { title: "Voyager", artist: "Daft Punk", feelings: {}, energy: 0 })];
+    const saved: { recs?: { title: string; rank: number; direction_label: string }[] } = {};
+    const deps = {
+      songs,
+      getSubmission: async () => ({ id: "s", creator_id: "c", duration_seconds: 20, vibe_tags: [] }) as never,
+      getStored: async () => ({ analysis: { important_moments: [], dialogue_present: true } as never, brief: {} as never, profile: profile as never, transcript: "...I've been obsessed over. This is Day One of building State." }),
+      listNotFound: async () => [],
+      verify: async (cands: { title: string; artist: string }[]) => ({ verified: cands.map((c, i) => ({ ...c, verified_via: "deezer" as const, catalog_key: `deezer:${i}`, deezer_id: String(i), itunes_id: null, canonical_title: c.title, canonical_artist: c.artist, duration_seconds: 200, artwork_url: null, deezer_url: null, preview_url: "p" })), unverified: [], lookupFailed: [] }),
+      explain: async (picks: unknown[]) => (picks as object[]).map((p) => ({ ...p, explanation: "x", spotify_url: "s", itunes_id: null })),
+      replaceCandidates: async () => [],
+      replaceRecommendations: async (_id: string, rows: unknown[]) => { saved.recs = rows as never; return []; },
+      setStatus: async () => {},
+      logEvent: vi.fn(async () => {}) as never,
+    } as unknown as NewDeps;
+    await recommendSubmissionNew("s", { deadlineAt: Date.now() + 60_000 }, deps);
+    expect(saved.recs![0]).toMatchObject({ title: "Voyager", rank: 1, direction_label: "Best fit" });
+    expect(saved.recs!.map((r) => r.rank)).toEqual(saved.recs!.map((_, i) => i + 1));
+  });
 });
