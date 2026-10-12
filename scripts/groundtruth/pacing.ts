@@ -77,9 +77,31 @@ async function loudness(file: string) {
   return { pts, integrated: integrated ? Number(integrated) : null };
 }
 
+/** --all: measure every test video that has a known song (both batches) -> design/pacing-all.json. */
+async function measureAll(home: string) {
+  const { parseCsv } = await import("./csv");
+  const out: Record<string, { cutsPerMinute: number; medianShot: number; motionPeak: number; energy: number }> = {};
+  for (const batch of ["2026-10-08-founders-mixed", "2026-10-09-founders-mixed"]) {
+    const [head, ...rows] = parseCsv(await fs.readFile(path.join(home, "batches", batch, "clips.csv"), "utf8"));
+    for (const r of rows) {
+      const file = r[head!.indexOf("file")]!;
+      if (!r[head!.indexOf("song")]) continue;
+      const scores = await sceneScores(path.join(home, "batches", batch, "videos", file)).catch(() => []);
+      if (!scores.length) continue;
+      const end = scores[scores.length - 1]!.t;
+      const st = shotStats(cutsFromScores(scores, 0.2), 0, end);
+      const motionPeak = pct(scores.map((x) => x.score), 0.95);
+      out[`${batch}/${file}`] = { ...st, motionPeak: Math.round(motionPeak * 1000) / 1000, energy: videoEnergy({ cutsPerMinute: st.cutsPerMinute, motionPeak }) };
+      console.log(file, out[`${batch}/${file}`]!.energy);
+    }
+  }
+  await fs.writeFile(path.join(home, "design", "pacing-all.json"), JSON.stringify(out, null, 1));
+}
+
 async function main() {
-  const { values: args } = parseArgs({ options: { home: { type: "string" } } });
+  const { values: args } = parseArgs({ options: { home: { type: "string" }, all: { type: "boolean" } } });
   const home = path.resolve((args.home ?? "~/Songfit-groundtruth").replace(/^~(?=$|\/)/, os.homedir()));
+  if (args.all) return measureAll(home);
   const hdir = path.join(home, "design", "pacing-check", "hand");
   const vdir = path.join(home, "batches", "2026-10-08-founders-mixed", "videos");
   const thresholds = [0.2, 0.3, 0.4, 0.5];
