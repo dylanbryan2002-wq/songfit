@@ -25,7 +25,11 @@ async function main() {
     // Instrumental vs lyric theme contradictions (Dylan, 2026-10-11): real words found on LRCLIB mean the song has vocals;
     // otherwise an instrumental song gets no lyric theme.
     const wordsFound = l?.source === "lyrics" && l?.instrumental === false;
-    const vocals = s.vocals === "instrumental" && wordsFound ? "vocals" : s.vocals;
+    // Strict instrumental (Dylan, 2026-10-12: no lyrics under talking): every source must agree. Claude's tag says lead
+    // vocals, the lyrics check found words, or the title names a featured artist -> the song has singing.
+    const claudeSaysVocals = lib.get(s.deezer_id)?.tags?.lead_vocals === "yes";
+    const featured = /\b(feat|ft)\.?\s/i.test(s.title);
+    const vocals = s.vocals === "instrumental" && (wordsFound || l?.instrumental === false || claudeSaysVocals || featured) ? "vocals" : s.vocals;
     const instrumentalNoWords = vocals === "instrumental";
     return {
       id: s.deezer_id, title: s.title, artist: s.artist, year: s.year ?? null,

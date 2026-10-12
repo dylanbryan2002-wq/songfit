@@ -21,6 +21,13 @@ describe("song dictionary (new engine phase 1, Dylan 2026-10-11)", () => {
     expect(text).not.toMatch(/"(lyrics|plainLyrics|syncedLyrics|chorus_gist|lyric_text)"/);
   });
 
+  it("only songs every source agrees are instrumental count as instrumental (Dylan: no lyrics under talking, 2026-10-12)", () => {
+    const byTitle = (t: string) => DICTIONARY.find((s) => s.title === t)!;
+    for (const t of ["Unfair", "Flow Joe", "Sun Models (feat. Madelyn Grant)"]) expect(byTitle(t).vocals).toBe("vocals");
+    expect(DICTIONARY.filter((s) => s.vocals === "instrumental" && /\b(feat|ft)\.?\s/i.test(s.title))).toEqual([]);
+    expect(byTitle("Voyager").vocals).toBe("instrumental");
+  });
+
   it("no song is both instrumental and carrying a lyric theme (Dylan, 2026-10-11)", () => {
     const bad = DICTIONARY.filter((s) => s.vocals === "instrumental" && s.theme !== null && s.theme !== "none");
     expect(bad).toEqual([]);
