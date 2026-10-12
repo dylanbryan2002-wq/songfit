@@ -41,4 +41,18 @@ describe("Gemini listens to the audio (new engine, Dylan's decision 2026-10-11)"
     await expect(listenWithGemini(await wav(), { fetchImpl, apiKey: "k" })).rejects.toThrow(/nope/);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it("retries when Google is busy (503/429/5xx), then succeeds", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn().mockImplementation(async () => (++n < 3 ? new Response("busy", { status: 503 }) : reply(good)));
+    const r = await listenWithGemini(await wav(), { fetchImpl, apiKey: "k", sleep: async () => {} });
+    expect(r.transcript.text).toBe("I quit my job today.");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up after the retries with a clear error", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => new Response("busy", { status: 503 }));
+    await expect(listenWithGemini(await wav(), { fetchImpl, apiKey: "k", sleep: async () => {} })).rejects.toThrow(/gemini 503/);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
 });

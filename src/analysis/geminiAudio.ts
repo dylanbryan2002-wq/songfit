@@ -12,6 +12,7 @@ import { remainingBudget } from "../pipeline/budget";
 import type { Transcript } from "./transcribe";
 
 export const PROMPT_VERSION = "voice-v1";
+const RETRY_WAITS_MS = [2_000, 5_000, 10_000];
 
 const unit = z.number().min(0).max(1);
 const Reply = z.object({
@@ -41,7 +42,7 @@ Return ONE JSON object:
 
 export async function listenWithGemini(
   audioPath: string | null,
-  opts: { fetchImpl?: typeof fetch; apiKey?: string; deadlineAt?: number } = {},
+  opts: { fetchImpl?: typeof fetch; apiKey?: string; deadlineAt?: number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<Heard> {
   if (!audioPath) return { transcript: { text: "", segments: [] }, voice: null, wordsPerSecond: null, laughter: false, sarcasm: false, raw: "" };
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -49,9 +50,20 @@ export async function listenWithGemini(
   const audio = (await fs.readFile(audioPath)).toString("base64");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELS.gemini}:generateContent`;
 
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  /** Google answers 503/429/5xx when busy: wait and try again (2 s, 5 s, 10 s), then fail. Same request, same result. */
+  const post = async (init: RequestInit) => {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url, init);
+      const busy = res.status === 429 || res.status >= 500;
+      if (!busy || attempt >= RETRY_WAITS_MS.length) return res;
+      logger.warn("voice.busy_retry", { status: res.status, attempt: attempt + 1 });
+      await sleep(RETRY_WAITS_MS[attempt]!);
+    }
+  };
   const call = async (note: string | null) => {
     const started = Date.now();
-    const res = await fetchImpl(url, {
+    const res = await post({
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
