@@ -17,7 +17,7 @@ const counts = (day: number, minute: number) =>
 beforeEach(() => m.countSubmissionsSince.mockReset());
 
 describe("dailyUploadLimit", () => {
-  it("is 3 for an anonymous viewer and 10 for a signed-in creator", () => {
+  it("is 3 for an anonymous viewer and 15 for a signed-in creator", () => {
     expect(LIMITS.dailyUploadsAnonymous).toBe(3);
     expect(dailyUploadLimit(true)).toBe(3);
     expect(dailyUploadLimit(false)).toBe(LIMITS.dailyUploadsPerCreator);
@@ -25,10 +25,10 @@ describe("dailyUploadLimit", () => {
 });
 
 describe("checkUploadRate", () => {
-  it("caps a creator at 10 uploads a day", async () => {
-    expect(LIMITS.dailyUploadsPerCreator).toBe(10);
-    counts(10, 0);
-    expect(await checkUploadRate(creator(), 10, NOW)).toBe("daily_limit");
+  it("caps a creator at 15 uploads a day", async () => {
+    expect(LIMITS.dailyUploadsPerCreator).toBe(15);
+    counts(15, 0);
+    expect(await checkUploadRate(creator(), 15, NOW)).toBe("daily_limit");
   });
   it("caps an anonymous viewer at 3", async () => {
     counts(3, 0);
@@ -53,9 +53,9 @@ describe("checkUploadRate", () => {
 describe("uploadsLeft", () => {
   it("is the cap minus the same 24 h count, never below 0", async () => {
     counts(3, 0);
-    expect(await uploadsLeft("c", false, NOW)).toBe(7);
+    expect(await uploadsLeft("c", false, NOW)).toBe(12);
     expect(await uploadsLeft("c", true, NOW)).toBe(0);
-    counts(12, 0);
+    counts(17, 0);
     expect(await uploadsLeft("c", false, NOW)).toBe(0);
     expect(m.countSubmissionsSince).toHaveBeenCalledWith("c", DAY_AGO);
   });

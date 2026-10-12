@@ -253,7 +253,7 @@ RLS: service role only.
 - `create_submission(p_id uuid, p_creator_id uuid, p_video_path text, p_intent text) returns submissions`
   — takes a global advisory lock, then the per-creator one. Idempotent on `p_id` for the same
   creator (an existing id returns the row before any cap). Then, in order (0010):
-  1. **daily cap**: `usage` rows of this creator in the last 24 h (since 0011; before, submissions) ≥ 10
+  1. **daily cap**: `usage` rows of this creator in the last 24 h (since 0011; before, submissions) ≥ 15 (10 until 0013)
      (`LIMITS.dailyUploadsPerCreator`), or ≥ 3 (`LIMITS.dailyUploadsAnonymous`) when the
      creator's `email is null` → raises `daily_limit`. The route answers 429 `{ error: "daily_limit" }`.
   2. **global ceiling**: `usage` rows site-wide in the last 24 h (since 0011) ≥ 150 → raises
@@ -262,7 +262,7 @@ RLS: service role only.
   3. **paywall**: counts the creator's `ready` rows plus in-flight rows
      (`uploaded|analyzing|recommending` updated in the last 10 minutes), raises
      `needs_subscription` when count ≥ 1000 (0006, paywall off) and not subscribed.
-  Otherwise inserts the row and one `usage` row (0011), and returns the submission. The numbers are literals in the function; a unit test
+  Otherwise inserts the row and one `usage` row (0011), and returns the submission. The current body is in 0013. The numbers are literals in the function; a unit test
   (`tests/shared/limitsMatchMigration.test.ts`) keeps them equal to `src/shared/config.ts`.
 - `claim_submission_run(p_id uuid) returns submissions` — one conditional
   update: moves `uploaded|failed` to `analyzing`, or re-claims an in-flight

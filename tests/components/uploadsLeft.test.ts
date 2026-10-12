@@ -28,7 +28,7 @@ describe("upload screen: uploads left", () => {
   });
 
   it("cap messages speak of the rolling window, not tomorrow", () => {
-    expect(DAILY_LIMIT).toBe("You've used your 10 uploads for now. Each one frees up 24 hours after it was made.");
+    expect(DAILY_LIMIT).toBe("You've used your 15 uploads for now. Each one frees up 24 hours after it was made.");
     expect(DAILY_LIMIT_ANONYMOUS).toBe("You've used your 3 free tries for now. Sign in to upload more.");
   });
 });

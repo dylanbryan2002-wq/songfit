@@ -26,7 +26,7 @@ export const LIMITS = {
   inFlightStaleMinutes: 6,
   maxRetriesPerSubmission: 3, // creator retries of one failing video
   maxStaleRestarts: 2, // status-poll self-heals per submission, counted from stale_restart events
-  dailyUploadsPerCreator: 10, // spend cap: submissions created per rolling 24 h
+  dailyUploadsPerCreator: 15, // spend cap: submissions created per rolling 24 h (10 -> 15, Dylan 2026-10-12; 0013)
   dailyUploadsAnonymous: 3, // same cap before Google sign-in (anonymous session)
   globalDailySubmissions: 150, // site-wide spend ceiling per rolling 24 h
   // The three caps above are enforced inside create_submission() (supabase/migrations/0011_usage_ledger.sql);

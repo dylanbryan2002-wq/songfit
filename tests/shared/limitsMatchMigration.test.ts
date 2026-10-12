@@ -3,30 +3,32 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@/src/shared/config";
 
-// 0011 holds the current create_submission() body (caps on the usage ledger).
+// 0011 created the usage ledger; 0013 holds the current create_submission() body (15 uploads a day since 2026-10-12).
 const sql = readFileSync(path.join(process.cwd(), "supabase/migrations/0011_usage_ledger.sql"), "utf8");
+const current = readFileSync(path.join(process.cwd(), "supabase/migrations/0013_fifteen_uploads.sql"), "utf8");
 const fn = sql.slice(sql.indexOf("create or replace function public.create_submission"));
 
 describe("create_submission() caps match src/shared/config.ts", () => {
   it("per-creator daily cap: anonymous (email null) vs signed in", () => {
-    const m = sql.match(/case when c\.email is null then (\d+) else (\d+) end/);
+    const m = current.match(/case when c\.email is null then (\d+) else (\d+) end/);
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBe(LIMITS.dailyUploadsAnonymous);
     expect(Number(m![2])).toBe(LIMITS.dailyUploadsPerCreator);
+    expect(LIMITS.dailyUploadsPerCreator).toBe(15); // Dylan, 2026-10-12
     // No creators row: fall back to the anonymous cap.
-    expect(sql).toContain(`coalesce(daily_cap, ${LIMITS.dailyUploadsAnonymous})`);
+    expect(current).toContain(`coalesce(daily_cap, ${LIMITS.dailyUploadsAnonymous})`);
   });
 
   it("global 24 h ceiling", () => {
-    const m = sql.match(/global_count >= (\d+)/);
+    const m = current.match(/global_count >= (\d+)/);
     expect(Number(m?.[1])).toBe(LIMITS.globalDailySubmissions);
     expect(LIMITS.globalDailySubmissions).toBe(150);
   });
 
   it("raises distinguishable errors and keeps the paywall check", () => {
-    expect(sql).toContain("raise exception 'daily_limit'");
-    expect(sql).toContain("raise exception 'global_limit'");
-    expect(sql).toContain("raise exception 'needs_subscription'");
+    expect(current).toContain("raise exception 'daily_limit'");
+    expect(current).toContain("raise exception 'global_limit'");
+    expect(current).toContain("raise exception 'needs_subscription'");
   });
 });
 

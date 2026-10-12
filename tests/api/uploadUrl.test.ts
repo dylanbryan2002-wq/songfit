@@ -32,7 +32,7 @@ describe("POST /api/upload-url", () => {
     expect((await call()).status).toBe(401);
   });
   it("429 daily_limit when today's cap is used", async () => {
-    today(10);
+    today(15);
     const res = await call();
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "daily_limit" });
