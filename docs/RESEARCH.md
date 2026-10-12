@@ -330,3 +330,10 @@ Gemini 2.5 Flash listens to the audio once per video: words with times, voice en
 a sarcasm hint. Cost about $0.003 per 60 s clip (ai.google.dev pricing). Google's terms: the free tier may use submitted
 content to improve its products and must not get personal data, and only paid tier may serve EEA/UK users; so billing must
 be on before creator videos are sent. Gemini gives timestamps only at about 1 s precision (no word-level promise).
+
+## 2026-10-11 — Faces in v1 (Dylan): YuNet + HSEmotion on the server
+YuNet 2023 face detector (MIT, 0.23 MB) and HSEmotion enet_b0_8_va_mtl (Apache-2.0, 16 MB) run in onnxruntime-web (WASM)
+inside the Node function; MediaPipe needs a browser/WebGL and was dropped server-side. On a Mac: ~0.5 s per frame, so faces
+are capped at 20 frames spread across the video (~10 s), run in parallel with Gemini and the analysis. Check on 4 test
+videos: the funny two-person clip read happiest (mood 0.76), calm founders near neutral (0.5–0.54). Valence/arousal (-1..1)
+map to mood/energy (0..1); fewer than 25% of frames with a face = no faces reading. Not yet timed on Vercel.

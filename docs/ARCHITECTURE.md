@@ -10,7 +10,8 @@ app/
   admin/                    submissions queue, per-submission inspector, metrics
   api/                      route handlers: upload, submissions (create, status, retry), feedback, events, preview
 src/
-  media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track; pacing.ts (new engine): cuts, motion → energy
+  media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track; pacing.ts (new engine): cuts, motion → energy;
+                faces.ts (new engine): YuNet finds faces, HSEmotion reads valence/arousal (20 frames, server-side WASM)
   analysis/     frames + transcript (+ creator intent, vibe tags + note) → VideoAnalysis + MusicBrief
                 videoProfile.ts (new engine): frames + transcript → the video read into the song dictionary (profile-v1)
                 geminiAudio.ts (new engine): Gemini listens: words with times, voice energy/mood, speech speed (voice-v1).
