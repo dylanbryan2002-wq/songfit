@@ -96,7 +96,12 @@ export function combineEnergyMood(r: Pick<ProfileReading, "talking" | "words" | 
   };
 }
 
-export async function buildVideoProfile(input: AnalyzeInput, pacing: Pacing | null, opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null; faces?: Voice | null } = {}): Promise<VideoProfile & { raw: string }> {
+/** pacing and faces may still be running when this is called: the model call does not need them, they are awaited
+    only for the energy/mood combine after the reply (same result, less waiting). */
+export async function buildVideoProfile(
+  input: AnalyzeInput, pacingIn: Pacing | null | Promise<Pacing | null>,
+  opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null; faces?: Voice | null | Promise<Voice | null> } = {},
+): Promise<VideoProfile & { raw: string }> {
   const c = opts.client ?? defaultClient();
   const userMsg: Anthropic.Messages.MessageParam = { role: "user", content: buildUserContent(input) };
   let raw = await call(c, [userMsg], opts.deadlineAt);
@@ -107,5 +112,6 @@ export async function buildVideoProfile(input: AnalyzeInput, pacing: Pacing | nu
     r = parse(raw);
     if ("error" in r) throw new PipelineError("analyze", `profile invalid after retry: ${r.error}. Raw: ${raw.slice(0, 2000)}`);
   }
-  return { reading: r, pacing, voice: opts.voice ?? null, faces: opts.faces ?? null, ...combineEnergyMood(r, pacing?.energy ?? null, opts.voice ?? null, opts.faces ?? null), raw };
+  const [pacing, faces] = await Promise.all([pacingIn, opts.faces ?? null]);
+  return { reading: r, pacing, voice: opts.voice ?? null, faces, ...combineEnergyMood(r, pacing?.energy ?? null, opts.voice ?? null, faces), raw };
 }

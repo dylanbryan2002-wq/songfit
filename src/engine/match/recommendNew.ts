@@ -93,14 +93,18 @@ const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.
 
 export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx, deps: NewDeps): Promise<void> {
   const started = Date.now();
-  const sub = await deps.getSubmission(submissionId);
+  // Independent reads run together (same results, less waiting).
+  const [sub, stored, notFound, recent] = await Promise.all([
+    deps.getSubmission(submissionId),
+    deps.getStored(submissionId),
+    deps.listNotFound().catch((err: unknown) => { logger.warn("recommend.not_found_lookup_failed", { submissionId, reason: String(err) }); return null; }),
+    deps.recentTopPicks(submissionId).catch((err: unknown) => { logger.warn("recommend.recent_picks_failed", { submissionId, reason: String(err) }); return null; }),
+  ]);
   if (!sub) throw new PipelineError("recommend", "submission not found");
-  const stored = await deps.getStored(submissionId);
   if (!stored?.profile) throw new PipelineError("recommend", "no video profile stored for submission (new engine)");
   const { analysis, brief, profile } = stored;
 
-  let banned = new Set<string>();
-  try { banned = new Set((await deps.listNotFound()).map(keyOf)); } catch (err) { logger.warn("recommend.not_found_lookup_failed", { submissionId, reason: String(err) }); }
+  const banned = new Set((notFound ?? []).map(keyOf));
   const pool = deps.songs.filter((s) => !banned.has(keyOf(s)));
 
   const tags = sub.vibe_tags ?? [];
@@ -108,10 +112,8 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   if (filtered.step > 1) await deps.logEvent({ name: "feel_filter_relaxed", creatorId: sub.creator_id, submissionId, metadata: { tags, step: filtered.step, count: filtered.songs.length } });
 
   const shown = new Map<string, number>();
-  try {
-    const byKey = new Map(deps.songs.map((s) => [keyOf(s), s.id]));
-    for (const r of await deps.recentTopPicks(submissionId)) { const id = byKey.get(keyOf(r)); if (id) shown.set(id, (shown.get(id) ?? 0) + 1); }
-  } catch (err) { logger.warn("recommend.recent_picks_failed", { submissionId, reason: String(err) }); }
+  const byKey = new Map(deps.songs.map((s) => [keyOf(s), s.id]));
+  for (const r of recent ?? []) { const id = byKey.get(keyOf(r)); if (id) shown.set(id, (shown.get(id) ?? 0) + 1); }
 
   const ranked = applyExposure(rankSongs(profile, filtered.songs), shown).slice(0, SHORTLIST);
   const rankedByKey = new Map(ranked.map((r) => [keyOf(r.song), r]));

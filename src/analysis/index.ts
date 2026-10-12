@@ -81,7 +81,18 @@ export async function analyzeSubmission(
   const sub = await d.getSubmission(submissionId);
   if (!sub) throw new PipelineError("analyze", `submission not found: ${submissionId}`);
 
+  const tDownload = Date.now();
   const videoPath = await d.downloadToTmp(sub.video_path);
+  logger.info("media.downloaded", { submissionId, ms: Date.now() - tDownload });
+  // New engine: pacing needs only the file, so it starts now (a failure only drops that source).
+  const soft = <T,>(what: string, p: Promise<T>) => {
+    const t = Date.now();
+    return p.then((v) => { logger.info(`media.${what}`, { submissionId, ms: Date.now() - t }); return v; }, (err: unknown) => {
+      logger.warn(`media.${what}_failed`, { submissionId, ms: Date.now() - t, reason: err instanceof Error ? err.message : String(err) });
+      return null;
+    });
+  };
+  const pacingP = d.engine === "new" ? soft("pacing", d.measurePacing(videoPath)) : Promise.resolve(null);
   const workDir = path.dirname(videoPath);
   try {
     const media = await d.extractMedia(videoPath, { workDir, deadlineAt: ctx.deadlineAt });
@@ -97,14 +108,8 @@ export async function analyzeSubmission(
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
     );
-    // New engine: pacing and faces start now and run alongside Gemini (a failure only drops that source).
-    const soft = <T,>(what: string, p: Promise<T>) => p.catch((err: unknown) => {
-      logger.warn(`media.${what}_failed`, { submissionId, reason: err instanceof Error ? err.message : String(err) });
-      return null;
-    });
-    const measured = d.engine === "new"
-      ? Promise.all([soft("pacing", d.measurePacing(videoPath)), soft("faces", d.readFaces(videoPath, media.durationSeconds))])
-      : Promise.resolve([null, null] as const);
+    // Faces need the duration, so they start right after extraction and run alongside Gemini.
+    const facesP = d.engine === "new" ? soft("faces", d.readFaces(videoPath, media.durationSeconds)) : Promise.resolve(null);
     // New engine: Gemini listens (words + voice). Old engine: Whisper. Silent videos have no audio track: skip both.
     const heard = d.engine === "new" && media.audioPath ? await d.listenWithGemini(media.audioPath, { deadlineAt: ctx.deadlineAt }) : null;
     const transcript = heard ? heard.transcript : media.audioPath && d.engine !== "new"
@@ -117,12 +122,15 @@ export async function analyzeSubmission(
       creatorVibe: creatorVibe(sub),
       durationSeconds: media.durationSeconds,
     };
-    const analysing = d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }); // does not need pacing or faces: start it now
-    const [pacing, faces] = await measured;
+    // The analysis and profile calls start as soon as Gemini's words are in; pacing and faces are awaited inside
+    // the profile only for the energy/mood combine.
     const [result, profile] = await Promise.all([
-      analysing,
-      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null, faces: faces ? { energy: faces.energy, mood: faces.mood } : null }) : Promise.resolve(null),
+      d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
+      d.engine === "new"
+        ? d.buildVideoProfile(input, pacingP, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null, faces: facesP.then((f) => (f ? { energy: f.energy, mood: f.mood } : null)) })
+        : Promise.resolve(null),
     ]);
+    const [pacing, faces] = await Promise.all([pacingP, facesP]);
 
     await d.upsertAnalysis({
       submission_id: submissionId,

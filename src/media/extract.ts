@@ -87,37 +87,37 @@ export async function extractMedia(
   const { deadlineAt } = opts;
   const dir = opts.workDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "songfit-")));
   await fs.mkdir(dir, { recursive: true });
+  const started = Date.now();
   try {
     const durationSeconds = await probeDuration(ffprobe, videoPath, deadlineAt);
     if (durationSeconds > LIMITS.maxDurationSeconds) {
       throw new PipelineError("analyze", `video too long: ${Math.round(durationSeconds)}s > ${LIMITS.maxDurationSeconds}s`);
     }
 
+    // Frames and audio are independent: run them at the same time (same outputs, less waiting).
     const fps = pickFps(durationSeconds, LIMITS.maxFrames);
     const framePattern = path.join(dir, "frame_%03d.jpg");
-    await run(
-      ffmpeg,
-      framesArgs(videoPath, fps, LIMITS.maxFrames, LIMITS.frameWidth, framePattern),
-      "ffmpeg frames",
-      timeoutFor(TIMEOUTS.frames, deadlineAt),
-    );
-    const names = (await fs.readdir(dir)).filter((n) => /^frame_\d{3}\.jpg$/.test(n)).sort().slice(0, LIMITS.maxFrames);
-    const times = frameTimestamps(names.length, fps);
-    const frames = names.map((n, i) => ({ time: times[i] ?? 0, path: path.join(dir, n) }));
-    if (frames.length === 0) throw new PipelineError("analyze", "no frames extracted");
-
-    let audioPath: string | null = null;
-    if (await hasAudioStream(ffprobe, videoPath, deadlineAt)) {
-      audioPath = path.join(dir, "audio.wav");
+    const extractFrames = async () => {
       await run(
         ffmpeg,
-        audioArgs(videoPath, audioPath),
-        "ffmpeg audio",
-        timeoutFor(TIMEOUTS.audio, deadlineAt),
+        framesArgs(videoPath, fps, LIMITS.maxFrames, LIMITS.frameWidth, framePattern),
+        "ffmpeg frames",
+        timeoutFor(TIMEOUTS.frames, deadlineAt),
       );
-    }
+      const names = (await fs.readdir(dir)).filter((n) => /^frame_\d{3}\.jpg$/.test(n)).sort().slice(0, LIMITS.maxFrames);
+      const times = frameTimestamps(names.length, fps);
+      return names.map((n, i) => ({ time: times[i] ?? 0, path: path.join(dir, n) }));
+    };
+    const extractAudio = async (): Promise<string | null> => {
+      if (!(await hasAudioStream(ffprobe, videoPath, deadlineAt))) return null;
+      const out = path.join(dir, "audio.wav");
+      await run(ffmpeg, audioArgs(videoPath, out), "ffmpeg audio", timeoutFor(TIMEOUTS.audio, deadlineAt));
+      return out;
+    };
+    const [frames, audioPath] = await Promise.all([extractFrames(), extractAudio()]);
+    if (frames.length === 0) throw new PipelineError("analyze", "no frames extracted");
 
-    logger.info("media.extracted", { durationSeconds, frames: frames.length, fps, audio: audioPath !== null });
+    logger.info("media.extracted", { durationSeconds, frames: frames.length, fps, audio: audioPath !== null, ms: Date.now() - started });
     return { durationSeconds, frames, audioPath, workDir: dir };
   } catch (err) {
     if (!opts.workDir) await fs.rm(dir, { recursive: true, force: true });

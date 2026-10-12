@@ -203,7 +203,11 @@ describe("analyzeSubmission with the new engine on (Dylan, 2026-10-11)", () => {
     expect(d.transcribe).not.toHaveBeenCalled();
     expect(d.listenWithGemini).toHaveBeenCalledWith("/tmp/x/audio.wav", { deadlineAt: 1_000_000 });
     expect(d.analyzeVideo.mock.calls[0]![0].transcript).toBe("hey");
-    expect(d.buildVideoProfile.mock.calls[0]![2]).toMatchObject({ voice: { energy: 0.8, mood: 0.7 }, faces: { mood: 0.6, energy: 0.5 } });
+    // pacing and faces are handed over still running (they are only needed after the model replies)
+    const [, pacingArg, opts] = d.buildVideoProfile.mock.calls[0]!;
+    expect(opts).toMatchObject({ voice: { energy: 0.8, mood: 0.7 } });
+    expect(await opts.faces).toEqual({ mood: 0.6, energy: 0.5 });
+    expect(await pacingArg).toEqual({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 });
     expect(d.readFaces).toHaveBeenCalledWith("/tmp/x/video.mp4", 12.3);
     const row = d.upsertAnalysis.mock.calls[0]![0];
     expect(row.video_profile).toEqual({ reading: profile.reading, pacing: profile.pacing, voice: { energy: 0.8, mood: 0.7, words_per_second: 3, laughter: false, sarcasm: false }, faces: { mood: 0.6, energy: 0.5, faceFrames: 8, frames: 10 }, energy: 0.4, mood: 0.6 });
