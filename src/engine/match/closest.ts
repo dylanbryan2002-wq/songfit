@@ -35,8 +35,8 @@ export function rankSongs(p: VideoProfile, songs: SongEntry[]): Ranked[] {
     if (p.mood !== null && s.valence !== null) parts.push(1 - Math.abs(p.mood - s.valence));
     const mood = parts.reduce((x, y) => x + y, 0) / parts.length;
     const creator = s.creator_types.includes(key) ? 1 : 0;
-    const lyrics = s.theme && r.themes_fit.includes(s.theme as never) ? 1 : s.theme && r.themes_avoid.includes(s.theme as never) ? 0
-      : s.theme === "none" && r.vocals === "instrumental preferred" ? 1 : 0.5;
+    // Instrumentals stay neutral here: being instrumental already counts under vocals (no double count, Dylan 2026-10-11).
+    const lyrics = s.theme && r.themes_fit.includes(s.theme as never) ? 1 : s.theme && r.themes_avoid.includes(s.theme as never) ? 0 : 0.5;
     const vocals = r.vocals !== "instrumental preferred" ? 1 : s.vocals === "vocals" ? 0 : s.vocals === "instrumental" ? 1 : 0.5;
     // Known but not overused: the most popular 10% count a little less, the less known half less again.
     const familiarity = s.rank_pct === null ? 0.4 : s.rank_pct >= 0.9 ? 0.6 : s.rank_pct >= 0.5 ? 1 : 0.4;

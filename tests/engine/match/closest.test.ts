@@ -54,4 +54,11 @@ describe("closeness matching in the app (Dylan's design and weights, 2026-10-11)
     expect(r).toHaveLength(1);
     expect(r[0]!.signals.vocals).toBe(0);
   });
+
+  it("an instrumental is counted once (vocals), not again under lyrics (Dylan approved fix, 2026-10-11)", () => {
+    const p = profile({ "Calm/Focused": 1 }, { vocals: "instrumental preferred", talking: "on camera" });
+    const r = rankSongs(p, [song("i", { feelings: { "Calm/Focused": "high" }, theme: "none" })])[0]!;
+    expect(r.signals.vocals).toBe(1);
+    expect(r.signals.lyrics).toBe(0.5);
+  });
 });
