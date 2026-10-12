@@ -47,6 +47,10 @@ export const PICKS_MIN = 3;
  */
 export const PREVIEWS_ENABLED = true;
 
+/** Which engine picks songs (Dylan, 2026-10-11). "old" = today's engine; "new" = closeness matching over the song
+    dictionary. Switching back is this one line. Stays "old" until Dylan's blind check passes. */
+export const ENGINE: "old" | "new" = "old";
+
 /** Must match the literal in the create_submission() SQL function (supabase/migrations/0001_init.sql). */
 export const FREE_RESULTS_PER_CREATOR = 1;
 /** Dylan, 2026-10-07: no gate until Stripe ships. Migration 0006 lifts the database rule too. */

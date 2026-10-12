@@ -21,3 +21,10 @@ export function combine(scores: ComponentScores): number {
   }
   return den === 0 ? 0 : num / den;
 }
+
+/** New engine (Dylan, 2026-10-11): how much each source counts toward the video's energy and mood (voice-feeling rubric,
+    approved 2026-10-10). Missing sources are dropped and the rest rebalanced. Editing measures energy only. */
+export const SOURCE_WEIGHTS = {
+  talking: { energy: { words: 15, voice: 40, faces: 15, edit: 20, colour: 10 }, mood: { words: 40, voice: 20, faces: 20, edit: 5, colour: 15 } },
+  notTalking: { energy: { edit: 55, faces: 20, words: 5, colour: 20 }, mood: { edit: 15, faces: 30, words: 25, colour: 30 } },
+} as const;
