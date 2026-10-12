@@ -6,7 +6,7 @@ import { DIMENSIONS } from "@/src/shared/types";
 const zero = { Motivational: 0, Inspirational: 0, Reflective: 0, Heartfelt: 0, Sad: 0, Nostalgic: 0, Funny: 0, Upbeat: 0, Hype: 0, "Calm/Focused": 0, Dramatic: 0 };
 const song = (id: string, over: Partial<SongEntry> = {}): SongEntry => ({
   id, title: `T${id}`, artist: "A", year: 2020, feelings: { Sad: "high" }, energy: 0.4, valence: 0.3, tempo: 90, vocals: "instrumental",
-  explicit: false, theme: null, flags: [], sections: { instrumental: false, first_vocal: 20, chorus: [40], gaps: [] }, creator_types: [], rank_pct: 0.95, ...over,
+  explicit: false, theme: null, flags: [], sections: { instrumental: false, first_vocal: 20, chorus: [40], gaps: [] }, creator_types: [], rank_pct: 0.95, film_score: false, ...over,
 });
 const profile = {
   reading: { talking: "on camera", words: { energy: 0.4, mood: 0.3 }, colour: { energy: 0.4, mood: 0.3 }, feelings: { ...zero, Sad: 1 },
@@ -72,6 +72,25 @@ describe("new engine recommend step (behind ENGINE, Dylan 2026-10-11)", () => {
     expect(titles).not.toContain("Tv");
     expect(titles).not.toContain("Tu");
     expect(titles.length).toBe(3);
+  });
+
+  it("talking videos never get film or game scores (Dylan, 2026-10-12: Top Gun, Transformers, Assassin's Creed were bad picks)", async () => {
+    const songs = [song("1"), song("2"), song("3"), song("f", { film_score: true, energy: 0.9 })];
+    const saved: { recs?: { title: string }[] } = {};
+    const deps = {
+      songs,
+      getSubmission: async () => ({ id: "s", creator_id: "c", duration_seconds: 20, vibe_tags: [] }) as never,
+      getStored: async () => ({ analysis: { important_moments: [], dialogue_present: true } as never, brief: {} as never, profile: profile as never }),
+      listNotFound: async () => [],
+      verify: async (cands: { title: string; artist: string }[]) => ({ verified: cands.map((c, i) => ({ ...c, verified_via: "deezer" as const, catalog_key: `deezer:${i}`, deezer_id: String(i), itunes_id: null, canonical_title: c.title, canonical_artist: c.artist, duration_seconds: 200, artwork_url: null, deezer_url: null, preview_url: "p" })), unverified: [], lookupFailed: [] }),
+      explain: async (picks: unknown[]) => (picks as object[]).map((p) => ({ ...p, explanation: "x", spotify_url: "s", itunes_id: null })),
+      replaceCandidates: async () => [],
+      replaceRecommendations: async (_id: string, rows: unknown[]) => { saved.recs = rows as { title: string }[]; return []; },
+      setStatus: async () => {},
+      logEvent: vi.fn(async () => {}) as never,
+    } as unknown as NewDeps;
+    await recommendSubmissionNew("s", { deadlineAt: Date.now() + 60_000 }, deps);
+    expect(saved.recs!.map((r) => r.title)).not.toContain("Tf");
   });
 
   it("songs Dylan removed are never recommended", async () => {

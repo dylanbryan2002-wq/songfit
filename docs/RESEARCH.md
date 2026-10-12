@@ -376,3 +376,11 @@ Faces ran fine locally on this video (19/20 frames, mood 0.71, energy 0.59) but 
   traced into the function. To confirm with live logs.
 - Dylan removed 14 calm songs that kept filling his founder-video results (src/engine/catalog/removed.ts, reversible).
 - Known gap: 665 of 952 instrumental songs are low-energy; few energetic beats of the kind creators use under talking.
+
+## 2026-10-12 — No film or game scores under talking (Dylan: "fix both")
+- Review of the founder-video picks: 10 of 15 were bad, mostly film and game scores (Top Gun Anthem, Spider-Man suite,
+  Transformers "Autobots", Assassin's Creed theme, Undertale). They were the closest instrumentals to "energetic and
+  inspirational" because the library has few modern creator-style beats.
+- Rule: talking videos never get a film, TV or game score. Marked per song as `film_score` in the dictionary from
+  Deezer's genre (Films/Games, Film Scores) or a title that says so (soundtrack, theme, "from ..."). 432 songs marked;
+  716 instrumentals remain for talking videos.

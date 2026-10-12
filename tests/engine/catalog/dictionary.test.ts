@@ -28,6 +28,12 @@ describe("song dictionary (new engine phase 1, Dylan 2026-10-11)", () => {
     expect(byTitle("Voyager").vocals).toBe("instrumental");
   });
 
+  it("film and game scores are marked from Deezer's genres (Dylan, 2026-10-12)", () => {
+    const byTitle = (t: string) => DICTIONARY.find((s) => s.title.startsWith(t))!;
+    for (const t of ["Top Gun Anthem", "Autobots", "Field of Hopes and Dreams", "Assassin's Creed IV Black Flag Main Theme"]) expect(byTitle(t).film_score).toBe(true);
+    for (const t of ["Chimes", "Voyager", "In Motion"]) expect(byTitle(t).film_score).toBe(false);
+  });
+
   it("no song is both instrumental and carrying a lyric theme (Dylan, 2026-10-11)", () => {
     const bad = DICTIONARY.filter((s) => s.vocals === "instrumental" && s.theme !== null && s.theme !== "none");
     expect(bad).toEqual([]);

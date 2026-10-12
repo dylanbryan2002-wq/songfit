@@ -106,7 +106,7 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   // Dylan's rule (2026-10-12): no lyrics under talking. Any video where someone talks (on camera or voice-over) gets
   // only songs confirmed instrumental; songs with singing or unknown vocals are out.
   const talking = profile.reading.talking !== "none";
-  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)) && !REMOVED_SONG_IDS.has(s.id) && (!talking || s.vocals === "instrumental"));
+  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)) && !REMOVED_SONG_IDS.has(s.id) && (!talking || (s.vocals === "instrumental" && !s.film_score)));
 
   const tags = sub.vibe_tags ?? [];
   const filtered = feelFilter(tags, pool, PICKS_MIN);

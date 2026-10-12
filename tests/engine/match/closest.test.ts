@@ -6,7 +6,7 @@ import type { SongEntry } from "@/src/engine/catalog/dictionary";
 const zero = { Motivational: 0, Inspirational: 0, Reflective: 0, Heartfelt: 0, Sad: 0, Nostalgic: 0, Funny: 0, Upbeat: 0, Hype: 0, "Calm/Focused": 0, Dramatic: 0 };
 const song = (id: string, over: Partial<SongEntry> = {}): SongEntry => ({
   id, title: id, artist: "a", year: 2020, feelings: {}, energy: 0.5, valence: 0.5, tempo: 100, vocals: "instrumental",
-  explicit: false, theme: null, flags: [], sections: null, creator_types: [], rank_pct: 0.6, ...over,
+  explicit: false, theme: null, flags: [], sections: null, creator_types: [], rank_pct: 0.6, film_score: false, ...over,
 });
 const profile = (feelings: Partial<typeof zero>, over: Record<string, unknown> = {}) => ({
   reading: {

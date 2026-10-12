@@ -28,6 +28,7 @@ export const SongEntrySchema = z.object({
   }).nullable(),                                    // null = no timing data
   creator_types: z.array(z.string()),               // content types creators used this song for
   rank_pct: z.number().min(0).max(1).nullable(),    // Deezer popularity position, 1 = most popular
+  film_score: z.boolean(),                          // film, TV or game score (Deezer genre or title); never under talking
 });
 export type SongEntry = z.infer<typeof SongEntrySchema>;
 
