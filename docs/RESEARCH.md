@@ -367,3 +367,12 @@ Gemini (voice-v2) rates the 11 feelings from the tone; Claude (profile-v2) rates
 judge the music's job, not just the story's emotion; code combines them voice 50 / words 30 / visuals 20 when talking
 (not talking: words 40 / visuals 60). Voice energy now includes speech speed (2.5 words/s calm -> 4 fired up).
 Faces ran fine locally on this video (19/20 frames, mood 0.71, energy 0.59) but returned nothing live: under investigation.
+
+## 2026-10-12 — Energy read fixed; 14 songs removed (Dylan)
+- Speech speed is counted from Gemini's timed transcript (it estimated 2.79 words/s; the real pace was 3.8).
+- Pacing recalibrated for real uploads: energy = 70% cut speed (30 cuts/min = max) + 30% motion. The founder video
+  (26 cuts/min, a cut every 1.5 s) went from 0.29 to about 0.65.
+- Faces failed silently on Vercel but work locally; the onnxruntime-web worker files (ort-wasm-simd-threaded*.mjs) are now
+  traced into the function. To confirm with live logs.
+- Dylan removed 14 calm songs that kept filling his founder-video results (src/engine/catalog/removed.ts, reversible).
+- Known gap: 665 of 952 instrumental songs are low-energy; few energetic beats of the kind creators use under talking.

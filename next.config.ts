@@ -7,6 +7,7 @@ const TRACED_BINARIES = [
   "./src/media/models/*.onnx",
   "./node_modules/.pnpm/onnxruntime-web*/node_modules/onnxruntime-web/dist/*.wasm",
   "./node_modules/.pnpm/onnxruntime-web*/node_modules/onnxruntime-web/dist/ort.node.min.mjs",
+  "./node_modules/.pnpm/onnxruntime-web*/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded*.mjs",
 ];
 
 /** Sent on every response. No Content-Security-Policy yet: Next's inline scripts and the Deezer CDN need a tested allow-list first. */

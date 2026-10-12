@@ -18,6 +18,7 @@ import { PROMPT_VERSION as PROFILE_VERSION } from "@/src/analysis/videoProfile";
 import { rankSongs, type Ranked } from "./closest";
 import { feelFilter } from "./feelFilter";
 import { pickSection } from "./section";
+import { REMOVED_SONG_IDS } from "@/src/engine/catalog/removed";
 import type { CandidateInsert, CandidateRow } from "@/src/db/queries/candidates";
 import type { RecommendationInsert, RecommendationRow } from "@/src/db/queries/recommendations";
 import type { NotFoundSong } from "@/src/db/queries/notFound";
@@ -105,7 +106,7 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   // Dylan's rule (2026-10-12): no lyrics under talking. Any video where someone talks (on camera or voice-over) gets
   // only songs confirmed instrumental; songs with singing or unknown vocals are out.
   const talking = profile.reading.talking !== "none";
-  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)) && (!talking || s.vocals === "instrumental"));
+  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)) && !REMOVED_SONG_IDS.has(s.id) && (!talking || s.vocals === "instrumental"));
 
   const tags = sub.vibe_tags ?? [];
   const filtered = feelFilter(tags, pool, PICKS_MIN);

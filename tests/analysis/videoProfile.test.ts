@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { buildVideoProfile, PROMPT_VERSION, voiceEnergy } from "../../src/analysis/videoProfile";
+import { buildVideoProfile, PROMPT_VERSION, voiceEnergy, wordsPerSecond } from "../../src/analysis/videoProfile";
 import { SOURCE_WEIGHTS } from "../../src/engine/scoring/weights";
 
 const zero = { Motivational: 0, Inspirational: 0, Reflective: 0, Heartfelt: 0, Sad: 0, Nostalgic: 0, Funny: 0, Upbeat: 0, Hype: 0, "Calm/Focused": 0, Dramatic: 0 };
@@ -92,5 +92,11 @@ describe("video profile (new engine phase 2, Dylan 2026-10-11)", () => {
     expect(voiceEnergy(0.6, 4.15)).toBeGreaterThan(0.75);
     expect(voiceEnergy(0.6, null)).toBe(0.6);
     expect(voiceEnergy(0.6, 2)).toBeLessThan(0.6);
+  });
+
+  it("speech speed is counted from the transcript, not guessed (Gemini said 2.79, the real pace was 3.8)", () => {
+    const segs = [{ start: 0.5, end: 20, text: Array(70).fill("w").join(" ") }, { start: 21, end: 43, text: Array(95).fill("w").join(" ") }];
+    expect(wordsPerSecond(segs)).toBeCloseTo(165 / 42.5, 2);
+    expect(wordsPerSecond([])).toBeNull();
   });
 });

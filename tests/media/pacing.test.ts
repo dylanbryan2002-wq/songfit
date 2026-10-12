@@ -15,4 +15,9 @@ describe("pacing measured on the upload (Dylan approved, 2026-10-11)", () => {
   it("reads ffmpeg scene scores", () => {
     expect(parseSceneScores("pts_time:0.5\nlavfi.scene_score=0.3\n")).toEqual([{ t: 0.5, score: 0.3 }]);
   });
+
+  it("a talking video that cuts every 1.5–2 s reads as energetic (recalibrated for real uploads, 2026-10-12)", () => {
+    expect(videoEnergy({ cutsPerMinute: 26.2, motionPeak: 0.022 })).toBeGreaterThan(0.6);
+    expect(videoEnergy({ cutsPerMinute: 8.7, motionPeak: 0.024 })).toBeLessThan(0.3);
+  });
 });

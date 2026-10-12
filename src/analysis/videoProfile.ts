@@ -91,6 +91,14 @@ function blend(weights: Record<string, number>, values: Record<string, number | 
   return total ? sum / total : null;
 }
 
+/** Words per second counted from the timed transcript (Gemini's own estimate was off: 2.79 vs a real 3.8). */
+export function wordsPerSecond(segments: { start: number; end: number; text: string }[]): number | null {
+  const words = segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
+  if (!segments.length || !words) return null;
+  const span = segments[segments.length - 1]!.end - segments[0]!.start;
+  return span > 0 ? Math.round((words / span) * 100) / 100 : null;
+}
+
 /** Voice energy with speech speed (Dylan, 2026-10-12): about 2.5 words/s or slower = calm, 4+ = fired up. */
 export function voiceEnergy(geminiEnergy: number, wordsPerSecond: number | null) {
   if (wordsPerSecond === null) return geminiEnergy;

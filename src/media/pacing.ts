@@ -39,10 +39,11 @@ export function shotStats(cuts: number[], start: number, end: number) {
   return { cutsPerMinute: Math.round((inside.length / ((end - start) / 60)) * 10) / 10, medianShot: Math.round(medianShot * 10) / 10 };
 }
 
-/** Energy 0..1 from cut speed and motion. Scales from the 10 checked videos (cuts 9–75/min, motion peak 0.01–0.19). */
+/** Energy 0..1 from cut speed and motion. Recalibrated 2026-10-12 for real uploads: a talking video cutting every 2 s
+    (~26 cuts/min) is energetic, and talking heads barely move, so cut speed counts 70% and motion 30%. */
 export function videoEnergy(m: { cutsPerMinute: number; motionPeak: number }) {
-  const cuts = Math.min(1, m.cutsPerMinute / 60), motion = Math.min(1, m.motionPeak / 0.15);
-  return Math.round(((cuts + motion) / 2) * 100) / 100;
+  const cuts = Math.min(1, m.cutsPerMinute / 30), motion = Math.min(1, m.motionPeak / 0.15);
+  return Math.round((0.7 * cuts + 0.3 * motion) * 100) / 100;
 }
 
 const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))]! : 0; };

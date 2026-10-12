@@ -73,4 +73,9 @@ describe("new engine recommend step (behind ENGINE, Dylan 2026-10-11)", () => {
     expect(titles).not.toContain("Tu");
     expect(titles.length).toBe(3);
   });
+
+  it("songs Dylan removed are never recommended", async () => {
+    const { REMOVED_SONG_IDS } = await import("@/src/engine/catalog/removed");
+    expect(REMOVED_SONG_IDS.has("4029525441")).toBe(true); // Hourglass — D0d.
+  });
 });
