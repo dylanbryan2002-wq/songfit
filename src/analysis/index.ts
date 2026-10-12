@@ -7,6 +7,9 @@ import { extractMedia } from "../media/extract";
 import { transcodeForPlayback } from "../media/transcode";
 import { transcribe } from "./transcribe";
 import { analyzeVideo, type AnalyzeInput } from "./analyzeVideo";
+import { buildVideoProfile, PROMPT_VERSION as PROFILE_VERSION } from "./videoProfile";
+import { measurePacing } from "../media/pacing";
+import { ENGINE } from "../shared/config";
 import { logEvent } from "../feedback/events";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
@@ -25,6 +28,10 @@ export type AnalyzeDeps = {
   updateSubmission: typeof updateSubmission;
   logEvent: typeof logEvent;
   removeDir: (dir: string) => Promise<void>;
+  /** New engine (Dylan, 2026-10-11): pacing + video profile run only when ENGINE is "new". */
+  engine: "old" | "new";
+  measurePacing: typeof measurePacing;
+  buildVideoProfile: typeof buildVideoProfile;
 };
 
 const defaultDeps: AnalyzeDeps = {
@@ -40,6 +47,9 @@ const defaultDeps: AnalyzeDeps = {
   updateSubmission,
   logEvent,
   removeDir: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+  engine: ENGINE,
+  measurePacing,
+  buildVideoProfile,
 };
 
 /** Tags (0008) plus the "Anything else?" note (creator_intent); null when the creator gave neither. */
@@ -83,16 +93,22 @@ export async function analyzeSubmission(
     const transcript = media.audioPath
       ? await d.transcribe(media.audioPath, { deadlineAt: ctx.deadlineAt })
       : { text: "", segments: [] };
-    const result = await d.analyzeVideo(
-      {
-        frames,
-        transcript: transcript.text,
-        transcriptSegments: transcript.segments,
-        creatorVibe: creatorVibe(sub),
-        durationSeconds: media.durationSeconds,
-      },
-      { deadlineAt: ctx.deadlineAt },
-    );
+    const input: AnalyzeInput = {
+      frames,
+      transcript: transcript.text,
+      transcriptSegments: transcript.segments,
+      creatorVibe: creatorVibe(sub),
+      durationSeconds: media.durationSeconds,
+    };
+    // New engine: the profile call runs alongside the old analysis (explain still uses the old analysis).
+    const pacing = d.engine === "new" ? await d.measurePacing(videoPath).catch((err: unknown) => {
+      logger.warn("media.pacing_failed", { submissionId, reason: err instanceof Error ? err.message : String(err) });
+      return null;
+    }) : null;
+    const [result, profile] = await Promise.all([
+      d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
+      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt }) : Promise.resolve(null),
+    ]);
 
     await d.upsertAnalysis({
       submission_id: submissionId,
@@ -112,7 +128,9 @@ export async function analyzeSubmission(
       music_brief_fields: result.brief.fields,
       prompt_version: result.prompt_version,
       raw_response: result.raw,
-    });
+      // 0012 columns: cast until `pnpm db:types` includes 0012_new_engine.sql.
+      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
+    } as Parameters<typeof d.upsertAnalysis>[0]);
 
     try {
       const playbackLocal = await transcoding;
