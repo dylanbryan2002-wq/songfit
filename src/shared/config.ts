@@ -49,8 +49,8 @@ export const PICKS_MIN = 3;
 export const PREVIEWS_ENABLED = true;
 
 /** Which engine picks songs (Dylan, 2026-10-11). "old" = today's engine; "new" = closeness matching over the song
-    dictionary. Switching back is this one line. Stays "old" until Dylan's blind check passes. */
-export const ENGINE: "old" | "new" = "old";
+    dictionary. Switching back is this one line. Turned on 2026-10-11 for Dylan's live testing (he is the only tester). */
+export const ENGINE: "old" | "new" = "new";
 
 /** Must match the literal in the create_submission() SQL function (supabase/migrations/0001_init.sql). */
 export const FREE_RESULTS_PER_CREATOR = 1;

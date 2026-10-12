@@ -48,6 +48,7 @@ function deps() {
     updateSubmission: vi.fn().mockResolvedValue(undefined),
     logEvent: vi.fn().mockResolvedValue(undefined),
     removeDir: vi.fn().mockResolvedValue(undefined),
+    engine: "old" as const, // these tests cover the old engine's path; the new engine has its own test below
   };
 }
 
