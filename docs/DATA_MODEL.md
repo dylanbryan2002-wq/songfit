@@ -200,6 +200,7 @@ video_chosen                 metadata.flow_id  (creator_id null; a valid video c
 sign_in_started              metadata.flow_id  (creator_id null; "Continue with Google" tapped, file kept on device)
 sign_in_completed            metadata.flow_id  (creator set; back from Google and the kept file was found)
 vibe_set                     metadata.tags, metadata.has_note  (at submission creation, only when tags or creator_intent are non-empty; has_note = creator_intent non-empty)
+feel_filter_relaxed          metadata.tags, metadata.step (2 or 3), metadata.count  (new engine: the feel-button filter left too few songs and was loosened; step 2 = low/flagged labels, 3 = neighbour feeling + unlabelled songs)
 anon_session_started         metadata.flow_id  (creator = the new anonymous id; landing page signed in anonymously after a valid pick)
 results_gate_viewed          (creator = anonymous id, submission set; anonymous viewer shown the sign-in gate on a ready result)
 results_gate_signed_in       metadata.moved  (creator = Google creator; back from Google with an sf_claim cookie, moved = submissions claimed)

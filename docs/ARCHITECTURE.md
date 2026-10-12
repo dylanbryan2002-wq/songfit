@@ -20,6 +20,8 @@ src/
                 energy, valence, tempo, vocals, lyric theme/flags, chorus timings, creator evidence; labels only, no lyrics).
                 Server-only. Built offline by scripts/groundtruth/build-dictionary.ts. (New engine, Dylan 2026-10-11.)
     scoring/    one file per dimension → { score, reason }; weights.ts combines
+    match/      new engine: closest.ts (closeness over the dictionary, repeat limit), feelFilter.ts (feel buttons = hard
+                filter, relaxed in steps), section.ts (15 s by chorus/gaps), typeFeelings.ts. Behind ENGINE in config.
     diversify/  scored Candidate[] → 15 ranked picks across directions (PICKS_TOTAL), shown in batches of 5
     sections/   pick start/end for each pick       (model-proposed today; temporal model later)
     recommend.ts orchestrates: candidates → catalog → scoring → diversify → sections → persist
