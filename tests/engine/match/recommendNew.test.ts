@@ -37,7 +37,6 @@ describe("new engine recommend step (behind ENGINE, Dylan 2026-10-11)", () => {
       getSubmission: async () => ({ id: "s", creator_id: "c", duration_seconds: 20, vibe_tags: ["Sad Storytelling"] }) as never,
       getStored: async () => ({ analysis: { important_moments: [], dialogue_present: true } as never, brief: {} as never, profile: profile as never }),
       listNotFound: async () => [],
-      recentTopPicks: async () => [],
       verify: async (cands) => ({ verified: cands.map((c, i) => ({ ...c, verified_via: "deezer" as const, catalog_key: `deezer:${i}`, deezer_id: String(i), itunes_id: null, canonical_title: c.title, canonical_artist: c.artist, duration_seconds: 200, artwork_url: null, deezer_url: null, preview_url: "p" })), unverified: [], lookupFailed: [] }),
       explain: async (picks) => picks.map((p) => ({ ...p, explanation: "x", spotify_url: "s", itunes_id: null })),
       replaceCandidates: async (_id, rows) => { saved.cands = rows; return []; },

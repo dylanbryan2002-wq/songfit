@@ -68,7 +68,7 @@ export async function listenWithGemini(
       headers: { "content-type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ inline_data: { mime_type: "audio/wav", data: audio } }, { text: note ? `${PROMPT}\n\n${note}` : PROMPT }] }],
-        generationConfig: { responseMimeType: "application/json" },
+        generationConfig: { responseMimeType: "application/json", temperature: 0 }, // same audio, same read
       }),
       signal: AbortSignal.timeout(remainingBudget({ deadlineAt: opts.deadlineAt }, LIMITS.modelTimeoutMs)),
     });

@@ -8,10 +8,9 @@ import { explainPicks } from "@/src/engine/explain/explainPicks";
 import { getAnalysis, getAnalysisRow } from "@/src/db/queries/analyses";
 import { getSubmission, setSubmissionStatus } from "@/src/db/queries/submissions";
 import { replaceCandidates } from "@/src/db/queries/candidates";
-import { replaceRecommendations, recentTopPicks } from "@/src/db/queries/recommendations";
+import { replaceRecommendations } from "@/src/db/queries/recommendations";
 import { listNotFoundSongs } from "@/src/db/queries/notFound";
 import { logEvent } from "@/src/feedback/events";
-import { EXPOSURE } from "@/src/engine/scoring/weights";
 import type { VideoProfile } from "@/src/analysis/videoProfile";
 import type { NewDeps } from "./recommendNew";
 
@@ -29,7 +28,6 @@ export function newDeps(): NewDeps {
       return { analysis: typed.analysis, brief: typed.brief, profile };
     },
     listNotFound: listNotFoundSongs,
-    recentTopPicks: (exclude) => recentTopPicks(exclude, EXPOSURE.days),
     verify: (cands, d) => verifyCandidates(cands, {
       ...d,
       find: async (c) => { const id = idByKey.get(normalizeKey(c.title, c.artist)); return id ? findDeezerTrackById(id) : null; },

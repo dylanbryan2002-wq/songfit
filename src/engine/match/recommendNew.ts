@@ -1,5 +1,5 @@
 // New engine recommend step (Dylan, 2026-10-11), chosen by ENGINE in config. Feel buttons filter (hard), the closest
-// songs win (closeness + repeat limit), each is checked on Deezer for a playable sample, the section comes from chorus
+// songs win (closeness), each is checked on Deezer for a playable sample, the section comes from chorus
 // timings and lyric gaps, then the existing diversify and explain steps run unchanged. Rows are marked engine "new".
 // To keep the stored score shape (and the explain step) unchanged, the closeness signals are written into the existing
 // 7 dimensions: semantic = lyrics fit, emotional = mood + delivery fit, aesthetic = content-type fit, pacing = mood +
@@ -15,7 +15,7 @@ import { toCandidateInsert } from "@/src/engine/recommend";
 import type { SongEntry } from "@/src/engine/catalog/dictionary";
 import type { VideoProfile } from "@/src/analysis/videoProfile";
 import { PROMPT_VERSION as PROFILE_VERSION } from "@/src/analysis/videoProfile";
-import { rankSongs, applyExposure, type Ranked } from "./closest";
+import { rankSongs, type Ranked } from "./closest";
 import { feelFilter } from "./feelFilter";
 import { pickSection } from "./section";
 import type { CandidateInsert, CandidateRow } from "@/src/db/queries/candidates";
@@ -79,8 +79,6 @@ export type NewDeps = {
   getSubmission: (id: string) => Promise<{ id: string; creator_id: string; duration_seconds: number | null; vibe_tags?: string[] | null } | null>;
   getStored: (submissionId: string) => Promise<{ analysis: VideoAnalysis; brief: MusicBrief; profile: VideoProfile | null } | null>;
   listNotFound: () => Promise<NotFoundSong[]>;
-  /** Title + artist of songs in other creators' top 3 in the last EXPOSURE.days. */
-  recentTopPicks: (excludeSubmissionId: string) => Promise<{ title: string; artist: string }[]>;
   verify: (cands: GeneratedCandidate[], deps?: { ctx?: StageCtx }) => Promise<{ verified: VerifiedCandidate[]; unverified: GeneratedCandidate[]; lookupFailed: GeneratedCandidate[] }>;
   explain: (picks: Pick[], analysis: VideoAnalysis, brief: MusicBrief, deps?: { ctx?: StageCtx }) => Promise<FinalRecommendation[]>;
   replaceCandidates: (submissionId: string, rows: CandidateInsert[]) => Promise<CandidateRow[]>;
@@ -94,11 +92,10 @@ const keyOf = (c: { title: string; artist: string }) => normalizeKey(c.title, c.
 export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx, deps: NewDeps): Promise<void> {
   const started = Date.now();
   // Independent reads run together (same results, less waiting).
-  const [sub, stored, notFound, recent] = await Promise.all([
+  const [sub, stored, notFound] = await Promise.all([
     deps.getSubmission(submissionId),
     deps.getStored(submissionId),
     deps.listNotFound().catch((err: unknown) => { logger.warn("recommend.not_found_lookup_failed", { submissionId, reason: String(err) }); return null; }),
-    deps.recentTopPicks(submissionId).catch((err: unknown) => { logger.warn("recommend.recent_picks_failed", { submissionId, reason: String(err) }); return null; }),
   ]);
   if (!sub) throw new PipelineError("recommend", "submission not found");
   if (!stored?.profile) throw new PipelineError("recommend", "no video profile stored for submission (new engine)");
@@ -111,11 +108,7 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   const filtered = feelFilter(tags, pool, PICKS_MIN);
   if (filtered.step > 1) await deps.logEvent({ name: "feel_filter_relaxed", creatorId: sub.creator_id, submissionId, metadata: { tags, step: filtered.step, count: filtered.songs.length } });
 
-  const shown = new Map<string, number>();
-  const byKey = new Map(deps.songs.map((s) => [keyOf(s), s.id]));
-  for (const r of recent ?? []) { const id = byKey.get(keyOf(r)); if (id) shown.set(id, (shown.get(id) ?? 0) + 1); }
-
-  const ranked = applyExposure(rankSongs(profile, filtered.songs), shown).slice(0, SHORTLIST);
+  const ranked = rankSongs(profile, filtered.songs).slice(0, SHORTLIST);
   const rankedByKey = new Map(ranked.map((r) => [keyOf(r.song), r]));
   const v = await deps.verify(ranked.map((r) => toCandidate(r, profile)), { ctx });
   const scored = v.verified.flatMap((c) => { const r = rankedByKey.get(keyOf(c)); return r ? [toScored(r, c)] : []; });

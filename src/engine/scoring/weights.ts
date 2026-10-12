@@ -34,6 +34,3 @@ export const MATCH_WEIGHTS = { type: 25, mood: 25, creator: 15, lyrics: 10, voca
 /** How much a song's feeling label counts in the feelings match (Dylan: low-confidence and flagged labels count less). */
 export const LABEL_WEIGHT = { high: 1, medium: 0.8, low: 0.6, flagged: 0.4 } as const;
 
-/** Repeat limit (Dylan, 2026-10-11): each time a song was in another creator's top 3 in the last `days`, it loses
-    `pointsPerShow` points (out of 100), up to `maxPoints`, so the same few songs don't go to everyone. */
-export const EXPOSURE = { pointsPerShow: 2, maxPoints: 10, days: 7 } as const;

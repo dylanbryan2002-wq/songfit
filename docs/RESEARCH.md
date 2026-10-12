@@ -343,3 +343,14 @@ Synced playback (sample mixed under the moving video, voice and music sliders) w
 docs/review/16 found no self-serve provider allowing samples synced to a creator's video; Deezer's specific objection was
 commercial use. Songfit has been non-commercial since 2026-10-09. Dylan turned sync back on for everyone, knowing it is a
 grey area. Alone mode stays in the code so it can be switched back in src/picker/playback.ts.
+
+## 2026-10-12 — Repeat limit removed (Dylan: "this is a dumb rule"); fit stretched per video; same video, same read
+- **Why the repeat limit was wrong:** Songfit picks the best emotional fit for each video. A song that fits many videos is
+  a good song, and creators converge on the same songs, so docking it for being shown elsewhere pushed worse fits up. It
+  even punished Dylan's own re-upload of the same video (Freedom by Pharrell dropped out). Removed entirely.
+- **The real cause of "same songs everywhere" and of noisy order:** every song scored 0.70–0.74, so tiny differences
+  decided the order. The feeling + energy + mood fit is now stretched per video (best song 1, worst 0). Offline on 60 test
+  profiles, with no repeat limit: distinct top-3 songs 64 -> 78 of 180, most repeats 11 -> 10, feelings closeness of the
+  top 3 0.63 -> 0.69, top 3 sharing the real song's feeling 21 -> 20 of 27, real-song median position 1,602 -> 1,794.
+- **Same video, same read:** the profile call (Claude) and Gemini now run at temperature 0. Two uploads of the same video
+  had been read as "medium-high, fast" and "medium, medium" and got different songs.

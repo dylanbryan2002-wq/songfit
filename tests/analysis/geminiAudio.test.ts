@@ -55,4 +55,10 @@ describe("Gemini listens to the audio (new engine, Dylan's decision 2026-10-11)"
     await expect(listenWithGemini(await wav(), { fetchImpl, apiKey: "k", sleep: async () => {} })).rejects.toThrow(/gemini 503/);
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
+
+  it("asks Gemini for the same answer every time (temperature 0)", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => reply(good));
+    await listenWithGemini(await wav(), { fetchImpl, apiKey: "k" });
+    expect(JSON.parse(fetchImpl.mock.calls[0]![1].body).generationConfig.temperature).toBe(0);
+  });
 });

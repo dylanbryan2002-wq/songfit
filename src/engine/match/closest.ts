@@ -1,8 +1,10 @@
 // Closeness matching (new engine, Dylan 2026-10-11): songs are pre-mapped into the dictionary, the video is read into the
 // same dictionary, and the closest songs win. Weights live in weights.ts. Two fixes from the 2026-10-11 review keep the
 // same few songs from winning every video: creator evidence counts only for the same content type, and the feelings
-// match is stretched per video (best song 1, worst 0). Pure: no model call, no I/O.
-import { MATCH_WEIGHTS, LABEL_WEIGHT, EXPOSURE } from "../scoring/weights";
+// match is stretched per video (best song 1, worst 0). The whole feeling + energy + mood fit is then stretched per
+// video as well (2026-10-12): unstretched, every song scored 0.70–0.74, so noise decided the order. Pure: no I/O.
+// There is deliberately no penalty for songs recommended elsewhere: the best fit for this video wins (Dylan, 2026-10-12).
+import { MATCH_WEIGHTS, LABEL_WEIGHT } from "../scoring/weights";
 import { FEELINGS, type SongEntry } from "../catalog/dictionary";
 import type { VideoProfile } from "../../analysis/videoProfile";
 import { TYPE_FEELINGS, typeKey } from "./typeFeelings";
@@ -33,7 +35,7 @@ export function rankSongs(p: VideoProfile, songs: SongEntry[]): Ranked[] {
     const parts = [feelings];
     if (p.energy !== null && s.energy !== null) parts.push(1 - Math.abs(p.energy - s.energy));
     if (p.mood !== null && s.valence !== null) parts.push(1 - Math.abs(p.mood - s.valence));
-    const mood = parts.reduce((x, y) => x + y, 0) / parts.length;
+    const moodRaw = parts.reduce((x, y) => x + y, 0) / parts.length;
     const creator = s.creator_types.includes(key) ? 1 : 0;
     // Instrumentals stay neutral here: being instrumental already counts under vocals (no double count, Dylan 2026-10-11).
     const lyrics = s.theme && r.themes_fit.includes(s.theme as never) ? 1 : s.theme && r.themes_avoid.includes(s.theme as never) ? 0 : 0.5;
@@ -41,16 +43,15 @@ export function rankSongs(p: VideoProfile, songs: SongEntry[]): Ranked[] {
     // Known but not overused: the most popular 10% count a little less, the less known half less again.
     const familiarity = s.rank_pct === null ? 0.4 : s.rank_pct >= 0.9 ? 0.6 : s.rank_pct >= 0.5 ? 1 : 0.4;
     const section = s.sections && (s.sections.chorus.length || s.sections.instrumental) ? 1 : s.sections ? 0.5 : 0;
-    const signals: Signals = { type, mood, creator, lyrics, vocals, familiarity, section, feelings };
-    const total = (Object.keys(MATCH_WEIGHTS) as (keyof typeof MATCH_WEIGHTS)[]).reduce((t, k) => t + MATCH_WEIGHTS[k] * signals[k], 0);
-    return { song: s, total, signals };
+    const signals: Signals = { type, mood: moodRaw, creator, lyrics, vocals, familiarity, section, feelings };
+    return { song: s, total: 0, signals };
   });
+  // Stretch the feeling + energy + mood fit across this video's songs: best 1, worst 0.
+  const moods = out.map((r) => r.signals.mood);
+  const mLo = Math.min(...moods), mHi = Math.max(...moods);
+  for (const r of out) {
+    r.signals.mood = mHi > mLo ? (r.signals.mood - mLo) / (mHi - mLo) : 1;
+    r.total = (Object.keys(MATCH_WEIGHTS) as (keyof typeof MATCH_WEIGHTS)[]).reduce((t, k) => t + MATCH_WEIGHTS[k] * r.signals[k], 0);
+  }
   return out.sort((a, b) => b.total - a.total);
-}
-
-/** Repeat limit: `shown` = how many times each song id was in a top 3 for other creators in the last EXPOSURE.days. */
-export function applyExposure(ranked: Ranked[], shown: Map<string, number>): Ranked[] {
-  return ranked
-    .map((r) => ({ ...r, total: r.total - Math.min(EXPOSURE.maxPoints, EXPOSURE.pointsPerShow * (shown.get(r.song.id) ?? 0)) }))
-    .sort((a, b) => b.total - a.total);
 }

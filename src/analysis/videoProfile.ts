@@ -62,7 +62,7 @@ function defaultClient(): Anthropic {
 async function call(c: Anthropic, messages: Anthropic.Messages.MessageParam[], deadlineAt?: number) {
   const started = Date.now();
   const res = await c.messages.create(
-    { model: MODELS.analysis, max_tokens: 2000, system: SYSTEM_PROMPT, messages },
+    { model: MODELS.analysis, max_tokens: 2000, temperature: 0, system: SYSTEM_PROMPT, messages }, // same video, same read
     { timeout: remainingBudget({ deadlineAt }, LIMITS.modelTimeoutMs) },
   );
   logger.info("model.call", { model: MODELS.analysis, step: "profile", ms: Date.now() - started, input_tokens: res.usage?.input_tokens, output_tokens: res.usage?.output_tokens, stop_reason: res.stop_reason });
