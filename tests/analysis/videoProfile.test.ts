@@ -62,9 +62,9 @@ describe("video profile (new engine phase 2, Dylan 2026-10-11)", () => {
     expect(p.mood).toBeCloseTo((w.words * 0.8 + w.faces * 1 + w.colour * 0.6) / (w.words + w.faces + w.colour), 5);
   });
 
-  it("asks for the same answer every time (temperature 0), so a re-upload gets the same read (Dylan, 2026-10-12)", async () => {
+  it("does not send temperature: the analysis model rejects it with a 400 (live failure, 2026-10-12)", async () => {
     const { client, create } = fakeClient([JSON.stringify(reading)]);
     await buildVideoProfile(input, null, { client });
-    expect(create.mock.calls[0]![0].temperature).toBe(0);
+    expect(create.mock.calls[0]![0]).not.toHaveProperty("temperature");
   });
 });
