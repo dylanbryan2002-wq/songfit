@@ -15,6 +15,9 @@ src/
   engine/
     candidates/ MusicBrief → Candidate[]           (model-backed today; catalog retrieval later)
     catalog/    Candidate → verified Candidate      (Deezer search; song identity, canonical names, duration, preview; no preview → dropped)
+                dictionary.data.json + dictionary.ts: the new engine's song dictionary (5,032 songs pre-mapped: feelings,
+                energy, valence, tempo, vocals, lyric theme/flags, chorus timings, creator evidence; labels only, no lyrics).
+                Server-only. Built offline by scripts/groundtruth/build-dictionary.ts. (New engine, Dylan 2026-10-11.)
     scoring/    one file per dimension → { score, reason }; weights.ts combines
     diversify/  scored Candidate[] → 15 ranked picks across directions (PICKS_TOTAL), shown in batches of 5
     sections/   pick start/end for each pick       (model-proposed today; temporal model later)

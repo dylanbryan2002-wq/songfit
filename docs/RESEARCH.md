@@ -311,3 +311,16 @@ Full notes: ~/Songfit-groundtruth/design/song-labels.md, content-type-detection.
   4 of 19 videos: creators use songs "against type" and vocal songs under talking. Dylan's decision: the feel button is the
   only hard filter; content type, talking and lyric clashes only order the pool. Then the real song sat in the top 25% for
   10 of 19 (median top 22%).
+
+## 2026-10-11 — Terms read before shipping the song dictionary (new engine, phase 1)
+- **Deezer API terms** (developers.deezer.com/termsofuse, read 2026-10-11): "the use of the Services is strictly limited for a
+  non-commercial purpose"; "shall not perceive, receive, generate, benefit or create directly or indirectly, any moneys,
+  incomes, revenues". No clause on storing or caching metadata (rank, genre, explicit) and no retention or refresh limit.
+  Previews: "accessible only up to 30 seconds"; we keep the Deezer id and fetch previews live (unchanged).
+- **ReccoBeats** (reccobeats.com/docs/documentation/terms-of-service): "The service is entirely free to use for both personal
+  and commercial projects"; core metadata "is aggregated from Spotify data" and "You are responsible for ensuring that your
+  application's use of this metadata" is appropriate; may "rate-limit, block, or terminate access". We store derived numbers
+  (energy, valence, tempo, instrumentalness), not Spotify ids.
+- **LRCLIB** (lrclib.net terms, 2026-09-30): free incl. commercial; "Lyrics may be protected by third-party copyright". The
+  dictionary stores only timings (chorus starts, gaps, first vocal) and Claude-written meaning labels, never lyric text.
+- **Song count:** Dylan approved shipping all 5,032 songs (exception to CLAUDE.md's 500-row rule), 2026-10-11.

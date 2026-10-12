@@ -92,6 +92,7 @@ docs/               ARCHITECTURE.md, DATA_MODEL.md, prompts changelog
 Custom ML, scraping of any platform, song catalogs over 500 rows, password
 auth, subscription logic beyond a Stripe link + webhook, queues, cron,
 microservices, design systems, analytics beyond the events table, carousels.
+(Exception: Dylan approved the 5,032-song dictionary for the new engine, 2026-10-11.)
 
 ## Hard guardrail (enforced by .claude/hooks/guard-secrets.py, not just prose)
 No agent may read, write, cat, grep, glob, copy or even mention any env file (`.env`,
