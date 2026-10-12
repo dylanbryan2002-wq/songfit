@@ -102,7 +102,10 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   const { analysis, brief, profile } = stored;
 
   const banned = new Set((notFound ?? []).map(keyOf));
-  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)));
+  // Dylan's rule (2026-10-12): no lyrics under talking. Any video where someone talks (on camera or voice-over) gets
+  // only songs confirmed instrumental; songs with singing or unknown vocals are out.
+  const talking = profile.reading.talking !== "none";
+  const pool = deps.songs.filter((s) => !banned.has(keyOf(s)) && (!talking || s.vocals === "instrumental"));
 
   const tags = sub.vibe_tags ?? [];
   const filtered = feelFilter(tags, pool, PICKS_MIN);
@@ -131,5 +134,5 @@ export async function recommendSubmissionNew(submissionId: string, ctx: StageCtx
   })) as RecommendationInsert[]); // engine column: cast until db:types
   await deps.setStatus(submissionId, "ready");
   await deps.logEvent({ name: "recommendations_ready", creatorId: sub.creator_id, submissionId });
-  logger.info("recommend.summary", { submissionId, engine: "new", filtered: filtered.songs.length, filterStep: filtered.step, shortlist: ranked.length, playable: scored.length, picks: finals.length, ms: Date.now() - started });
+  logger.info("recommend.summary", { submissionId, engine: "new", instrumentalOnly: talking, filtered: filtered.songs.length, filterStep: filtered.step, shortlist: ranked.length, playable: scored.length, picks: finals.length, ms: Date.now() - started });
 }

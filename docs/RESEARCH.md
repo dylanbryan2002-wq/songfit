@@ -354,3 +354,7 @@ grey area. Alone mode stays in the code so it can be switched back in src/picker
   top 3 0.63 -> 0.69, top 3 sharing the real song's feeling 21 -> 20 of 27, real-song median position 1,602 -> 1,794.
 - **Same video, same read:** the profile call (Claude) and Gemini now run at temperature 0. Two uploads of the same video
   had been read as "medium-high, fast" and "medium, medium" and got different songs.
+
+## 2026-10-12 — Rule: no lyrics under talking (Dylan)
+When someone talks (on camera or voice-over), only songs confirmed instrumental (952 of 5,032) can be picked; songs with
+singing or unknown vocals are filtered out. Replaces the softer "vocals rank lower" signal for talking videos.
