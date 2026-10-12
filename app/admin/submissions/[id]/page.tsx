@@ -91,6 +91,12 @@ export default async function SubmissionInspectorPage({ params }: { params: Prom
               <h3 className="font-medium">Important moments</h3>
               <pre className="overflow-x-auto rounded bg-neutral-50 p-3">{JSON.stringify(analysis.important_moments, null, 2)}</pre>
             </div>
+            {analysis.video_profile ? (
+              <div>
+                <h3 className="font-medium">New engine read (profile {analysis.profile_prompt_version ?? "—"})</h3>
+                <pre className="overflow-x-auto rounded bg-neutral-50 p-3">{JSON.stringify({ video_profile: analysis.video_profile, measured_pacing: analysis.measured_pacing }, null, 2)}</pre>
+              </div>
+            ) : null}
             <div>
               <h3 className="font-medium">Music brief</h3>
               <p className="whitespace-pre-wrap rounded bg-neutral-50 p-3">{analysis.music_brief}</p>
