@@ -13,9 +13,16 @@ import { parseCsv } from "./csv";
 export const ALLOWED: Record<string, string[]> = {
   "Educational": ["Calm/Focused", "Upbeat", "Reflective"],
   "Vlog": ["Upbeat", "Calm/Focused", "Nostalgic"],
-  "Storytelling": ["Heartfelt", "Reflective", "Dramatic"],
-  "Sad storytelling": ["Sad", "Heartfelt", "Reflective", "Nostalgic"],
-  "Inspirational storytelling": ["Inspirational", "Heartfelt", "Dramatic", "Reflective"],
+  "Storytelling": ["Heartfelt", "Reflective", "Dramatic"], // no feeling given
+  // Storytelling is one type with a feeling (Dylan, 2026-10-11).
+  "Storytelling: emotional": ["Heartfelt", "Reflective", "Dramatic", "Sad"],
+  "Storytelling: sad": ["Sad", "Heartfelt", "Reflective", "Nostalgic"],
+  "Storytelling: inspirational": ["Inspirational", "Heartfelt", "Dramatic", "Reflective"],
+  "Storytelling: motivational": ["Motivational", "Inspirational", "Dramatic", "Hype"],
+  "Storytelling: funny": ["Funny", "Upbeat"],
+  "Storytelling: interesting": ["Upbeat", "Calm/Focused", "Dramatic"],
+  "Storytelling: deep": ["Reflective", "Heartfelt", "Sad"],
+  "Building in public": ["Inspirational", "Motivational", "Upbeat", "Calm/Focused", "Dramatic"],
   "Funny/Upbeat": ["Funny", "Upbeat", "Hype"],
   "Motivational": ["Motivational", "Hype", "Dramatic", "Inspirational"],
   "Product/Review": ["Upbeat", "Calm/Focused"],
@@ -27,19 +34,26 @@ export const ALLOWED: Record<string, string[]> = {
   "Reaction": ["Funny", "Upbeat", "Dramatic"],
   "Podcast/Interview": ["Reflective", "Calm/Focused", "Dramatic", "Inspirational"],
 };
+/** v1 story types -> v2 Storytelling + feeling. */
+const LEGACY: Record<string, string> = { "Sad storytelling": "Storytelling: sad", "Inspirational storytelling": "Storytelling: inspirational" };
+export function typeKey(v: Video) {
+  if (LEGACY[v.type]) return LEGACY[v.type]!;
+  return v.type === "Storytelling" && v.story_feeling ? `Storytelling: ${v.story_feeling}` : v.type;
+}
 const TALKING = new Set(["talking to camera", "voice-over", "conversation", "reacting to a clip"]);
-const HAPPY_TYPES = new Set(["Funny/Upbeat", "Vlog", "Product/Review", "Motivational", "Challenge"]);
-const SAD_TYPES = new Set(["Sad storytelling", "Deep", "Inspirational storytelling"]);
+const HAPPY_TYPES = new Set(["Funny/Upbeat", "Vlog", "Product/Review", "Motivational", "Challenge", "Storytelling: funny", "Building in public"]);
+const SAD_TYPES = new Set(["Storytelling: sad", "Storytelling: deep", "Storytelling: emotional", "Storytelling: inspirational", "Deep"]);
 
 type Song = { deezer_id: string; title: string; artist: string; families: Record<string, string>; vocals: string };
 type Lyr = { deezer_id: string; theme?: { main: string | null } | null };
-export type Video = { type: string; format: string };
+export type Video = { type: string; format: string; story_feeling?: string | null };
 
 /** Dylan's decisions (2026-10-11): the feel button is the only hard filter. Content type, talking and lyric clashes
     only order the pool: allowed feeling 2 (flagged 1.5), unlabelled 1, other feelings 0; minus 1 for a vocal song
     under talking and minus 1 for a lyric clash. Stable sort keeps library order on ties. */
 export function rankPool(v: Video, songs: Song[], lyrics: Map<string, Lyr>, feelButtons: string[] = []) {
-  const allowed = ALLOWED[v.type];
+  const key = typeKey(v);
+  const allowed = ALLOWED[key];
   const pool = feelButtons.length ? songs.filter((s) => feelButtons.some((f) => s.families[f])) : songs;
   return pool.map((s) => {
     const labels = Object.entries(s.families);
@@ -47,8 +61,8 @@ export function rankPool(v: Video, songs: Song[], lyrics: Map<string, Lyr>, feel
       : allowed.some((f) => s.families[f] && s.families[f] !== "flagged") ? 2 : allowed.some((f) => s.families[f]) ? 1.5 : 0;
     if (TALKING.has(v.format) && s.vocals === "vocals") score -= 1;
     const theme = lyrics.get(s.deezer_id)?.theme?.main;
-    if (HAPPY_TYPES.has(v.type) && (theme === "breakup/heartbreak" || theme === "grief/loss")) score -= 1;
-    if (SAD_TYPES.has(v.type) && (theme === "partying" || theme === "flexing/money")) score -= 1;
+    if (HAPPY_TYPES.has(key) && (theme === "breakup/heartbreak" || theme === "grief/loss")) score -= 1;
+    if (SAD_TYPES.has(key) && (theme === "partying" || theme === "flexing/money")) score -= 1;
     return { song: s, score };
   }).sort((a, b) => b.score - a.score);
 }
