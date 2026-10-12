@@ -285,3 +285,29 @@ distinct songs were dropped as unverified, most of them famous.
   their own via the iTunes Search API with badge + "provided courtesy of iTunes"; verification via
   MusicBrainz (+iTunes); deep links. Licensed audition-over-video = MassiveMusic (ex-7digital) +
   publishing administrator, weeks + contract.
+
+## 2026-10-11 — Song labels without our own audio, content types, and the first offline filter
+
+Full notes: ~/Songfit-groundtruth/design/song-labels.md, content-type-detection.md, talking-video-formats.md.
+
+- **Measured song data.** AcousticBrainz (CC0, frozen 2022) knew 2,242 of 5,000 library songs; ReccoBeats (free, by ISRC,
+  "entirely free to use for both personal and commercial projects", data "aggregated from Spotify data") 4,065. Together 82%.
+  Last.fm tags covered 27 of the 910 left (dead end for new songs). Deezer preview analysis needs Deezer's permission.
+- **Trust.** Spotify-style energy matches listeners strongly; valence only moderately (58.5% F1 on 4 quadrants, Panda 2021).
+  AcousticBrainz happy vs not-sad correlate r = 0.13 (Liem & Mostert 2020): tie-breaker only. No validated cut-offs exist.
+  Romantic, Nostalgic, Funny and Motivational need meaning (Claude), not audio numbers.
+- **Lyrics meaning.** Claude from memory knew only 30/100 pilot songs well (38 not at all, mostly 2025–26). LRCLIB words read
+  in memory gave labels for 3,899 of 5,032 (theme, tone, perspective, clash flags); only labels are stored, never lyrics.
+  LRCLIB terms: free incl. commercial; "Lyrics may be protected by third-party copyright".
+- **Sections.** No service gives an energy curve without audio. LRCLIB timed lyrics locate the chorus (most repeated run)
+  for 3,125 songs; 576 instrumental songs have none. With audio later: SongFormer (81% labels) or All-In-One (MIT).
+- **Vibe models.** None beats a person; people agree only ~0.3–0.5. MuQ-MuLan, Music Flamingo, Essentia all need audio.
+- **Content types.** No standard taxonomy; music libraries sort by mood. Creators' own categories (10 "background music"
+  videos, 202 picks) match ours. Lyrics under speech hurt comprehension (review of 95 studies). No published accuracy for
+  zero-shot content-type detection; short definitions beat long ones (TikTok, AUC 0.73 → 0.79); FineVideo found captions
+  and hashtags skew labels. Prompt v1 tested on 51 videos (frames + burned-in captions only): biggest confusions Advice vs
+  Motivational (6) and Educational vs Product (4); founder "build in public" has no type.
+- **Offline filter.** As hard cuts (content type → feelings, talking → no vocals) the creator's real song survived in only
+  4 of 19 videos: creators use songs "against type" and vocal songs under talking. Dylan's decision: the feel button is the
+  only hard filter; content type, talking and lyric clashes only order the pool. Then the real song sat in the top 25% for
+  10 of 19 (median top 22%).
