@@ -28,6 +28,7 @@ export type Database = {
           deezer_url: string | null
           directions: string[]
           duration_seconds: number | null
+          engine: string | null
           fit_reason: string
           id: string
           itunes_id: string | null
@@ -59,6 +60,7 @@ export type Database = {
           deezer_url?: string | null
           directions?: string[]
           duration_seconds?: number | null
+          engine?: string | null
           fit_reason: string
           id?: string
           itunes_id?: string | null
@@ -90,6 +92,7 @@ export type Database = {
           deezer_url?: string | null
           directions?: string[]
           duration_seconds?: number | null
+          engine?: string | null
           fit_reason?: string
           id?: string
           itunes_id?: string | null
@@ -211,6 +214,7 @@ export type Database = {
           deezer_url: string | null
           direction_label: string
           end_seconds: number
+          engine: string | null
           explain_prompt_version: string | null
           explanation: string
           id: string
@@ -232,6 +236,7 @@ export type Database = {
           deezer_url?: string | null
           direction_label: string
           end_seconds: number
+          engine?: string | null
           explain_prompt_version?: string | null
           explanation: string
           id?: string
@@ -253,6 +258,7 @@ export type Database = {
           deezer_url?: string | null
           direction_label?: string
           end_seconds?: number
+          engine?: string | null
           explain_prompt_version?: string | null
           explanation?: string
           id?: string
@@ -579,10 +585,12 @@ export type Database = {
           energy: string
           id: string
           important_moments: Json
+          measured_pacing: Json | null
           mood: string[]
           music_brief: string
           music_brief_fields: Json
           pacing: string
+          profile_prompt_version: string | null
           prompt_version: string
           raw_response: Json | null
           setting: string | null
@@ -590,6 +598,7 @@ export type Database = {
           submission_id: string
           summary: string
           transcript: string | null
+          video_profile: Json | null
         }
         Insert: {
           aesthetic?: string[]
@@ -600,10 +609,12 @@ export type Database = {
           energy: string
           id?: string
           important_moments?: Json
+          measured_pacing?: Json | null
           mood?: string[]
           music_brief: string
           music_brief_fields: Json
           pacing: string
+          profile_prompt_version?: string | null
           prompt_version: string
           raw_response?: Json | null
           setting?: string | null
@@ -611,6 +622,7 @@ export type Database = {
           submission_id: string
           summary: string
           transcript?: string | null
+          video_profile?: Json | null
         }
         Update: {
           aesthetic?: string[]
@@ -621,10 +633,12 @@ export type Database = {
           energy?: string
           id?: string
           important_moments?: Json
+          measured_pacing?: Json | null
           mood?: string[]
           music_brief?: string
           music_brief_fields?: Json
           pacing?: string
+          profile_prompt_version?: string | null
           prompt_version?: string
           raw_response?: Json | null
           setting?: string | null
@@ -632,6 +646,7 @@ export type Database = {
           submission_id?: string
           summary?: string
           transcript?: string | null
+          video_profile?: Json | null
         }
         Relationships: [
           {
