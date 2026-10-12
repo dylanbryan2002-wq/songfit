@@ -2,7 +2,7 @@
 // same dictionary, and the closest songs win. Weights live in weights.ts. Two fixes from the 2026-10-11 review keep the
 // same few songs from winning every video: creator evidence counts only for the same content type, and the feelings
 // match is stretched per video (best song 1, worst 0). Pure: no model call, no I/O.
-import { MATCH_WEIGHTS, LABEL_WEIGHT } from "../scoring/weights";
+import { MATCH_WEIGHTS, LABEL_WEIGHT, EXPOSURE } from "../scoring/weights";
 import { FEELINGS, type SongEntry } from "../catalog/dictionary";
 import type { VideoProfile } from "../../analysis/videoProfile";
 import { TYPE_FEELINGS, typeKey } from "./typeFeelings";
@@ -46,4 +46,11 @@ export function rankSongs(p: VideoProfile, songs: SongEntry[]): Ranked[] {
     return { song: s, total, signals };
   });
   return out.sort((a, b) => b.total - a.total);
+}
+
+/** Repeat limit: `shown` = how many times each song id was in a top 3 for other creators in the last EXPOSURE.days. */
+export function applyExposure(ranked: Ranked[], shown: Map<string, number>): Ranked[] {
+  return ranked
+    .map((r) => ({ ...r, total: r.total - Math.min(EXPOSURE.maxPoints, EXPOSURE.pointsPerShow * (shown.get(r.song.id) ?? 0)) }))
+    .sort((a, b) => b.total - a.total);
 }

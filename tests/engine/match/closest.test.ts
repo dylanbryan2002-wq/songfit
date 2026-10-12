@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { rankSongs, feelingsCloseness } from "@/src/engine/match/closest";
-import { MATCH_WEIGHTS } from "@/src/engine/scoring/weights";
+import { rankSongs, feelingsCloseness, applyExposure } from "@/src/engine/match/closest";
+import { MATCH_WEIGHTS, EXPOSURE } from "@/src/engine/scoring/weights";
 import type { SongEntry } from "@/src/engine/catalog/dictionary";
 
 const zero = { Motivational: 0, Inspirational: 0, Reflective: 0, Heartfelt: 0, Sad: 0, Nostalgic: 0, Funny: 0, Upbeat: 0, Hype: 0, "Calm/Focused": 0, Dramatic: 0 };
@@ -60,5 +60,13 @@ describe("closeness matching in the app (Dylan's design and weights, 2026-10-11)
     const r = rankSongs(p, [song("i", { feelings: { "Calm/Focused": "high" }, theme: "none" })])[0]!;
     expect(r.signals.vocals).toBe(1);
     expect(r.signals.lyrics).toBe(0.5);
+  });
+
+  it("songs shown often to other creators recently rank a little lower, capped (Dylan, 2026-10-11)", () => {
+    const ranked = rankSongs(profile({ Sad: 1 }), [song("often", { feelings: { Sad: "high" } }), song("fresh", { feelings: { Sad: "high" } })]);
+    const out = applyExposure(ranked, new Map([["often", 3]]));
+    expect(out[0]!.song.id).toBe("fresh");
+    const capped = applyExposure(ranked, new Map([["often", 1000]]));
+    expect(ranked[0]!.total - capped.find((x) => x.song.id === "often")!.total).toBeLessThanOrEqual(EXPOSURE.maxPoints + 1e-9);
   });
 });

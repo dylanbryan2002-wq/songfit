@@ -1,6 +1,6 @@
 /* Offline check of the app's closeness matching (src/engine/match/closest.ts) on the test video profiles (Dylan, 2026-10-11).
      node --conditions=react-server --import tsx scripts/groundtruth/match-eval.ts [--home ~/Songfit-groundtruth]
-   Reports: distinct songs across all top 3s, most repeats of one song, average raw feelings closeness of the top 3s,
+   --exposure simulates the repeat limit, counting earlier videos' top 3s as recent shows. Reports: distinct songs across all top 3s, most repeats of one song, average raw feelings closeness of the top 3s,
    and for videos with a known real song: its position and whether the top 3 share its feeling. */
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -8,13 +8,13 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { parseCsv } from "./csv";
 import { DICTIONARY } from "../../src/engine/catalog/dictionary";
-import { rankSongs, feelingsCloseness } from "../../src/engine/match/closest";
+import { rankSongs, feelingsCloseness, applyExposure } from "../../src/engine/match/closest";
 import { combineEnergyMood } from "../../src/analysis/videoProfile";
 
 const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
 async function main() {
-  const { values: args } = parseArgs({ options: { home: { type: "string" } } });
+  const { values: args } = parseArgs({ options: { home: { type: "string" }, exposure: { type: "boolean" } } });
   const home = path.resolve((args.home ?? "~/Songfit-groundtruth").replace(/^~(?=$|\/)/, os.homedir()));
   const pacing = JSON.parse(await fs.readFile(path.join(home, "design", "pacing-all.json"), "utf8")) as Record<string, { energy: number }>;
   const real = new Map<string, { title: string; artist: string }>();
@@ -30,7 +30,8 @@ async function main() {
     const key = f.replace(/\.json$/, "").replace("__", "/");
     const pace = pacing[key] ? { cutsPerMinute: 0, medianShot: 0, motionPeak: 0, energy: pacing[key]!.energy } : null;
     const profile = { reading, pacing: pace, ...combineEnergyMood(reading, pace?.energy ?? null) };
-    const ranked = rankSongs(profile as never, DICTIONARY);
+    const shown = new Map([...count.entries()].map(([t, n]) => [DICTIONARY.find((d) => d.title === t)?.id ?? t, n]));
+    const ranked = args.exposure ? applyExposure(rankSongs(profile as never, DICTIONARY), shown) : rankSongs(profile as never, DICTIONARY);
     for (const x of ranked.slice(0, 3)) { count.set(x.song.title, (count.get(x.song.title) ?? 0) + 1); closeSum += feelingsCloseness(reading.feelings, x.song.feelings); slots++; }
     const rs = real.get(key);
     const song = rs && DICTIONARY.find((s) => norm(s.title) === norm(rs.title) && norm(s.artist).includes(norm(rs.artist).split(" ")[0]!));
