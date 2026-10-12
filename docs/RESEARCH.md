@@ -324,3 +324,9 @@ Full notes: ~/Songfit-groundtruth/design/song-labels.md, content-type-detection.
 - **LRCLIB** (lrclib.net terms, 2026-09-30): free incl. commercial; "Lyrics may be protected by third-party copyright". The
   dictionary stores only timings (chorus starts, gaps, first vocal) and Claude-written meaning labels, never lyric text.
 - **Song count:** Dylan approved shipping all 5,032 songs (exception to CLAUDE.md's 500-row rule), 2026-10-11.
+
+## 2026-10-11 — Audio on the new engine is Gemini (Dylan's decision)
+Gemini 2.5 Flash listens to the audio once per video: words with times, voice energy and mood, speech speed, laughter,
+a sarcasm hint. Cost about $0.003 per 60 s clip (ai.google.dev pricing). Google's terms: the free tier may use submitted
+content to improve its products and must not get personal data, and only paid tier may serve EEA/UK users; so billing must
+be on before creator videos are sent. Gemini gives timestamps only at about 1 s precision (no word-level promise).

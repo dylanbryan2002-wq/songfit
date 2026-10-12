@@ -13,6 +13,8 @@ src/
   media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track; pacing.ts (new engine): cuts, motion → energy
   analysis/     frames + transcript (+ creator intent, vibe tags + note) → VideoAnalysis + MusicBrief
                 videoProfile.ts (new engine): frames + transcript → the video read into the song dictionary (profile-v1)
+                geminiAudio.ts (new engine): Gemini listens: words with times, voice energy/mood, speech speed (voice-v1).
+                Audio is Gemini, not Whisper, on the new engine (Dylan, 2026-10-11); Whisper stays only on the old engine.
   engine/
     candidates/ MusicBrief → Candidate[]           (model-backed today; catalog retrieval later)
     catalog/    Candidate → verified Candidate      (Deezer search; song identity, canonical names, duration, preview; no preview → dropped)

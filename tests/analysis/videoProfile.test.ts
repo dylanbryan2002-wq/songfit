@@ -47,4 +47,11 @@ describe("video profile (new engine phase 2, Dylan 2026-10-11)", () => {
     const { client } = fakeClient([JSON.stringify(bad), JSON.stringify(bad)]);
     await expect(buildVideoProfile(input, null, { client })).rejects.toThrow();
   });
+
+  it("the voice reading counts with its approved weight when Gemini heard someone talking", async () => {
+    const { client } = fakeClient([JSON.stringify(reading)]);
+    const p = await buildVideoProfile(input, null, { client, voice: { energy: 1, mood: 1 } });
+    const w = SOURCE_WEIGHTS.talking.energy;
+    expect(p.energy).toBeCloseTo((w.words * 0.6 + w.voice * 1 + w.colour * 0.3) / (w.words + w.voice + w.colour), 5);
+  });
 });

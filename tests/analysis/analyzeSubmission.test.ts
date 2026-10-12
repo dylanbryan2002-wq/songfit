@@ -194,17 +194,24 @@ describe("analyzeSubmission", () => {
 describe("analyzeSubmission with the new engine on (Dylan, 2026-10-11)", () => {
   it("also measures pacing and stores the video profile; the old engine does neither", async () => {
     const profile = { reading: { content_type: "Vlog" }, pacing: { energy: 0.4 }, energy: 0.4, mood: 0.6, raw: "{}" };
-    const d = { ...deps(), engine: "new" as const, measurePacing: vi.fn().mockResolvedValue({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 }), buildVideoProfile: vi.fn().mockResolvedValue(profile) };
+    const heard = { transcript: { text: "hey", segments: [{ start: 0, end: 1, text: "hey" }] }, voice: { energy: 0.8, mood: 0.7 }, wordsPerSecond: 3, laughter: false, sarcasm: false, raw: "{}" };
+    const d = { ...deps(), engine: "new" as const, measurePacing: vi.fn().mockResolvedValue({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 }), buildVideoProfile: vi.fn().mockResolvedValue(profile), listenWithGemini: vi.fn().mockResolvedValue(heard) };
     await analyzeSubmission("sub-1", ctx, d as never);
     expect(d.measurePacing).toHaveBeenCalledWith("/tmp/x/video.mp4");
+    // Audio is Gemini on the new engine (Dylan): Whisper is not called, Gemini's words and voice are used.
+    expect(d.transcribe).not.toHaveBeenCalled();
+    expect(d.listenWithGemini).toHaveBeenCalledWith("/tmp/x/audio.wav", { deadlineAt: 1_000_000 });
+    expect(d.analyzeVideo.mock.calls[0]![0].transcript).toBe("hey");
+    expect(d.buildVideoProfile.mock.calls[0]![2]).toMatchObject({ voice: { energy: 0.8, mood: 0.7 } });
     const row = d.upsertAnalysis.mock.calls[0]![0];
-    expect(row.video_profile).toEqual({ reading: profile.reading, pacing: profile.pacing, energy: 0.4, mood: 0.6 });
+    expect(row.video_profile).toEqual({ reading: profile.reading, pacing: profile.pacing, voice: { energy: 0.8, mood: 0.7, words_per_second: 3, laughter: false, sarcasm: false }, energy: 0.4, mood: 0.6 });
     expect(row.pacing).toEqual({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 });
     expect(row.profile_prompt_version).toMatch(/^profile-v/);
 
-    const old = { ...deps(), engine: "old" as const, measurePacing: vi.fn(), buildVideoProfile: vi.fn() };
+    const old = { ...deps(), engine: "old" as const, measurePacing: vi.fn(), buildVideoProfile: vi.fn(), listenWithGemini: vi.fn() };
     await analyzeSubmission("sub-1", ctx, old as never);
     expect(old.measurePacing).not.toHaveBeenCalled();
+    expect(old.listenWithGemini).not.toHaveBeenCalled();
     expect(old.upsertAnalysis.mock.calls[0]![0].video_profile).toBeUndefined();
   });
 });

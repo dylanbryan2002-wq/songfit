@@ -9,6 +9,7 @@ import { transcribe } from "./transcribe";
 import { analyzeVideo, type AnalyzeInput } from "./analyzeVideo";
 import { buildVideoProfile, PROMPT_VERSION as PROFILE_VERSION } from "./videoProfile";
 import { measurePacing } from "../media/pacing";
+import { listenWithGemini } from "./geminiAudio";
 import { ENGINE } from "../shared/config";
 import { logEvent } from "../feedback/events";
 import { PipelineError } from "../shared/errors";
@@ -32,6 +33,8 @@ export type AnalyzeDeps = {
   engine: "old" | "new";
   measurePacing: typeof measurePacing;
   buildVideoProfile: typeof buildVideoProfile;
+  /** New engine audio = Gemini (Dylan, 2026-10-11): words, voice energy and mood, speech speed. */
+  listenWithGemini: typeof listenWithGemini;
 };
 
 const defaultDeps: AnalyzeDeps = {
@@ -50,6 +53,7 @@ const defaultDeps: AnalyzeDeps = {
   engine: ENGINE,
   measurePacing,
   buildVideoProfile,
+  listenWithGemini,
 };
 
 /** Tags (0008) plus the "Anything else?" note (creator_intent); null when the creator gave neither. */
@@ -89,8 +93,9 @@ export async function analyzeSubmission(
     const frames = await Promise.all(
       media.frames.map(async (f) => ({ time: f.time, base64: await d.readFrame(f.path) })),
     );
-    // Silent videos have no audio track: skip Whisper.
-    const transcript = media.audioPath
+    // New engine: Gemini listens (words + voice). Old engine: Whisper. Silent videos have no audio track: skip both.
+    const heard = d.engine === "new" && media.audioPath ? await d.listenWithGemini(media.audioPath, { deadlineAt: ctx.deadlineAt }) : null;
+    const transcript = heard ? heard.transcript : media.audioPath && d.engine !== "new"
       ? await d.transcribe(media.audioPath, { deadlineAt: ctx.deadlineAt })
       : { text: "", segments: [] };
     const input: AnalyzeInput = {
@@ -107,7 +112,7 @@ export async function analyzeSubmission(
     }) : null;
     const [result, profile] = await Promise.all([
       d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
-      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt }) : Promise.resolve(null),
+      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null }) : Promise.resolve(null),
     ]);
 
     await d.upsertAnalysis({
@@ -129,7 +134,7 @@ export async function analyzeSubmission(
       prompt_version: result.prompt_version,
       raw_response: result.raw,
       // 0012 columns: cast until `pnpm db:types` includes 0012_new_engine.sql.
-      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
+      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, voice: heard ? { ...heard.voice, words_per_second: heard.wordsPerSecond, laughter: heard.laughter, sarcasm: heard.sarcasm } : null, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
     } as Parameters<typeof d.upsertAnalysis>[0]);
 
     try {

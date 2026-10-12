@@ -6,6 +6,7 @@ export const MODELS = {
   scoring: "claude-sonnet-5-5",
   explain: "claude-sonnet-5-5",
   whisper: "whisper-1",
+  gemini: "gemini-2.5-flash", // new engine audio: words, tone, speech speed (Dylan, 2026-10-11)
 } as const;
 
 export const LIMITS = {
