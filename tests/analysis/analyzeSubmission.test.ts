@@ -205,7 +205,7 @@ describe("analyzeSubmission with the new engine on (Dylan, 2026-10-11)", () => {
     expect(d.analyzeVideo.mock.calls[0]![0].transcript).toBe("hey");
     // pacing and faces are handed over still running (they are only needed after the model replies)
     const [, pacingArg, opts] = d.buildVideoProfile.mock.calls[0]!;
-    expect(opts).toMatchObject({ voice: { energy: 0.8, mood: 0.7 } });
+    expect(opts).toMatchObject({ voice: { energy: 0.57, mood: 0.7 } }); // voice energy includes speech speed (3 words/s)
     expect(await opts.faces).toEqual({ mood: 0.6, energy: 0.5 });
     expect(await pacingArg).toEqual({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 });
     expect(d.readFaces).toHaveBeenCalledWith("/tmp/x/video.mp4", 12.3);

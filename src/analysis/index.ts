@@ -7,7 +7,7 @@ import { extractMedia } from "../media/extract";
 import { transcodeForPlayback } from "../media/transcode";
 import { transcribe } from "./transcribe";
 import { analyzeVideo, type AnalyzeInput } from "./analyzeVideo";
-import { buildVideoProfile, PROMPT_VERSION as PROFILE_VERSION } from "./videoProfile";
+import { buildVideoProfile, voiceEnergy, PROMPT_VERSION as PROFILE_VERSION } from "./videoProfile";
 import { measurePacing } from "../media/pacing";
 import { listenWithGemini } from "./geminiAudio";
 import { readFaces } from "../media/faces";
@@ -127,7 +127,7 @@ export async function analyzeSubmission(
     const [result, profile] = await Promise.all([
       d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
       d.engine === "new"
-        ? d.buildVideoProfile(input, pacingP, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null, faces: facesP.then((f) => (f ? { energy: f.energy, mood: f.mood } : null)) })
+        ? d.buildVideoProfile(input, pacingP, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ? { energy: voiceEnergy(heard.voice.energy, heard.wordsPerSecond), mood: heard.voice.mood } : null, voiceFeelings: heard?.feelings ?? null, faces: facesP.then((f) => (f ? { energy: f.energy, mood: f.mood } : null)) })
         : Promise.resolve(null),
     ]);
     const [pacing, faces] = await Promise.all([pacingP, facesP]);

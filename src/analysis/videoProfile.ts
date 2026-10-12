@@ -9,11 +9,11 @@ import { PipelineError } from "../shared/errors";
 import { extractJson } from "../shared/json";
 import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
-import { SOURCE_WEIGHTS } from "../engine/scoring/weights";
+import { SOURCE_WEIGHTS, FEELING_SOURCE_WEIGHTS } from "../engine/scoring/weights";
 import { buildUserContent, type AnalyzeInput } from "./analyzeVideo";
 import type { Pacing } from "../media/pacing";
 
-export const PROMPT_VERSION = "profile-v1";
+export const PROMPT_VERSION = "profile-v2"; // v2 (2026-10-12): feelings split into words and visuals; the voice leads in code
 
 export const FEELINGS = ["Motivational", "Inspirational", "Reflective", "Heartfelt", "Sad", "Nostalgic", "Funny", "Upbeat", "Hype", "Calm/Focused", "Dramatic"] as const;
 export const THEMES = ["love", "breakup/heartbreak", "longing", "self-belief/empowerment", "ambition/success", "flexing/money", "partying", "friendship", "gratitude", "joy/optimism", "grief/loss", "nostalgia", "freedom/escape", "rebellion/anger", "faith", "family"] as const;
@@ -23,11 +23,14 @@ export const STORY_FEELINGS = ["emotional", "sad", "inspirational", "motivationa
 const unit = z.number().min(0).max(1);
 const Reading = z.object({ energy: unit, mood: unit });
 const Level = z.enum(["high", "medium", "low"]);
-export const ProfileReading = z.object({
+const Feelings = z.object(Object.fromEntries(FEELINGS.map((f) => [f, unit])) as Record<(typeof FEELINGS)[number], typeof unit>).strict();
+/** What the model returns: feelings from the words and from the visuals, kept apart so the code can weight them. */
+export const ModelReading = z.object({
   talking: z.enum(["on camera", "voice-over", "none"]),
   words: Reading.nullable(),
   colour: Reading,
-  feelings: z.object(Object.fromEntries(FEELINGS.map((f) => [f, unit])) as Record<(typeof FEELINGS)[number], typeof unit>).strict(),
+  words_feelings: Feelings,
+  visual_feelings: Feelings,
   vocals: z.enum(["instrumental preferred", "vocals OK"]),
   themes_fit: z.array(z.enum(THEMES)).max(3),
   themes_avoid: z.array(z.enum(THEMES)),
@@ -36,7 +39,8 @@ export const ProfileReading = z.object({
   key_moments: z.array(z.object({ time: z.number(), what: z.string() })).max(3),
   confidence: z.object({ feelings: Level, energy: Level, mood: Level, themes: Level }),
 });
-export type ProfileReading = z.infer<typeof ProfileReading>;
+/** Stored reading: the model's reading plus `feelings`, combined in code from voice, words and visuals. */
+export type ProfileReading = z.infer<typeof ModelReading> & { feelings: Record<(typeof FEELINGS)[number], number> };
 export type Voice = { energy: number; mood: number };
 export type VideoProfile = { reading: ProfileReading; pacing: Pacing | null; voice?: Voice | null; faces?: Voice | null; energy: number | null; mood: number | null };
 
@@ -45,13 +49,13 @@ Give each source's reading separately; the code combines them with fixed weights
 - words: what is said or written (message, topic, tone of the words). null only if there are no words at all.
 - colour: the look (colour, light, warmth, darkness).
 Do NOT judge editing pace; it is measured separately. energy and mood are 0-1 (mood 0 = sad/dark, 1 = happy/bright).
-feelings: how strongly the MUSIC should make viewers feel each of ${FEELINGS.join(", ")}; most should be 0 and 1-3 clearly above 0.5.
+words_feelings: from what is said or written; visual_feelings: from the look, the faces and how fast it is edited. Each rates how strongly the background MUSIC should make viewers feel each of ${FEELINGS.join(", ")} (0-1; most 0, 1-3 clearly above 0.5). Judge what the music must DO for the viewer, not only the story's emotion: a fast-cut, assertive video about a setback still needs driving, forward-moving music. The speaker's tone of voice is read separately and counts the most.
 vocals: "instrumental preferred" when someone talks, otherwise "vocals OK".
 themes_fit (at most 3) and themes_avoid use only: ${THEMES.join(", ")}.
 content_type is one of: ${CONTENT_TYPES.join(", ")}. Purpose beats format: a skit that teaches is Educational. story_feeling is set only for Storytelling: ${STORY_FEELINGS.join(", ")}, judged by the ending.
 key_moments: the 1-3 biggest moments with their time in seconds.
 When the creator gave a vibe, it decides the feelings; the footage decides what happens and when.
-Output one JSON object only with keys: talking, words, colour, feelings, vocals, themes_fit, themes_avoid, content_type, story_feeling, key_moments, confidence {feelings, energy, mood, themes}.`;
+Output one JSON object only with keys: talking, words, colour, words_feelings, visual_feelings, vocals, themes_fit, themes_avoid, content_type, story_feeling, key_moments, confidence {feelings, energy, mood, themes}.`;
 
 let singleton: Anthropic | null = null;
 function defaultClient(): Anthropic {
@@ -70,10 +74,10 @@ async function call(c: Anthropic, messages: Anthropic.Messages.MessageParam[], d
   return res.content.filter((b): b is Anthropic.Messages.TextBlock => b.type === "text").map((b) => b.text).join("\n");
 }
 
-function parse(raw: string): ProfileReading | { error: string } {
+function parse(raw: string): z.infer<typeof ModelReading> | { error: string } {
   let json: unknown;
   try { json = extractJson(raw); } catch (e) { return { error: `not valid JSON: ${(e as Error).message}` }; }
-  const p = ProfileReading.safeParse(json);
+  const p = ModelReading.safeParse(json);
   return p.success ? p.data : { error: p.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
 }
 
@@ -85,6 +89,22 @@ function blend(weights: Record<string, number>, values: Record<string, number | 
     sum += w * v; total += w;
   }
   return total ? sum / total : null;
+}
+
+/** Voice energy with speech speed (Dylan, 2026-10-12): about 2.5 words/s or slower = calm, 4+ = fired up. */
+export function voiceEnergy(geminiEnergy: number, wordsPerSecond: number | null) {
+  if (wordsPerSecond === null) return geminiEnergy;
+  const speed = Math.min(1, Math.max(0, (wordsPerSecond - 2.5) / 1.5));
+  return Math.round(((geminiEnergy + speed) / 2) * 100) / 100;
+}
+
+/** The video's 11 feelings: voice, words and visuals weighted by FEELING_SOURCE_WEIGHTS; missing sources dropped. */
+export function combineFeelings(talking: boolean, voice: Record<string, number> | null, words: Record<string, number>, visuals: Record<string, number>) {
+  const w = talking ? FEELING_SOURCE_WEIGHTS.talking : FEELING_SOURCE_WEIGHTS.notTalking;
+  const parts: [number, Record<string, number>][] = [[w.words, words], [w.visuals, visuals]];
+  if (talking && voice) parts.push([FEELING_SOURCE_WEIGHTS.talking.voice, voice]);
+  const total = parts.reduce((t, [k]) => t + k, 0);
+  return Object.fromEntries(FEELINGS.map((f) => [f, Math.round((parts.reduce((t, [k, src]) => t + k * (src[f] ?? 0), 0) / total) * 1000) / 1000])) as Record<(typeof FEELINGS)[number], number>;
 }
 
 /** Energy and mood from the sources that exist, weighted by SOURCE_WEIGHTS. Editing (pacing) feeds energy only. */
@@ -100,7 +120,7 @@ export function combineEnergyMood(r: Pick<ProfileReading, "talking" | "words" | 
     only for the energy/mood combine after the reply (same result, less waiting). */
 export async function buildVideoProfile(
   input: AnalyzeInput, pacingIn: Pacing | null | Promise<Pacing | null>,
-  opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null; faces?: Voice | null | Promise<Voice | null> } = {},
+  opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null; voiceFeelings?: Record<string, number> | null; faces?: Voice | null | Promise<Voice | null> } = {},
 ): Promise<VideoProfile & { raw: string }> {
   const c = opts.client ?? defaultClient();
   const userMsg: Anthropic.Messages.MessageParam = { role: "user", content: buildUserContent(input) };
@@ -113,5 +133,6 @@ export async function buildVideoProfile(
     if ("error" in r) throw new PipelineError("analyze", `profile invalid after retry: ${r.error}. Raw: ${raw.slice(0, 2000)}`);
   }
   const [pacing, faces] = await Promise.all([pacingIn, opts.faces ?? null]);
-  return { reading: r, pacing, voice: opts.voice ?? null, faces, ...combineEnergyMood(r, pacing?.energy ?? null, opts.voice ?? null, faces), raw };
+  const reading: ProfileReading = { ...r, feelings: combineFeelings(r.talking !== "none", opts.voiceFeelings ?? null, r.words_feelings, r.visual_feelings) };
+  return { reading, pacing, voice: opts.voice ?? null, faces, ...combineEnergyMood(reading, pacing?.energy ?? null, opts.voice ?? null, faces), raw };
 }

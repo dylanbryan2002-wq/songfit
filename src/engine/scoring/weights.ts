@@ -34,3 +34,10 @@ export const MATCH_WEIGHTS = { type: 25, mood: 25, creator: 15, lyrics: 10, voca
 /** How much a song's feeling label counts in the feelings match (Dylan: low-confidence and flagged labels count less). */
 export const LABEL_WEIGHT = { high: 1, medium: 0.8, low: 0.6, flagged: 0.4 } as const;
 
+
+/** Where the video's 11 feelings come from (Dylan, 2026-10-12: "the most important thing in that video was my tone of
+    voice"). Talking: Gemini's read of the tone leads. Missing sources are dropped and the rest rebalanced. */
+export const FEELING_SOURCE_WEIGHTS = {
+  talking: { voice: 50, words: 30, visuals: 20 },
+  notTalking: { words: 40, visuals: 60 },
+} as const;

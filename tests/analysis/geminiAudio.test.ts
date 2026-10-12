@@ -7,6 +7,7 @@ import { listenWithGemini, PROMPT_VERSION } from "../../src/analysis/geminiAudio
 const good = {
   transcript: "I quit my job today.", segments: [{ start: 0.5, end: 2.1, text: "I quit my job today." }],
   voice: { energy: 0.7, mood: 0.8 }, words_per_second: 2.9, laughter: false, sarcasm: false,
+  feelings: { Motivational: 0.9, Inspirational: 0.4, Reflective: 0, Heartfelt: 0, Sad: 0, Nostalgic: 0, Funny: 0, Upbeat: 0.3, Hype: 0.6, "Calm/Focused": 0, Dramatic: 0.2 },
   confidence: "medium",
 };
 const reply = (obj: unknown) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }));
@@ -27,12 +28,13 @@ describe("Gemini listens to the audio (new engine, Dylan's decision 2026-10-11)"
     expect(r.transcript.segments).toHaveLength(1);
     expect(r.voice).toEqual({ energy: 0.7, mood: 0.8 });
     expect(r.wordsPerSecond).toBe(2.9);
+    expect(r.feelings?.Motivational).toBe(0.9); // the tone of voice rates the 11 feelings too (Dylan, 2026-10-12)
   });
 
   it("no audio track: empty transcript, no voice reading, no call", async () => {
     const fetchImpl = vi.fn();
     const r = await listenWithGemini(null, { fetchImpl, apiKey: "k" });
-    expect(r).toEqual({ transcript: { text: "", segments: [] }, voice: null, wordsPerSecond: null, laughter: false, sarcasm: false, raw: "" });
+    expect(r).toEqual({ transcript: { text: "", segments: [] }, voice: null, feelings: null, wordsPerSecond: null, laughter: false, sarcasm: false, raw: "" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

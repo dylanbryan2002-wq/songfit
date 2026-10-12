@@ -358,3 +358,12 @@ grey area. Alone mode stays in the code so it can be switched back in src/picker
 ## 2026-10-12 — Rule: no lyrics under talking (Dylan)
 When someone talks (on camera or voice-over), only songs confirmed instrumental (952 of 5,032) can be picked; songs with
 singing or unknown vocals are filtered out. Replaces the softer "vocals rank lower" signal for talking videos.
+
+## 2026-10-12 — Tone of voice leads the feelings in talking videos (Dylan)
+Dylan's founder video (real song: "Make It Make Sense", Big Bro$ki314: ~167 BPM, bright, punchy; not on Deezer) got calm
+piano. The engine's read: feelings Reflective 0.7, Calm 0.55, Hype 0 — taken only from the words and frames (the story is a
+setback), while his delivery was fast and assertive (4.15 words/s) and voice only fed energy/mood. Fix (Dylan approved):
+Gemini (voice-v2) rates the 11 feelings from the tone; Claude (profile-v2) rates words and visuals separately and is told to
+judge the music's job, not just the story's emotion; code combines them voice 50 / words 30 / visuals 20 when talking
+(not talking: words 40 / visuals 60). Voice energy now includes speech speed (2.5 words/s calm -> 4 fired up).
+Faces ran fine locally on this video (19/20 frames, mood 0.71, energy 0.59) but returned nothing live: under investigation.

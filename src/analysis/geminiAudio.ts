@@ -11,10 +11,12 @@ import { logger } from "../shared/logger";
 import { remainingBudget } from "../pipeline/budget";
 import type { Transcript } from "./transcribe";
 
-export const PROMPT_VERSION = "voice-v1";
+export const PROMPT_VERSION = "voice-v2"; // v2 (2026-10-12): the tone of voice also rates the 11 feelings
 const RETRY_WAITS_MS = [2_000, 5_000, 10_000];
 
 const unit = z.number().min(0).max(1);
+const FEELINGS = ["Motivational", "Inspirational", "Reflective", "Heartfelt", "Sad", "Nostalgic", "Funny", "Upbeat", "Hype", "Calm/Focused", "Dramatic"] as const;
+const Feelings = z.object(Object.fromEntries(FEELINGS.map((f) => [f, unit])) as Record<(typeof FEELINGS)[number], typeof unit>).strict();
 const Reply = z.object({
   transcript: z.string(),
   segments: z.array(z.object({ start: z.number().min(0), end: z.number().min(0), text: z.string() })),
@@ -22,11 +24,12 @@ const Reply = z.object({
   words_per_second: z.number().min(0).nullable(),
   laughter: z.boolean(),
   sarcasm: z.boolean(),
+  feelings: Feelings.nullable(),
   confidence: z.enum(["high", "medium", "low"]),
 });
 
 export type Heard = {
-  transcript: Transcript; voice: { energy: number; mood: number } | null; wordsPerSecond: number | null;
+  transcript: Transcript; voice: { energy: number; mood: number } | null; feelings: Record<string, number> | null; wordsPerSecond: number | null;
   laughter: boolean; sarcasm: boolean; raw: string;
 };
 
@@ -38,13 +41,16 @@ Return ONE JSON object:
 - words_per_second: average speaking speed, null if nobody speaks.
 - laughter: true if anyone laughs.
 - sarcasm: true only if the tone clearly contradicts the words.
+- feelings: from HOW they speak (tone, drive, pace, conviction, warmth), how strongly background MUSIC under this voice
+  should make viewers feel each of: ${FEELINGS.join(", ")} (0-1; most 0, 1-3 clearly above 0.5). An assertive, fast,
+  fired-up delivery calls for driving music (Motivational, Hype) even when the story itself is a setback. null if nobody speaks.
 - confidence: high | medium | low.`;
 
 export async function listenWithGemini(
   audioPath: string | null,
   opts: { fetchImpl?: typeof fetch; apiKey?: string; deadlineAt?: number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<Heard> {
-  if (!audioPath) return { transcript: { text: "", segments: [] }, voice: null, wordsPerSecond: null, laughter: false, sarcasm: false, raw: "" };
+  if (!audioPath) return { transcript: { text: "", segments: [] }, voice: null, feelings: null, wordsPerSecond: null, laughter: false, sarcasm: false, raw: "" };
   const fetchImpl = opts.fetchImpl ?? fetch;
   const key = opts.apiKey ?? env("GEMINI_API_KEY");
   const audio = (await fs.readFile(audioPath)).toString("base64");
@@ -90,5 +96,5 @@ export async function listenWithGemini(
     r = parse(raw);
     if ("error" in r) throw new PipelineError("analyze", `gemini voice reply invalid after retry: ${r.error}. Raw: ${raw.slice(0, 2000)}`);
   }
-  return { transcript: { text: r.transcript, segments: r.segments }, voice: r.voice, wordsPerSecond: r.words_per_second, laughter: r.laughter, sarcasm: r.sarcasm, raw };
+  return { transcript: { text: r.transcript, segments: r.segments }, voice: r.voice, feelings: r.feelings, wordsPerSecond: r.words_per_second, laughter: r.laughter, sarcasm: r.sarcasm, raw };
 }
