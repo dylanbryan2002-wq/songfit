@@ -6,6 +6,7 @@ export const MODELS = {
   scoring: "claude-sonnet-5-5",
   explain: "claude-sonnet-5-5",
   whisper: "whisper-1",
+  gemini: "gemini-2.5-flash", // new engine audio: words, tone, speech speed (Dylan, 2026-10-11)
 } as const;
 
 export const LIMITS = {
@@ -46,6 +47,10 @@ export const PICKS_MIN = 3;
  * recommendation (samples-only rule, 2026-10-07).
  */
 export const PREVIEWS_ENABLED = true;
+
+/** Which engine picks songs (Dylan, 2026-10-11). "old" = today's engine; "new" = closeness matching over the song
+    dictionary. Switching back is this one line. Stays "old" until Dylan's blind check passes. */
+export const ENGINE: "old" | "new" = "old";
 
 /** Must match the literal in the create_submission() SQL function (supabase/migrations/0001_init.sql). */
 export const FREE_RESULTS_PER_CREATOR = 1;

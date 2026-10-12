@@ -85,6 +85,9 @@ One per submission. Output of src/analysis.
 | music_brief_fields  | jsonb       | structured brief (moods, energy 0..1, tempo, vocals, genres, familiarity; `music_job` since analyze-v6: quiet_bed / drive_energy / emotional_lift / comic_cue / familiar_anthem, absent on older rows) |
 | prompt_version      | text        |                                         |
 | raw_response        | jsonb       | nullable, for debugging                 |
+| video_profile       | jsonb       | nullable. New engine (Dylan, 2026-10-11): the video read into the song dictionary — feelings (11, 0–1), source readings (words, colour, voice, faces), combined energy and mood, vocals preference, lyric themes fit/avoid, content type (+ story feeling), key moments, confidence. Written only when the new engine is on. |
+| profile_prompt_version | text     | nullable, PROMPT_VERSION of the video-profile call |
+| pacing              | jsonb       | nullable. Measured by ffmpeg on the upload: cuts_per_minute, median_shot, motion_peak, energy (0–1). |
 | created_at          | timestamptz |                                         |
 
 RLS: service role only since 0010 (the unused "read own" policy exposed `raw_response`).
@@ -122,6 +125,7 @@ Every song the engine considered for a submission. Makes ranking inspectable.
 | component_scores  | jsonb       | { semantic, emotional, aesthetic, pacing, dialogue, cultural, originality } each { score, reason } |
 | total_score       | numeric     | nullable until scored                              |
 | prompt_version    | text        |                                                    |
+| engine            | text        | nullable. 'old' or 'new' (closeness matching, 2026-10-11): which engine made the row |
 | created_at        | timestamptz |                                                    |
 
 RLS: service role only. Creators never read candidates.
@@ -149,6 +153,7 @@ The ranked picks shown to the creator: up to 15 (at least 3), shown 5 at a time.
 | rejected              | boolean     | default false                                      |
 | explain_prompt_version| text        | nullable                                           |
 | aligned_to_moment     | numeric     | nullable                                           |
+| engine                | text        | nullable. 'old' or 'new': which engine made the pick (rollback and comparison) |
 | created_at      | timestamptz |                                         |
 
 RLS: service role only since 0010 (the unused "read own" policy let an anonymous visitor read
@@ -195,6 +200,7 @@ video_chosen                 metadata.flow_id  (creator_id null; a valid video c
 sign_in_started              metadata.flow_id  (creator_id null; "Continue with Google" tapped, file kept on device)
 sign_in_completed            metadata.flow_id  (creator set; back from Google and the kept file was found)
 vibe_set                     metadata.tags, metadata.has_note  (at submission creation, only when tags or creator_intent are non-empty; has_note = creator_intent non-empty)
+feel_filter_relaxed          metadata.tags, metadata.step (2 or 3), metadata.count  (new engine: the feel-button filter left too few songs and was loosened; step 2 = low/flagged labels, 3 = neighbour feeling + unlabelled songs)
 anon_session_started         metadata.flow_id  (creator = the new anonymous id; landing page signed in anonymously after a valid pick)
 results_gate_viewed          (creator = anonymous id, submission set; anonymous viewer shown the sign-in gate on a ready result)
 results_gate_signed_in       metadata.moved  (creator = Google creator; back from Google with an sf_claim cookie, moved = submissions claimed)

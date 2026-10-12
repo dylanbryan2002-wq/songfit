@@ -10,12 +10,20 @@ app/
   admin/                    submissions queue, per-submission inspector, metrics
   api/                      route handlers: upload, submissions (create, status, retry), feedback, events, preview
 src/
-  media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track
+  media/        upload to Storage, ffprobe duration, ffmpeg frames + audio track; pacing.ts (new engine): cuts, motion → energy
   analysis/     frames + transcript (+ creator intent, vibe tags + note) → VideoAnalysis + MusicBrief
+                videoProfile.ts (new engine): frames + transcript → the video read into the song dictionary (profile-v1)
+                geminiAudio.ts (new engine): Gemini listens: words with times, voice energy/mood, speech speed (voice-v1).
+                Audio is Gemini, not Whisper, on the new engine (Dylan, 2026-10-11); Whisper stays only on the old engine.
   engine/
     candidates/ MusicBrief → Candidate[]           (model-backed today; catalog retrieval later)
     catalog/    Candidate → verified Candidate      (Deezer search; song identity, canonical names, duration, preview; no preview → dropped)
+                dictionary.data.json + dictionary.ts: the new engine's song dictionary (5,032 songs pre-mapped: feelings,
+                energy, valence, tempo, vocals, lyric theme/flags, chorus timings, creator evidence; labels only, no lyrics).
+                Server-only. Built offline by scripts/groundtruth/build-dictionary.ts. (New engine, Dylan 2026-10-11.)
     scoring/    one file per dimension → { score, reason }; weights.ts combines
+    match/      new engine: closest.ts (closeness over the dictionary, repeat limit), feelFilter.ts (feel buttons = hard
+                filter, relaxed in steps), section.ts (15 s by chorus/gaps), typeFeelings.ts. Behind ENGINE in config.
     diversify/  scored Candidate[] → 15 ranked picks across directions (PICKS_TOTAL), shown in batches of 5
     sections/   pick start/end for each pick       (model-proposed today; temporal model later)
     recommend.ts orchestrates: candidates → catalog → scoring → diversify → sections → persist

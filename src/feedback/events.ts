@@ -31,6 +31,7 @@ export const EVENT_NAMES = [
   "sign_in_started",
   "sign_in_completed",
   "vibe_set",
+  "feel_filter_relaxed",
   "anon_session_started",
   "results_gate_viewed",
   "results_gate_signed_in",

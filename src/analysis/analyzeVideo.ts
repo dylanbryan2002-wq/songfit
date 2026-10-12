@@ -159,7 +159,7 @@ function renderTranscript(input: AnalyzeInput): string {
   return input.transcript;
 }
 
-function buildUserContent(input: AnalyzeInput): Block[] {
+export function buildUserContent(input: AnalyzeInput): Block[] {
   const blocks: Block[] = [];
   blocks.push({
     type: "text",
