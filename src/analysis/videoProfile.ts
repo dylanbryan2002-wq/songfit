@@ -38,7 +38,7 @@ export const ProfileReading = z.object({
 });
 export type ProfileReading = z.infer<typeof ProfileReading>;
 export type Voice = { energy: number; mood: number };
-export type VideoProfile = { reading: ProfileReading; pacing: Pacing | null; voice?: Voice | null; energy: number | null; mood: number | null };
+export type VideoProfile = { reading: ProfileReading; pacing: Pacing | null; voice?: Voice | null; faces?: Voice | null; energy: number | null; mood: number | null };
 
 const SYSTEM_PROMPT = `You read a short-form video (frames with timestamps, the words heard, and the creator's vibe if given) and describe WHAT THE MUSIC SHOULD BE, in Songfit's song dictionary.
 Give each source's reading separately; the code combines them with fixed weights, so do not blend them yourself:
@@ -88,15 +88,15 @@ function blend(weights: Record<string, number>, values: Record<string, number | 
 }
 
 /** Energy and mood from the sources that exist, weighted by SOURCE_WEIGHTS. Editing (pacing) feeds energy only. */
-export function combineEnergyMood(r: Pick<ProfileReading, "talking" | "words" | "colour">, editEnergy: number | null, voice: Voice | null = null) {
+export function combineEnergyMood(r: Pick<ProfileReading, "talking" | "words" | "colour">, editEnergy: number | null, voice: Voice | null = null, faces: Voice | null = null) {
   const w = r.talking !== "none" ? SOURCE_WEIGHTS.talking : SOURCE_WEIGHTS.notTalking;
   return {
-    energy: blend(w.energy, { words: r.words?.energy, voice: voice?.energy, edit: editEnergy, colour: r.colour?.energy }),
-    mood: blend(w.mood, { words: r.words?.mood, voice: voice?.mood, colour: r.colour?.mood }),
+    energy: blend(w.energy, { words: r.words?.energy, voice: voice?.energy, faces: faces?.energy, edit: editEnergy, colour: r.colour?.energy }),
+    mood: blend(w.mood, { words: r.words?.mood, voice: voice?.mood, faces: faces?.mood, colour: r.colour?.mood }),
   };
 }
 
-export async function buildVideoProfile(input: AnalyzeInput, pacing: Pacing | null, opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null } = {}): Promise<VideoProfile & { raw: string }> {
+export async function buildVideoProfile(input: AnalyzeInput, pacing: Pacing | null, opts: { client?: Anthropic; deadlineAt?: number; voice?: Voice | null; faces?: Voice | null } = {}): Promise<VideoProfile & { raw: string }> {
   const c = opts.client ?? defaultClient();
   const userMsg: Anthropic.Messages.MessageParam = { role: "user", content: buildUserContent(input) };
   let raw = await call(c, [userMsg], opts.deadlineAt);
@@ -107,5 +107,5 @@ export async function buildVideoProfile(input: AnalyzeInput, pacing: Pacing | nu
     r = parse(raw);
     if ("error" in r) throw new PipelineError("analyze", `profile invalid after retry: ${r.error}. Raw: ${raw.slice(0, 2000)}`);
   }
-  return { reading: r, pacing, voice: opts.voice ?? null, ...combineEnergyMood(r, pacing?.energy ?? null, opts.voice ?? null), raw };
+  return { reading: r, pacing, voice: opts.voice ?? null, faces: opts.faces ?? null, ...combineEnergyMood(r, pacing?.energy ?? null, opts.voice ?? null, opts.faces ?? null), raw };
 }

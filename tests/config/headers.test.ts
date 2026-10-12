@@ -17,6 +17,6 @@ describe("next.config headers()", () => {
   });
 
   it("keeps the ffmpeg packages external (the binaries must not be bundled)", () => {
-    expect(nextConfig.serverExternalPackages).toEqual(["ffmpeg-static", "ffprobe-static"]);
+    expect(nextConfig.serverExternalPackages).toEqual(["ffmpeg-static", "ffprobe-static", "onnxruntime-web"]); // faces runtime (new engine)
   });
 });

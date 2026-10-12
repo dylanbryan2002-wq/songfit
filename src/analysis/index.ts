@@ -10,6 +10,7 @@ import { analyzeVideo, type AnalyzeInput } from "./analyzeVideo";
 import { buildVideoProfile, PROMPT_VERSION as PROFILE_VERSION } from "./videoProfile";
 import { measurePacing } from "../media/pacing";
 import { listenWithGemini } from "./geminiAudio";
+import { readFaces } from "../media/faces";
 import { ENGINE } from "../shared/config";
 import { logEvent } from "../feedback/events";
 import { PipelineError } from "../shared/errors";
@@ -35,6 +36,8 @@ export type AnalyzeDeps = {
   buildVideoProfile: typeof buildVideoProfile;
   /** New engine audio = Gemini (Dylan, 2026-10-11): words, voice energy and mood, speech speed. */
   listenWithGemini: typeof listenWithGemini;
+  /** Faces in v1 (Dylan): YuNet + HSEmotion on the server. */
+  readFaces: typeof readFaces;
 };
 
 const defaultDeps: AnalyzeDeps = {
@@ -54,6 +57,7 @@ const defaultDeps: AnalyzeDeps = {
   measurePacing,
   buildVideoProfile,
   listenWithGemini,
+  readFaces,
 };
 
 /** Tags (0008) plus the "Anything else?" note (creator_intent); null when the creator gave neither. */
@@ -105,14 +109,17 @@ export async function analyzeSubmission(
       creatorVibe: creatorVibe(sub),
       durationSeconds: media.durationSeconds,
     };
-    // New engine: the profile call runs alongside the old analysis (explain still uses the old analysis).
-    const pacing = d.engine === "new" ? await d.measurePacing(videoPath).catch((err: unknown) => {
-      logger.warn("media.pacing_failed", { submissionId, reason: err instanceof Error ? err.message : String(err) });
+    // New engine: pacing and faces are measured on the upload (in parallel; a failure only drops that source).
+    const soft = <T,>(what: string, p: Promise<T>) => p.catch((err: unknown) => {
+      logger.warn(`media.${what}_failed`, { submissionId, reason: err instanceof Error ? err.message : String(err) });
       return null;
-    }) : null;
+    });
+    const [pacing, faces] = d.engine === "new"
+      ? await Promise.all([soft("pacing", d.measurePacing(videoPath)), soft("faces", d.readFaces(videoPath, media.durationSeconds))])
+      : [null, null];
     const [result, profile] = await Promise.all([
       d.analyzeVideo(input, { deadlineAt: ctx.deadlineAt }),
-      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null }) : Promise.resolve(null),
+      d.engine === "new" ? d.buildVideoProfile(input, pacing, { deadlineAt: ctx.deadlineAt, voice: heard?.voice ?? null, faces: faces ? { energy: faces.energy, mood: faces.mood } : null }) : Promise.resolve(null),
     ]);
 
     await d.upsertAnalysis({
@@ -134,7 +141,7 @@ export async function analyzeSubmission(
       prompt_version: result.prompt_version,
       raw_response: result.raw,
       // 0012 columns: cast until `pnpm db:types` includes 0012_new_engine.sql.
-      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, voice: heard ? { ...heard.voice, words_per_second: heard.wordsPerSecond, laughter: heard.laughter, sarcasm: heard.sarcasm } : null, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
+      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, voice: heard ? { ...heard.voice, words_per_second: heard.wordsPerSecond, laughter: heard.laughter, sarcasm: heard.sarcasm } : null, faces, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
     } as Parameters<typeof d.upsertAnalysis>[0]);
 
     try {
