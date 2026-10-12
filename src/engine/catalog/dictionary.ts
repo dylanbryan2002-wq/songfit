@@ -27,7 +27,7 @@ export const SongEntrySchema = z.object({
     gaps: z.array(z.tuple([z.number(), z.number()])),
   }).nullable(),                                    // null = no timing data
   creator_types: z.array(z.string()),               // content types creators used this song for
-  rank_pct: z.number().min(0).max(1).nullable(),    // Deezer popularity position, 0 = most popular
+  rank_pct: z.number().min(0).max(1).nullable(),    // Deezer popularity position, 1 = most popular
 });
 export type SongEntry = z.infer<typeof SongEntrySchema>;
 
