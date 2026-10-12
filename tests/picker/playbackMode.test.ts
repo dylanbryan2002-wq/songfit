@@ -8,9 +8,9 @@ import type { PickerData } from "@/src/shared/types";
 const idle: AloneSides = { video: "looping-muted", sample: "stopped" };
 
 describe("playbackModeFor", () => {
-  it("is sync for admins and alone for everyone else", () => {
+  it("is sync for everyone: the song plays over the moving video (Dylan, 2026-10-12)", () => {
     expect(playbackModeFor(true)).toBe("sync");
-    expect(playbackModeFor(false)).toBe("alone");
+    expect(playbackModeFor(false)).toBe("sync");
   });
 });
 

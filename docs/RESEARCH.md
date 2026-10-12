@@ -337,3 +337,9 @@ inside the Node function; MediaPipe needs a browser/WebGL and was dropped server
 are capped at 20 frames spread across the video (~10 s), run in parallel with Gemini and the analysis. Check on 4 test
 videos: the funny two-person clip read happiest (mood 0.76), calm founders near neutral (0.5–0.54). Valence/arousal (-1..1)
 map to mood/energy (0..1); fewer than 25% of frames with a face = no faces reading. Not yet timed on Vercel.
+
+## 2026-10-12 — Song over the creator's video for everyone again (Dylan's decision)
+Synced playback (sample mixed under the moving video, voice and music sliders) was admin-only from 2026-10-09 after
+docs/review/16 found no self-serve provider allowing samples synced to a creator's video; Deezer's specific objection was
+commercial use. Songfit has been non-commercial since 2026-10-09. Dylan turned sync back on for everyone, knowing it is a
+grey area. Alone mode stays in the code so it can be switched back in src/picker/playback.ts.

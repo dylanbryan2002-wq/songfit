@@ -1,12 +1,13 @@
 /**
- * How the results picker plays samples. "sync" mixes the sample under the moving video (admins only);
- * "alone" never plays a sample while the video moves (docs/review/16: the providers' terms forbid
- * playing a sample in sync with the creator's video).
+ * How the results picker plays samples. "sync" mixes the sample under the moving video; "alone" never plays a
+ * sample while the video moves. Sync was admin-only from 2026-10-09 (docs/review/16: syncing samples to the
+ * creator's video is not allowed by self-serve providers; Deezer's objection was commercial use). Songfit became
+ * non-commercial on 2026-10-09 and Dylan turned sync back on for everyone on 2026-10-12. Alone mode is kept.
  */
 export type PlaybackMode = "sync" | "alone";
 
-export function playbackModeFor(admin: boolean): PlaybackMode {
-  return admin ? "sync" : "alone";
+export function playbackModeFor(_admin: boolean): PlaybackMode {
+  return "sync";
 }
 
 export const ALONE_NOTE = "Samples play on their own. Add the song in TikTok or Instagram to hear it over your video.";
