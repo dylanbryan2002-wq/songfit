@@ -20,4 +20,9 @@ describe("song dictionary (new engine phase 1, Dylan 2026-10-11)", () => {
     const text = JSON.stringify(RAW);
     expect(text).not.toMatch(/"(lyrics|plainLyrics|syncedLyrics|chorus_gist|lyric_text)"/);
   });
+
+  it("no song is both instrumental and carrying a lyric theme (Dylan, 2026-10-11)", () => {
+    const bad = DICTIONARY.filter((s) => s.vocals === "instrumental" && s.theme !== null && s.theme !== "none");
+    expect(bad).toEqual([]);
+  });
 });

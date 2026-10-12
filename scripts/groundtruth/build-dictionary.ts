@@ -22,11 +22,16 @@ async function main() {
   const clamp = (x: number | null | undefined) => (x === null || x === undefined ? null : Math.max(0, Math.min(1, x)));
   const out = labels.map((s) => {
     const l = lyrics.get(s.deezer_id), sec = sections[s.deezer_id];
+    // Instrumental vs lyric theme contradictions (Dylan, 2026-10-11): real words found on LRCLIB mean the song has vocals;
+    // otherwise an instrumental song gets no lyric theme.
+    const wordsFound = l?.source === "lyrics" && l?.instrumental === false;
+    const vocals = s.vocals === "instrumental" && wordsFound ? "vocals" : s.vocals;
+    const instrumentalNoWords = vocals === "instrumental";
     return {
       id: s.deezer_id, title: s.title, artist: s.artist, year: s.year ?? null,
       feelings: s.families, energy: clamp(s.energy), valence: clamp(s.valence), tempo: s.tempo ?? null,
-      vocals: s.vocals, explicit: !!s.explicit,
-      theme: l?.theme?.main ?? null, flags: l?.flags ?? [],
+      vocals, explicit: !!s.explicit,
+      theme: instrumentalNoWords ? (l ? "none" : null) : l?.theme?.main ?? null, flags: instrumentalNoWords ? [] : l?.flags ?? [],
       sections: sec?.found ? { instrumental: !!sec.instrumental, first_vocal: sec.first_vocal ?? null, chorus: sec.chorus_starts ?? [], gaps: (sec.gaps ?? []).slice(0, 8) } : null,
       creator_types: [...new Set(((s.creator_uses ?? []) as { type: string | null }[]).filter((u) => u.type).map((u) => typeKey({ type: u.type!, format: "" })))],
       rank_pct: rankPct.get(s.deezer_id) ?? null,
