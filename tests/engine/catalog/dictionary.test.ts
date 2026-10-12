@@ -3,9 +3,9 @@ import { DICTIONARY, SongEntrySchema, FEELINGS } from "@/src/engine/catalog/dict
 import RAW from "@/src/engine/catalog/dictionary.data.json";
 
 describe("song dictionary (new engine phase 1, Dylan 2026-10-11)", () => {
-  it("holds all 5,032 songs, each valid and unique", () => {
-    expect(DICTIONARY.length).toBe(5032);
-    expect(new Set(DICTIONARY.map((s) => s.id)).size).toBe(5032);
+  it("holds all 5,589 songs (5,032 + 557 beats, 2026-10-12), each valid and unique", () => {
+    expect(DICTIONARY.length).toBe(5589);
+    expect(new Set(DICTIONARY.map((s) => s.id)).size).toBe(5589);
   });
 
   it("every row matches the schema", () => {

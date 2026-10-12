@@ -384,3 +384,11 @@ Faces ran fine locally on this video (19/20 frames, mood 0.71, energy 0.59) but 
 - Rule: talking videos never get a film, TV or game score. Marked per song as `film_score` in the dictionary from
   Deezer's genre (Films/Games, Film Scores) or a title that says so (soundtrack, theme, "from ..."). 432 songs marked;
   716 instrumentals remain for talking videos.
+
+## 2026-10-12 — 557 energetic beats added (Dylan: "fix both")
+- library-expand.ts --beats: the 30 most popular tracks per style (phonk, gym beats, trap, drill, boom bap, hype, EDM,
+  future bass, drum & bass, synthwave, funk, workout) from Deezer beat playlists; no featured singers, no slowed/sped-up
+  copies, max 4 per artist, rank >= 40k. Tagged by Claude ($0.88), measured by ReccoBeats, AcousticBrainz, LRCLIB.
+- Result: 252 of the 557 labelled instrumental; 195 reach talking videos. Talking pool 716 -> 908 songs; energetic
+  (energy >= 0.7) instrumentals for talking now 156.
+- Watch: phonk/Brazilian funk can carry vocal chops that the sources miss.

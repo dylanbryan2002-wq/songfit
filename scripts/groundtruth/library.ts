@@ -173,13 +173,13 @@ async function main() {
       let text: string;
       try {
         text = recovering
-          ? await fs.readFile(path.join(home, "catalog", `library-tags-raw-${b}.md`), "utf8")
+          ? await fs.readFile(path.join(home, "catalog", `library-tags-raw-${args["tags-only"] ? "more-" : ""}${b}.md`), "utf8")
           : await callClaude({ model: MODELS.study, system: "You are a music supervisor tagging songs accurately. Reply with JSON only. Never quote song lyrics.", user, maxTokens: 16_000, effort: "medium" });
       } catch (err) {
         console.log(`batch ${b}: call failed, skipped (${(err instanceof Error ? err.message : String(err)).slice(0, 120)})`);
         continue;
       }
-      if (!recovering) await fs.writeFile(path.join(home, "catalog", `library-tags-raw-${b}.md`), text);
+      if (!recovering) await fs.writeFile(path.join(home, "catalog", `library-tags-raw-${args["tags-only"] ? "more-" : ""}${b}.md`), text);
       // Parse each song on its own: one bad field must not discard the whole batch.
       let items: unknown[] = [];
       try { const j = extractJson(text); items = Array.isArray(j) ? j : []; } catch { items = []; }
