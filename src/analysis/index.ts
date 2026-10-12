@@ -143,7 +143,7 @@ export async function analyzeSubmission(
       prompt_version: result.prompt_version,
       raw_response: result.raw,
       // 0012 columns: cast until `pnpm db:types` includes 0012_new_engine.sql.
-      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, voice: heard ? { ...heard.voice, words_per_second: heard.wordsPerSecond, laughter: heard.laughter, sarcasm: heard.sarcasm } : null, faces, energy: profile.energy, mood: profile.mood }, pacing, profile_prompt_version: PROFILE_VERSION } : {}),
+      ...(profile ? { video_profile: { reading: profile.reading, pacing: profile.pacing, voice: heard ? { ...heard.voice, words_per_second: heard.wordsPerSecond, laughter: heard.laughter, sarcasm: heard.sarcasm } : null, faces, energy: profile.energy, mood: profile.mood }, measured_pacing: pacing, profile_prompt_version: PROFILE_VERSION } : {}),
     } as Parameters<typeof d.upsertAnalysis>[0]);
 
     try {

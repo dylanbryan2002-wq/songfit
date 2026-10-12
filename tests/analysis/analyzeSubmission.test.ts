@@ -206,7 +206,8 @@ describe("analyzeSubmission with the new engine on (Dylan, 2026-10-11)", () => {
     expect(d.readFaces).toHaveBeenCalledWith("/tmp/x/video.mp4", 12.3);
     const row = d.upsertAnalysis.mock.calls[0]![0];
     expect(row.video_profile).toEqual({ reading: profile.reading, pacing: profile.pacing, voice: { energy: 0.8, mood: 0.7, words_per_second: 3, laughter: false, sarcasm: false }, faces: { mood: 0.6, energy: 0.5, faceFrames: 8, frames: 10 }, energy: 0.4, mood: 0.6 });
-    expect(row.pacing).toEqual({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 });
+    expect(row.measured_pacing).toEqual({ cutsPerMinute: 10, medianShot: 3, motionPeak: 0.05, energy: 0.4 });
+    expect(row.pacing).toBe("medium"); // the old pacing column keeps the analysis label
     expect(row.profile_prompt_version).toMatch(/^profile-v/);
 
     const old = { ...deps(), engine: "old" as const, measurePacing: vi.fn(), buildVideoProfile: vi.fn(), listenWithGemini: vi.fn(), readFaces: vi.fn() };

@@ -87,7 +87,7 @@ One per submission. Output of src/analysis.
 | raw_response        | jsonb       | nullable, for debugging                 |
 | video_profile       | jsonb       | nullable. New engine (Dylan, 2026-10-11): the video read into the song dictionary — feelings (11, 0–1), source readings (words, colour, voice, faces), combined energy and mood, vocals preference, lyric themes fit/avoid, content type (+ story feeling), key moments, confidence. Written only when the new engine is on. |
 | profile_prompt_version | text     | nullable, PROMPT_VERSION of the video-profile call |
-| pacing              | jsonb       | nullable. Measured by ffmpeg on the upload: cuts_per_minute, median_shot, motion_peak, energy (0–1). |
+| measured_pacing     | jsonb       | nullable. Measured by ffmpeg on the upload: cuts_per_minute, median_shot, motion_peak, energy (0–1). |
 | created_at          | timestamptz |                                         |
 
 RLS: service role only since 0010 (the unused "read own" policy exposed `raw_response`).
