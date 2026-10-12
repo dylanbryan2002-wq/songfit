@@ -141,3 +141,13 @@ export async function getDeezerTrack(id: string, fetchImpl: typeof fetch = fetch
   if (!parsed.success) throw new ProviderError("deezer: unexpected response shape");
   return parsed.data.preview ? { kind: "ok", previewUrl: parsed.data.preview } : { kind: "none" };
 }
+
+/** New engine: the dictionary already knows each song's Deezer id, so verify by id (same shape as a search hit).
+    null = Deezer has no such track (error body, e.g. code 800). */
+export async function findDeezerTrackById(id: string, fetchImpl: typeof fetch = fetch): Promise<DeezerTrack | null> {
+  const body = await paced(() => deezerGet(`https://api.deezer.com/track/${encodeURIComponent(id)}`, fetchImpl));
+  if (DeezerErrorSchema.safeParse(body).success) return null;
+  const parsed = DeezerTrackSchema.safeParse(body);
+  if (!parsed.success) throw new ProviderError("deezer: unexpected response shape");
+  return parsed.data;
+}

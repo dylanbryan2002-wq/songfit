@@ -3,8 +3,10 @@ import { getAnalysisRow } from "../db/queries/analyses";
 import { listRecommendations } from "../db/queries/recommendations";
 import { analyzeSubmission } from "../analysis";
 import { recommendSubmission } from "../engine/recommend";
+import { recommendSubmissionNew } from "../engine/match/recommendNew";
+import { newDeps } from "../engine/match/defaults";
 import { logEvent } from "../feedback/events";
-import { LIMITS } from "../shared/config";
+import { LIMITS, ENGINE } from "../shared/config";
 import { PipelineError } from "../shared/errors";
 import { logger } from "../shared/logger";
 import { nextStage, type Stage } from "./stages";
@@ -33,7 +35,8 @@ export const defaultDeps: RunDeps = {
   listRecommendations,
   setSubmissionStatus,
   analyze: (id, ctx) => analyzeSubmission(id, ctx),
-  recommend: (id, ctx) => recommendSubmission(id, ctx),
+  // ENGINE (config) picks the engine; switching back is that one line (Dylan, 2026-10-11).
+  recommend: (id, ctx) => (ENGINE === "new" ? recommendSubmissionNew(id, ctx, newDeps()) : recommendSubmission(id, ctx)),
   logEvent,
   now: () => Date.now(),
 };

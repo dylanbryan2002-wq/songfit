@@ -66,3 +66,16 @@ export async function listPickerRows(submissionId: string): Promise<PickerRecomm
   if (error) throw error;
   return data;
 }
+
+/** New engine repeat limit: title + artist of songs in other submissions' top 3 within the last `days`. */
+export async function recentTopPicks(excludeSubmissionId: string, days: number): Promise<{ title: string; artist: string }[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await createServiceClient()
+    .from("recommendations")
+    .select("title, artist")
+    .lte("rank", 3)
+    .gte("created_at", since)
+    .neq("submission_id", excludeSubmissionId);
+  if (error) throw error;
+  return data;
+}

@@ -26,3 +26,13 @@ describe("song dictionary (new engine phase 1, Dylan 2026-10-11)", () => {
     expect(bad).toEqual([]);
   });
 });
+
+import { findDeezerTrackById } from "@/src/engine/catalog/deezer";
+describe("Deezer lookup by known id (new engine)", () => {
+  it("returns the track, or null when Deezer has no such track", async () => {
+    const ok = async () => new Response(JSON.stringify({ id: 1, title: "T", duration: 200, preview: "p", link: "l", artist: { name: "A" } }));
+    expect((await findDeezerTrackById("1", ok as never))?.title).toBe("T");
+    const none = async () => new Response(JSON.stringify({ error: { code: 800, message: "no data" } }));
+    expect(await findDeezerTrackById("2", none as never)).toBeNull();
+  });
+});
